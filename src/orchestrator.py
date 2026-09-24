@@ -232,6 +232,32 @@ class HorizonOrchestrator:
         self.last_fetch_report: Optional[FetchReport] = None
         self._corpus = None  # lazy: opened on first use when config.corpus.enabled
         self._ai_client_cache = _AI_UNSET  # lazy, optional (see _get_optional_ai_client)
+        self._llm_cache = None  # lazy: shared persistent LLM response cache
+
+    # ------------------------------------------------------------------- ai
+    def _get_llm_cache(self):
+        """Lazily open the persistent LLM response cache (data_dir/llm_cache.db).
+
+        A free, rate-limited tier makes this load-bearing, not an
+        optimization: crash-recovery runs and follow-up turns re-ask nearly
+        identical prompts, and every one of them should cost zero calls.
+        """
+        if self._llm_cache is None:
+            from .ai.cache import ResponseCache
+
+            self._llm_cache = ResponseCache(Path(self.storage.data_dir) / "llm_cache.db")
+        return self._llm_cache
+
+    def _make_ai_client(self):
+        """Create an AI client wrapped in the shared response cache + throttle.
+
+        All LLM traffic goes through here so cache hits never touch the
+        network and genuine misses are spaced by ai.throttle_sec.
+        """
+        from .ai.cache import CachingAIClient
+
+        inner = create_ai_client(self.config.ai)
+        return CachingAIClient(inner, self._get_llm_cache(), throttle_sec=self.config.ai.throttle_sec)
 
     # ------------------------------------------------------------------ corpus
     def _get_corpus(self):
@@ -306,7 +332,7 @@ class HorizonOrchestrator:
         """
         if self._ai_client_cache is _AI_UNSET:
             try:
-                self._ai_client_cache = create_ai_client(self.config.ai)
+                self._ai_client_cache = self._make_ai_client()
             except Exception as exc:
                 self.console.print(
                     f"[yellow]Analysis LLM unavailable ({type(exc).__name__}); "
@@ -835,7 +861,7 @@ class HorizonOrchestrator:
         items_text = "\n\n".join(lines)
 
         try:
-            ai_client = create_ai_client(self.config.ai)
+            ai_client = self._make_ai_client()
             response = await ai_client.complete(
                 system=TOPIC_DEDUP_SYSTEM,
                 user=TOPIC_DEDUP_USER.format(items=items_text),
@@ -1195,7 +1221,7 @@ class HorizonOrchestrator:
         self.console.print(
             f"   Re-analyzing {len(expanded)} Twitter items with reply context...\n"
         )
-        ai_client = create_ai_client(self.config.ai)
+        ai_client = self._make_ai_client()
         analyzer = ContentAnalyzer(ai_client, self.profiles, console=self.console)
         await analyzer.analyze_batch(expanded)
 
@@ -1214,7 +1240,7 @@ class HorizonOrchestrator:
         self.console.print(
             f"{self.icons['enrich']} Enriching with background knowledge..."
         )
-        ai_client = create_ai_client(self.config.ai)
+        ai_client = self._make_ai_client()
         enricher = ContentEnricher(
             ai_client,
             self.profiles,
@@ -1245,7 +1271,7 @@ class HorizonOrchestrator:
         """
         self.console.print(f"{self.icons['ai']} Analyzing content with AI...")
 
-        ai_client = create_ai_client(self.config.ai)
+        ai_client = self._make_ai_client()
         analyzer = ContentAnalyzer(ai_client, self.profiles, console=self.console)
 
         return await analyzer.analyze_batch(items)

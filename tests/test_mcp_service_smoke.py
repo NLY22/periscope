@@ -137,7 +137,7 @@ def test_get_effective_config_redacts_expanded_query_and_header_secrets(
         "api_key": "<redacted>",
         "message": "useful",
     }
-    assert result["config"]["ai"]["api_key_env"] == "OPENAI_API_KEY"
+    assert result["config"]["ai"]["api_key_env"] == "AGNES_API_KEY"
 
 
 def test_metrics_tool_smoke() -> None:
