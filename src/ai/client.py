@@ -36,6 +36,7 @@ _DEFAULT_API_KEY_ENVS = {
     AIProvider.DOUBAO: "DOUBAO_API_KEY",
     AIProvider.MINIMAX: "MINIMAX_API_KEY",
     AIProvider.DEEPSEEK: "DEEPSEEK_API_KEY",
+    AIProvider.AGNES: "AGNES_API_KEY",
 }
 
 
@@ -186,7 +187,9 @@ class OpenAIClient(AIClient):
     }
 
     # Providers that don't support response_format
-    _NO_RESPONSE_FORMAT = {"minimax"}
+    # agnes: free-tier hub, capabilities unpinned; JSON contract is enforced
+    # by the prompting layer (schema + one repair retry) instead.
+    _NO_RESPONSE_FORMAT = {"minimax", "agnes"}
 
     # Providers that need temperature clamped to (0, 1]
     _TEMP_CLAMP = {"minimax"}
@@ -557,6 +560,7 @@ def _create_single_client(config: AIConfig) -> AIClient:
         AIProvider.MINIMAX,
         AIProvider.DEEPSEEK,
         AIProvider.OLLAMA,
+        AIProvider.AGNES,
     }:
         return OpenAIClient(config)
     else:

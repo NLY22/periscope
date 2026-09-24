@@ -136,6 +136,7 @@ class AIProvider(str, Enum):
     MINIMAX = "minimax"
     DEEPSEEK = "deepseek"
     OLLAMA = "ollama"
+    AGNES = "agnes"
 
 
 # Provider-specific defaults used by setup and provider-chain expansion.
@@ -186,6 +187,11 @@ AI_PROVIDER_DEFAULTS = {
         "model": "llama3.1",
         "api_key_env": "",
         "base_url": "http://localhost:11434/v1",
+    },
+    AIProvider.AGNES: {
+        "model": "agnes-2.5-flash",
+        "api_key_env": "AGNES_API_KEY",
+        "base_url": "https://apihub.agnes-ai.com/v1",
     },
 }
 
