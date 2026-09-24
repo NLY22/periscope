@@ -23,6 +23,7 @@ class SourceType(str, Enum):
     BILIBILI = "bilibili"
     V2EX = "v2ex"
     DISCOURSE = "discourse"
+    YOUTUBE = "youtube"
 
 
 class SourceDefinition(NamedTuple):
@@ -47,6 +48,7 @@ SOURCE_REGISTRY = {
     SourceType.BILIBILI.value: SourceDefinition("bilibili"),
     SourceType.V2EX.value: SourceDefinition("v2ex"),
     SourceType.DISCOURSE.value: SourceDefinition("discourse"),
+    SourceType.YOUTUBE.value: SourceDefinition("youtube", item_fields=("channels",)),
 }
 
 ProfileRoute = Optional[Union[str, List[str]]]
@@ -506,6 +508,31 @@ class BilibiliConfig(BaseModel):
     profile: ProfileRoute = None
 
 
+class YouTubeChannelConfig(BaseModel):
+    """One YouTube channel to watch, via its official public atom feed."""
+
+    name: str  # display label
+    channel_id: str = ""  # UC... — the only reliably supported handle
+    handle: str = ""  # @handle, informational fallback label
+    feed_url: str = ""  # explicit atom feed override
+    enabled: bool = True
+
+
+class YouTubeConfig(BaseModel):
+    """YouTube source configuration (key-less official channel feeds).
+
+    Only https://www.youtube.com/feeds/videos.xml?channel_id=... is
+    requested — one GET per channel per run. No page scraping, no
+    signing, no caption endpoints.
+    """
+
+    enabled: bool = False
+    channels: List[YouTubeChannelConfig] = Field(default_factory=list)
+    max_videos: int = 20  # per-channel cap on entries kept
+    category: Optional[str] = None
+    profile: ProfileRoute = None
+
+
 class CorpusConfig(BaseModel):
     """Persistent evidence corpus (Periscope addition over Horizon).
 
@@ -566,6 +593,7 @@ class SourcesConfig(BaseModel):
     bilibili: Optional[BilibiliConfig] = None
     v2ex: Optional[V2EXConfig] = None
     discourse: Optional[DiscourseConfig] = None
+    youtube: Optional[YouTubeConfig] = None
 
 
 class WebhookConfig(BaseModel):

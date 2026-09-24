@@ -335,6 +335,7 @@ Schedule Periscope with **GitHub Actions** using the [daily workflow template](.
 | **Bilibili** 🆕 | Popular videos (title, stats, top comments; CC-subtitle transcript when present) | Yes |
 | **V2EX** 🆕 | Node topics + hot topics, replies included | Yes |
 | **Discourse** 🆕 | Any Discourse forum's latest topics (Rust Users, etc.) | Yes |
+| **YouTube** 🆕 | Channel uploads via the official public atom feed (title + description as text) | Yes |
 
 ## Where Your Briefing Goes
 

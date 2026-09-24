@@ -30,6 +30,7 @@ from .scrapers.google_news import GoogleNewsScraper
 from .scrapers.bilibili import BilibiliScraper
 from .scrapers.v2ex import V2EXScraper
 from .scrapers.discourse import DiscourseScraper
+from .scrapers.youtube import YouTubeScraper
 from .ai.client import create_ai_client
 from .ai.analyzer import ContentAnalyzer
 from .ai.summarizer import DailySummarizer
@@ -710,6 +711,11 @@ class HorizonOrchestrator:
             if self.config.sources.discourse and self.config.sources.discourse.enabled:
                 dc_scraper = DiscourseScraper(self.config.sources.discourse, client)
                 tasks.append(self._fetch_with_progress("Discourse", dc_scraper, since))
+
+            # YouTube channels via official public atom feeds
+            if self.config.sources.youtube and self.config.sources.youtube.enabled:
+                yt_scraper = YouTubeScraper(self.config.sources.youtube, client)
+                tasks.append(self._fetch_with_progress("YouTube", yt_scraper, since))
 
             # Fetch all concurrently
             outcomes = await asyncio.gather(*tasks)

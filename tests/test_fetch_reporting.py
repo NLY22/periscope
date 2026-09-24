@@ -52,6 +52,7 @@ def make_sources(**overrides):  # type: ignore[no-untyped-def]
         "bilibili": None,
         "v2ex": None,
         "discourse": None,
+        "youtube": None,
     }
     values.update(overrides)
     return SimpleNamespace(**values)

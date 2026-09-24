@@ -258,6 +258,11 @@
       ],
       "max_topics_per_site": 8,
       "fetch_replies": 4
+    },
+    "youtube": {
+      "enabled": false,
+      "channels": [],
+      "max_videos": 15
     }
   },
   "collection": {
