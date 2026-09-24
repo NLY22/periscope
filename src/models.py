@@ -495,6 +495,7 @@ class BilibiliConfig(BaseModel):
     max_videos: int = 20
     min_views: int = 0
     fetch_comments: int = 8  # top comments per video, 0 to disable
+    transcript_chars: int = 2000  # max CC-subtitle chars to inline, 0 to disable
     category: Optional[str] = None
     profile: ProfileRoute = None
 

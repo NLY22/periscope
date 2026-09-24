@@ -16,6 +16,8 @@ from .base import BaseScraper
 
 API_POPULAR = "https://api.bilibili.com/x/web-interface/popular"
 API_COMMENTS = "https://api.bilibili.com/x/v2/reply"
+API_VIEW = "https://api.bilibili.com/x/web-interface/view"
+API_PLAYER = "https://api.bilibili.com/x/player/v2"
 VIDEO_URL = "https://www.bilibili.com/video/{bvid}"
 
 
@@ -29,6 +31,7 @@ class BilibiliScraper(BaseScraper):
         self.max_videos = get("max_videos", 20)
         self.min_views = get("min_views", 0)
         self.fetch_comments = get("fetch_comments", 8)
+        self.transcript_chars = get("transcript_chars", 0)
 
     async def fetch(self, since: datetime) -> List[ContentItem]:
         if not self.enabled:
@@ -95,6 +98,15 @@ class BilibiliScraper(BaseScraper):
             },
         )
 
+        if self.transcript_chars > 0:
+            transcript = await self._fetch_transcript(rec.get("aid"), bvid)
+            if transcript:
+                item.content = (item.content or "").strip()
+                item.content = (
+                    item.content + "\n\n【视频字幕节选】\n" + transcript
+                ).strip()
+                item.metadata["has_transcript"] = True
+
         if self.fetch_comments > 0:
             comments = await self._fetch_comments(rec.get("aid"), bvid)
             if comments:
@@ -104,6 +116,52 @@ class BilibiliScraper(BaseScraper):
                 )
                 item.content = (item.content + block).strip()
         return item
+
+    async def _fetch_transcript(self, aid: Any, bvid: str) -> str:
+        """Inline creator-authored CC subtitles, if the video has any.
+
+        Chain: view -> first page cid -> player/v2 subtitle list -> subtitle
+        JSON body. AI-generated subtitles (ai_status) exist too but require
+        a login cookie, so they are skipped politely here. Any failure just
+        means "no transcript for this video" — never an error.
+        """
+        if not bvid:
+            return ""
+        try:
+            view = self._check_response(await self.client.get(API_VIEW, params={"bvid": bvid}))
+            data = view.get("data", {}) or {}
+            cid = (data.get("pages") or [{}])[0].get("cid")
+            aid = data.get("aid") or aid
+            if not cid or not aid:
+                return ""
+            player = self._check_response(
+                await self.client.get(API_PLAYER, params={"aid": aid, "cid": cid})
+            )
+            subtitles = (
+                ((player.get("data") or {}).get("subtitle") or {}).get("subtitles") or []
+            )
+            # Human tracks first; AI tracks (lan "ai-*") need a login cookie
+            # to fetch, so skip them when a creator track exists.
+            human = [
+                s
+                for s in subtitles
+                if not (s.get("ai_status") or (s.get("lan") or "").startswith("ai"))
+            ]
+            track = human[0] if human else None
+            if track is None:
+                return ""
+            url = track.get("subtitle_url", "")
+            if url.startswith("//"):
+                url = "https:" + url
+            if not url.startswith("http"):
+                return ""
+            response = await self.client.get(url, follow_redirects=True)
+            response.raise_for_status()
+            body = response.json().get("body") or []
+            text = " ".join((line.get("content") or "").strip() for line in body)
+            return self._truncate(" ".join(text.split()), self.transcript_chars)
+        except Exception:
+            return ""
 
     async def _fetch_comments(self, oid: Any, bvid: str) -> List[Dict[str, str]]:
         if not oid:

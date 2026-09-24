@@ -121,3 +121,80 @@ def test_comments_disabled() -> None:
     )
     items = asyncio.run(scraper.fetch(SINCE))
     assert "评论区" not in (items[0].content or "")
+    assert "字幕" not in (items[0].content or "")
+
+
+def _transcript_client(subtitles: list | None = None, body_lines: int = 3) -> AsyncMock:
+    async def _get(url, params=None, **kwargs):
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        if "web-interface/view" in url:
+            response.json.return_value = {
+                "code": 0,
+                "data": {"aid": 222, "pages": [{"cid": 555}]},
+            }
+        elif "player/v2" in url:
+            response.json.return_value = {
+                "code": 0,
+                "data": {"subtitle": {"subtitles": subtitles or []}},
+            }
+        elif "subtitle-file" in url or url.endswith(".json"):
+            response.json.return_value = {
+                "body": [
+                    {"content": f"字幕第{i}句，介绍新特性。"} for i in range(body_lines)
+                ]
+            }
+        elif "reply" in url:
+            response.json.return_value = _comments_payload()
+        else:
+            response.json.return_value = _popular_payload()
+        return response
+
+    client = AsyncMock()
+    client.get.side_effect = _get
+    return client
+
+
+def test_transcript_inlined_when_available() -> None:
+    subs = [
+        {
+            "lan": "ai-zh",
+            "ai_status": 2,
+            "subtitle_url": "//subs/ai.json",
+        },
+        {"lan": "zh-CN", "subtitle_url": "//subs/human.json"},
+    ]
+    scraper = BilibiliScraper(
+        BilibiliConfig(enabled=True, transcript_chars=200), _transcript_client(subs)
+    )
+    items = asyncio.run(scraper.fetch(SINCE))
+    content = items[0].content or ""
+    assert "【视频字幕节选】" in content
+    assert "字幕第0句" in content
+    assert items[0].metadata["has_transcript"] is True
+    # AI track must not be chosen (needs login): requested url is the human one
+    urls = [c.args[0] for c in scraper.client.get.await_args_list]
+    assert any(u.endswith("human.json") for u in urls)
+    assert not any(u.endswith("ai.json") for u in urls)
+
+
+def test_transcript_absent_or_ai_only_is_silent() -> None:
+    for subs in ([], [{"lan": "ai-zh", "ai_status": 2, "subtitle_url": "//subs/ai.json"}]):
+        scraper = BilibiliScraper(
+            BilibiliConfig(enabled=True, transcript_chars=200), _transcript_client(subs)
+        )
+        items = asyncio.run(scraper.fetch(SINCE))
+        assert "字幕" not in (items[0].content or "")
+        assert "has_transcript" not in items[0].metadata
+
+
+def test_transcript_truncated_to_budget() -> None:
+    subs = [{"lan": "zh-CN", "subtitle_url": "//subs/human.json"}]
+    scraper = BilibiliScraper(
+        BilibiliConfig(enabled=True, transcript_chars=20),
+        _transcript_client(subs, body_lines=20),
+    )
+    items = asyncio.run(scraper.fetch(SINCE))
+    block = (items[0].content or "").split("【视频字幕节选】\n", 1)[1]
+    block = block.split("\n\n【评论区", 1)[0]  # exclude comment section appended after
+    assert len(block) <= 21  # 20 chars + ellipsis
