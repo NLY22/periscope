@@ -28,6 +28,8 @@ from .scrapers.ossinsight import OSSInsightScraper
 from .scrapers.gdelt import GDELTScraper
 from .scrapers.google_news import GoogleNewsScraper
 from .scrapers.bilibili import BilibiliScraper
+from .scrapers.v2ex import V2EXScraper
+from .scrapers.discourse import DiscourseScraper
 from .ai.client import create_ai_client
 from .ai.analyzer import ContentAnalyzer
 from .ai.summarizer import DailySummarizer
@@ -501,6 +503,16 @@ class HorizonOrchestrator:
             if self.config.sources.bilibili and self.config.sources.bilibili.enabled:
                 bili_scraper = BilibiliScraper(self.config.sources.bilibili, client)
                 tasks.append(self._fetch_with_progress("Bilibili", bili_scraper, since))
+
+            # V2EX topics + replies
+            if self.config.sources.v2ex and self.config.sources.v2ex.enabled:
+                v2ex_scraper = V2EXScraper(self.config.sources.v2ex, client)
+                tasks.append(self._fetch_with_progress("V2EX", v2ex_scraper, since))
+
+            # Discourse forum family (any number of instances)
+            if self.config.sources.discourse and self.config.sources.discourse.enabled:
+                dc_scraper = DiscourseScraper(self.config.sources.discourse, client)
+                tasks.append(self._fetch_with_progress("Discourse", dc_scraper, since))
 
             # Fetch all concurrently
             outcomes = await asyncio.gather(*tasks)

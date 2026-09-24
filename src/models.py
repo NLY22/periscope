@@ -21,6 +21,8 @@ class SourceType(str, Enum):
     GDELT = "gdelt"
     GOOGLE_NEWS = "google_news"
     BILIBILI = "bilibili"
+    V2EX = "v2ex"
+    DISCOURSE = "discourse"
 
 
 class SourceDefinition(NamedTuple):
@@ -43,6 +45,8 @@ SOURCE_REGISTRY = {
     SourceType.GDELT.value: SourceDefinition("gdelt"),
     SourceType.GOOGLE_NEWS.value: SourceDefinition("google_news"),
     SourceType.BILIBILI.value: SourceDefinition("bilibili"),
+    SourceType.V2EX.value: SourceDefinition("v2ex"),
+    SourceType.DISCOURSE.value: SourceDefinition("discourse"),
 }
 
 ProfileRoute = Optional[Union[str, List[str]]]
@@ -441,6 +445,45 @@ class GoogleNewsConfig(BaseModel):
     profile: ProfileRoute = None
 
 
+class V2EXConfig(BaseModel):
+    """V2EX source configuration (official key-less API).
+
+    `base_url` may point at www.v2ex.com or a reachable mirror such as
+    https://global.v2ex.co.
+    """
+
+    enabled: bool = False
+    base_url: str = "https://global.v2ex.co"
+    nodes: List[str] = Field(default_factory=list)  # node slugs, e.g. ["programmer"]
+    fetch_hot: bool = True
+    fetch_replies: int = 10  # first N replies per topic, 0 to disable
+    expand_topics: int = 15  # max topics to expand replies for
+    category: Optional[str] = None
+    profile: ProfileRoute = None
+
+
+class DiscourseSiteConfig(BaseModel):
+    """One Discourse instance to monitor."""
+
+    base_url: str  # e.g. https://users.rust-lang.org
+    name: Optional[str] = None  # short label; defaults to the hostname
+    tags: List[str] = Field(default_factory=list)  # keep topics with any of these tags
+    max_topics: Optional[int] = None  # per-site cap override
+    enabled: bool = True
+    category: Optional[str] = None
+    profile: ProfileRoute = None
+
+
+class DiscourseConfig(BaseModel):
+    """Discourse forum family source configuration."""
+
+    enabled: bool = False
+    sites: List[DiscourseSiteConfig] = Field(default_factory=list)
+    max_topics_per_site: int = 10
+    fetch_replies: int = 5  # follow-up posts appended as discussion
+    post_chars: int = 1200  # truncate each post body
+
+
 class BilibiliConfig(BaseModel):
     """Bilibili popular-videos source configuration.
 
@@ -470,6 +513,8 @@ class SourcesConfig(BaseModel):
     gdelt: Optional[GDELTConfig] = None
     google_news: Optional[GoogleNewsConfig] = None
     bilibili: Optional[BilibiliConfig] = None
+    v2ex: Optional[V2EXConfig] = None
+    discourse: Optional[DiscourseConfig] = None
 
 
 class WebhookConfig(BaseModel):
