@@ -5,7 +5,7 @@
 Start the built-in MCP server from the Horizon repository root:
 
 ```bash
-uv run horizon-mcp
+uv run periscope-mcp
 ```
 
 If you need a Python module fallback:
@@ -27,7 +27,7 @@ Example:
   "mcpServers": {
     "horizon": {
       "command": "uv",
-      "args": ["run", "horizon-mcp"],
+      "args": ["run", "periscope-mcp"],
       "cwd": "/absolute/path/to/Horizon"
     }
   }
@@ -42,7 +42,7 @@ If your workflow allows you to start the MCP server manually, no absolute path i
 
 ```bash
 cd /absolute/path/to/Horizon
-uv run horizon-mcp
+uv run periscope-mcp
 ```
 
 This is the cleanest way to avoid path values in client configuration.

@@ -20,6 +20,15 @@ The MCP layer does not reimplement Horizon business logic. It reuses the existin
 | `hz_get_run_stage` | Read items from a run stage |
 | `hz_get_run_summary` | Read a generated summary |
 | `hz_get_metrics` | Read in-memory server metrics |
+| `hz_corpus_stats` | Evidence-corpus overview (items, clusters, claims, sessions) |
+| `hz_corpus_search` | Full-text search over everything ever collected (CJK-aware) |
+| `hz_corpus_recent` | Most recent corpus items, optionally one source |
+| `hz_list_claims` | Claims by status with verdicts + independent-source counts |
+| `hz_get_claim` | One claim with its linked evidence rows |
+| `hz_research_start` | Open a long-session research task → cited report |
+| `hz_research_followup` | Iterate an existing session (narrow/expand/challenge) |
+| `hz_research_status` | Session state: sub-question tree, turns, current report |
+| `hz_research_list` | Recent research sessions |
 
 ## Resources
 
@@ -35,7 +44,7 @@ The MCP layer does not reimplement Horizon business logic. It reuses the existin
 
 ```bash
 uv sync
-uv run horizon-mcp
+uv run periscope-mcp
 ```
 
 | Option | Default | Description |
@@ -60,6 +69,7 @@ Each run writes artifacts under `data/mcp-runs/<run_id>/`:
 1. Keep Horizon as the single source of business logic.
 2. Preserve staged re-entry so a run can continue from intermediate artifacts.
 3. Default to no extra side effects unless explicitly requested.
+4. Periscope evidence tools (`hz_corpus_*`, `hz_claims`, `hz_research_*`) act on the shared `corpus.db`, not the per-run artifacts — sessions and evidence survive server restarts and are visible to the CLI and web panel alike.
 
 ## Client Setup
 

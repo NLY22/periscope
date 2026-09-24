@@ -9,7 +9,7 @@ Horizon is configured through a `.env` file for secrets, a JSON file for runtime
 
 ## Configuration Paths
 
-`horizon`, `horizon-wizard`, `horizon-webhook`, and `horizon-wechat` all resolve configuration and state paths the same way:
+`periscope`, `periscope-wizard`, `periscope-webhook`, and `periscope-wechat` all resolve configuration and state paths the same way:
 
 | Option | Effect |
 | --- | --- |
@@ -17,26 +17,26 @@ Horizon is configured through a `.env` file for secrets, a JSON file for runtime
 | `-c`, `--config PATH` | Uses an explicit config file without changing the state directory. |
 
 ```bash
-uv run horizon --data-dir /srv/horizon
-uv run horizon --config /etc/horizon/config.json
-uv run horizon --data-dir /srv/horizon --config /etc/horizon/config.json
+uv run periscope --data-dir /srv/periscope
+uv run periscope --config /etc/periscope/config.json
+uv run periscope --data-dir /srv/periscope --config /etc/periscope/config.json
 ```
 
-When both options are present, configuration is loaded from `--config`, while summaries and subscribers remain under `--data-dir`. Because this logic is identical across all three CLIs, passing the same `-d`/`-c` flags to each one keeps them pointed at the same files — for example, generating a config with `horizon-wizard --data-dir /srv/horizon`, then running `horizon --data-dir /srv/horizon` and testing with `horizon-webhook --data-dir /srv/horizon`.
+When both options are present, configuration is loaded from `--config`, while summaries and subscribers remain under `--data-dir`. Because this logic is identical across all three CLIs, passing the same `-d`/`-c` flags to each one keeps them pointed at the same files — for example, generating a config with `periscope-wizard --data-dir /srv/periscope`, then running `periscope --data-dir /srv/periscope` and testing with `periscope-webhook --data-dir /srv/periscope`.
 
 Without either flag, all three default to `data/config.json`. To bootstrap a custom location without the wizard, initialize it manually:
 
 ```bash
-mkdir -p /etc/horizon
-cp data/config.example.json /etc/horizon/config.json
+mkdir -p /etc/periscope
+cp data/config.example.json /etc/periscope/config.json
 ```
 
 ## Interactive Wizard
 
-`horizon-wizard` asks about your interests and generates `data/config.json` from matched presets and, optionally, AI recommendations:
+`periscope-wizard` asks about your interests and generates `data/config.json` from matched presets and, optionally, AI recommendations:
 
 ```bash
-uv run horizon-wizard
+uv run periscope-wizard
 ```
 
 | Option | Default | Description |
@@ -913,10 +913,10 @@ With this layout, Horizon sends one interactive card containing the overview and
 
 ### Testing
 
-Use `horizon-webhook` to preview or send a test notification without running the full pipeline:
+Use `periscope-webhook` to preview or send a test notification without running the full pipeline:
 
 ```bash
-uv run horizon-webhook --dry-run
+uv run periscope-webhook --dry-run
 ```
 
 | Option | Default | Description |
@@ -950,13 +950,13 @@ Tencent's `openclaw-weixin` client protocol. Enable it in your configuration:
   Long briefings are split at paragraph or line boundaries where possible.
 
 ```bash
-uv run horizon-wechat login                     # scan with WeChat, then message the bot
-uv run horizon-wechat status                    # connection and estimated replies left
-uv run horizon-wechat test --lang zh --dry-run  # preview without connecting or sending
-uv run horizon-wechat test --lang zh             # send a test message
+uv run periscope-wechat login                     # scan with WeChat, then message the bot
+uv run periscope-wechat status                    # connection and estimated replies left
+uv run periscope-wechat test --lang zh --dry-run  # preview without connecting or sending
+uv run periscope-wechat test --lang zh             # send a test message
 ```
 
-The normal `horizon` run then delivers its generated briefings and failure
+The normal `periscope` run then delivers its generated briefings and failure
 notifications. Login credentials and the
 latest conversation context are saved in `<data-dir>/wechat_session.json`.
 Keep this file between scheduled runs; on POSIX it is written with mode `0600`.
@@ -969,18 +969,18 @@ multilingual briefings may exhaust the budget partway through. A daily budget
 reset has not been confirmed; the API response remains authoritative.
 
 If setup timed out waiting for your first message, send one and run
-`uv run horizon-wechat status --refresh`. A receive-session timeout (`-14`) does
+`uv run periscope-wechat status --refresh`. A receive-session timeout (`-14`) does
 not necessarily prevent delivery; if it persists, use `login --force`.
 Markdown is adapted for WeChat by flattening HTML and removing images and
 in-page links.
 
 For custom paths, put `-d` / `-c` before the subcommand, for example
-`uv run horizon-wechat -d ./my-data login`. With Docker, reuse the existing data
+`uv run periscope-wechat -d ./my-data login`. With Docker, reuse the existing data
 mount and override the entrypoint:
 
 ```bash
-docker compose run --rm --entrypoint uv horizon run horizon-wechat login
-docker compose run --rm --entrypoint uv horizon run horizon-wechat test --lang zh
+docker compose run --rm --entrypoint uv periscope-collect run periscope-wechat login
+docker compose run --rm --entrypoint uv periscope-collect run periscope-wechat test --lang zh
 ```
 
 ## Static Site
@@ -994,7 +994,7 @@ To use GitHub Pages, enable Pages for the repository and run the scheduled workf
 Horizon includes an MCP server for AI assistants and MCP-compatible clients.
 
 ```bash
-uv run horizon-mcp
+uv run periscope-mcp
 ```
 
 Available tools include `hz_validate_config`, `hz_fetch_items`, `hz_score_items`, `hz_filter_items`, `hz_enrich_items`, `hz_generate_summary`, and `hz_run_pipeline`.
