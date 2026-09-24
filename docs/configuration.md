@@ -568,6 +568,52 @@ Pulls top star-gain repositories from the [OSS Insight](https://ossinsight.io) p
 
 No API key is required.
 
+### YouTube (Channel Uploads)
+
+Ingests a channel's own public **atom feed** — the same endpoint the YouTube Data API documents:
+
+```json
+{
+  "sources": {
+    "youtube": {
+      "enabled": true,
+      "channels": [
+        { "name": "3Blue1Brown", "channel_id": "UCYO_jab_esuFRV4b17AJtAw" }
+      ],
+      "max_videos": 15
+    }
+  }
+}
+```
+
+- `channel_id` — the `UC...` id. On the channel page, use *View page source* and search for `"channelId"`, or read it from any video URL's `/channel/UC...` segment.
+- `feed_url` — optional override for a feed served from another host.
+- `max_videos` — cap per channel per run.
+- `enabled` — off by default; the feed host is blocked on some networks.
+
+One GET per channel per run, no key, no signing, no page scraping. Each item carries the video title, link, publish time, author, view count, and the **description as its text body** — that description is what the corpus indexes and claim extraction reads, which is how streaming media becomes searchable evidence. Subtitle/transcript fetching is deliberately not implemented: unauthenticated caption access relies on undocumented endpoints, and Periscope only uses official surfaces.
+
+### Bilibili, V2EX, and Discourse
+
+Chinese-community sources, all key-less and covered by tests:
+
+```json
+{
+  "sources": {
+    "bilibili": { "enabled": true, "max_videos": 15, "min_views": 1000,
+                  "fetch_comments": 6, "transcript_chars": 2000 },
+    "v2ex": { "enabled": true, "base_url": "https://global.v2ex.co",
+              "nodes": ["programmer", "share"], "fetch_hot": true, "fetch_replies": 8 },
+    "discourse": { "enabled": true, "max_topics_per_site": 8, "fetch_replies": 4,
+                   "sites": [{ "base_url": "https://users.rust-lang.org", "name": "Rust Users" }] }
+  }
+}
+```
+
+- **Bilibili** — popular-video list plus top comments (评论区) and, where the platform exposes a documented subtitle track, a transcript excerpt. AI-generated subtitle tracks are skipped because they require a logged-in session.
+- **V2EX** — node topics and the hot list via the official API, replies inlined as discussion. `base_url` may point at a reachable mirror.
+- **Discourse** — the open-source forum engine behind thousands of communities: any number of `sites`, optionally narrowed by `tags` or `category`, latest topics with follow-up posts appended.
+
 ## Filtering
 
 Score filtering is configured under `processing.profile_settings` in the runtime
