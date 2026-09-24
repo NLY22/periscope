@@ -333,5 +333,11 @@
     "grade_min_sources": 2,
     "grade_budget_per_run": 8,
     "extract_top_items": 12
+  },
+  "research": {
+    "enabled": true,
+    "evidence_per_question": 8,
+    "max_evidence_chars": 700,
+    "planner_budget_per_invocation": 12
   }
 }

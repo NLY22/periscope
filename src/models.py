@@ -531,6 +531,19 @@ class AnalysisConfig(BaseModel):
     item_content_chars: int = 3500
 
 
+class ResearchConfig(BaseModel):
+    """Long-session research loop (Phase D).
+
+    Evidence gathering is deterministic and free; only decompose/answer/
+    revise touch the LLM, bounded per invocation by planner_budget.
+    """
+
+    enabled: bool = True
+    evidence_per_question: int = 8
+    max_evidence_chars: int = 700
+    planner_budget_per_invocation: int = 12
+
+
 class SourcesConfig(BaseModel):
     """All sources configuration."""
 
@@ -722,3 +735,4 @@ class Config(BaseModel):
     wechat: Optional[WeChatConfig] = None
     corpus: CorpusConfig = Field(default_factory=CorpusConfig)
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
+    research: ResearchConfig = Field(default_factory=ResearchConfig)

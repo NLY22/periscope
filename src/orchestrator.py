@@ -315,6 +315,31 @@ class HorizonOrchestrator:
                 self._ai_client_cache = None
         return self._ai_client_cache
 
+    # ------------------------------------------------------------- research
+    def get_research_session(self):
+        """Assemble the long-session research loop over this run's corpus.
+
+        Shared by the MCP server and the future web panel; the planner is
+        the optional-LLM client, so research degrades to deterministic
+        evidence gathering when no API key is set.
+        """
+        if not self.config.research.enabled:
+            return None
+        corpus = self._get_corpus()
+        if corpus is None:
+            return None
+        from .research import LLMPlanner, ResearchSession, ResearchStore
+
+        client = self._get_optional_ai_client()
+        return ResearchSession(
+            store=ResearchStore(corpus),
+            corpus=corpus,
+            planner=LLMPlanner(client) if client else None,
+            evidence_per_question=self.config.research.evidence_per_question,
+            max_evidence_chars=self.config.research.max_evidence_chars,
+            planner_budget_per_invocation=self.config.research.planner_budget_per_invocation,
+        )
+
     async def analyze_claims(self, items: List[ContentItem]) -> None:
         """Run the correctness loop over freshly fetched items (best-effort).
 

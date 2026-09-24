@@ -217,6 +217,24 @@ class Corpus:
                 results.setdefault(d["id"], d)
         return list(results.values())[:limit]
 
+    def document_frequency(self, term: str) -> int:
+        """How many stored items contain `term` at all (exact substring).
+
+        Term-scoring for query planning, not user-facing search: substring
+        LIKE is deliberately stricter here than the trigram tokenizer, which
+        would match "开源大" inside an unrelated "...开源大比拼...". Corpus is
+        small by design (one user's collection), so the scan is fine.
+        """
+        term = term.strip()
+        if not term:
+            return 0
+        escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{escaped}%"
+        return self._conn.execute(
+            "SELECT COUNT(*) FROM items WHERE title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\'",
+            (like, like),
+        ).fetchone()[0]
+
     def recent(
         self,
         limit: int = 50,

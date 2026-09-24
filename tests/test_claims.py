@@ -87,6 +87,45 @@ def test_discriminating_terms_cjk_runs() -> None:
     assert any(len(t) >= 2 for t in terms)
 
 
+def test_discriminating_terms_no_contained_duplicates() -> None:
+    # overlapping n-grams retrieve the same rows; one slot each is waste
+    terms = discriminating_terms("开源大模型领域开源大模型", max_terms=4)
+    assert all(a not in b for a in terms for b in terms if a != b)
+
+
+def test_discriminating_terms_with_corpus_picks_matching_terms(corpus: Corpus) -> None:
+    now = datetime.now(timezone.utc)
+
+    def mk(i, title, content):
+        return ContentItem(
+            id=f"c{i}", source_type=SourceType.HACKERNEWS, title=title,
+            url=f"https://e.com/{i}", author="a", published_at=now,
+            fetched_at=now, content=content, metadata={},
+        )
+
+    corpus.add_items([
+        mk(1, "开源大模型周报", "本周开源大模型领域热闹，多家发布新模型，强调推理能力。"),
+        mk(2, "Qwen3", "阿里发布 Qwen3 大模型，开源权重支持百种语言。"),
+        mk(3, "Rust", "Rust 发布新版本，改进编译器性能。"),
+        mk(4, "Go", "Go 语言更新日志发布。"),
+    ])
+    terms = discriminating_terms(
+        "最近开源大模型领域有哪些发布？各自强调了什么能力？",
+        max_terms=3,
+        corpus=corpus,
+    )
+    assert terms
+    # at least one chosen term must actually retrieve an on-topic item
+    hits = {t: corpus.search(t, limit=5) for t in terms}
+    assert any(any("模型" in r["title"] or "Qwen" in r["title"] for r in v) for v in hits.values())
+
+
+def test_discriminating_terms_empty_corpus_still_returns_terms(corpus: Corpus) -> None:
+    # fresh corpus (nothing stored): fall back to shape heuristics, never empty
+    terms = discriminating_terms("开源大模型领域的发布", max_terms=3, corpus=corpus)
+    assert len(terms) >= 1
+
+
 # --------------------------------------------------------------- extraction
 def test_extract_claims_persists_and_dedupes(corpus: Corpus) -> None:
     store = ClaimStore(corpus)

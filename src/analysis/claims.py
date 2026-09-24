@@ -272,24 +272,101 @@ CREATE INDEX IF NOT EXISTS idx_evidence_claim ON claim_evidence(claim_id);
 
 # --------------------------------------------------------------- tokenizing
 
-_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9_.+#-]*|[\u4e00-\u9fff]{2,}")
+_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9_.+#-]*|[\u4e00-\u9fff]+")
+
+# Characters that carry grammar rather than topic. A candidate n-gram stuffed
+# with them ("了什么", "哪些发") is punctuation-shaped noise: it matches almost
+# nothing useful and drowns the real terms.
+_CJK_FUNCTION = set(
+    "的了是在和与或就都也很更被把从对为以于之及其并等这那们我你他她它有没有不"
+    "么吗呢吧啊呀哦哪些什么怎样如何并且但因为如果所一二三四五六七八九十几半全"
+)
 
 
-def discriminating_terms(text: str, max_terms: int = 4) -> List[str]:
-    """Pick the terms a corpus search should AND to find this claim's topic.
+def _penalty(gram: str) -> int:
+    return sum(1 for ch in gram if ch in _CJK_FUNCTION)
 
-    The full claim sentence is a bad FTS query (too many common words);
-    numbers, latin tokens and CJK runs carry the signal. Returns lowercase
-    terms, longest-first, stopwords dropped.
+
+def _cjk_candidates(run: str) -> List[str]:
+    """Sliding 2- and 3-grams of one uninterrupted CJK run.
+
+    3-grams are what FTS5's trigram tokenizer can match; 2-grams are kept as
+    well because most real Chinese words are exactly two characters and the
+    corpus falls back to LIKE for terms that short.
     """
-    lowered = text.lower()
-    counts: Dict[str, int] = {}
-    for token in _TOKEN_RE.findall(lowered):
-        if token in _STOPWORDS or len(token) < 2:
+    if len(run) <= 2:
+        return [run]
+    out = [run[i : i + 3] for i in range(len(run) - 2)]
+    out += [run[i : i + 2] for i in range(len(run) - 1)]
+    return out
+
+
+def _term_candidates(text: str) -> List[str]:
+    """All searchable terms in order of first appearance, deduped."""
+    out: List[str] = []
+    seen = set()
+    for token in _TOKEN_RE.findall(text.lower()):
+        grams = _cjk_candidates(token) if token[0] >= "\u4e00" else [token]
+        for gram in grams:
+            if gram in seen or gram in _STOPWORDS or len(gram) < 2:
+                continue
+            # a 3-gram with two function chars ("了什么") is 90% noise
+            if _penalty(gram) > (1 if len(gram) == 2 else 2):
+                continue
+            seen.add(gram)
+            out.append(gram)
+    return out
+
+
+def discriminating_terms(
+    text: str,
+    max_terms: int = 4,
+    corpus: Optional[Corpus] = None,
+) -> List[str]:
+    """Pick the terms a corpus search should use to find this claim's topic.
+
+    The full claim sentence is a bad FTS query (too many common words); names,
+    numbers and content-word n-grams carry the signal. Returns lowercase terms,
+    best first, no term contained in another.
+
+    With a `corpus`, terms are scored by measured document frequency: ones that
+    match nothing are useless, ones that match nearly everything (发布, "the")
+    retrieve noise, so the sweet spot is rare-but-present, content-only n-grams.
+    Without a store (unit tests, pre-fetch planning) it degrades to shape
+    heuristics: fewest function characters, then longest, then earliest.
+    """
+    candidates = _term_candidates(text)
+    if not candidates:
+        return []
+    if corpus is None:
+        ranked = sorted(
+            candidates,
+            key=lambda g: (_penalty(g), -len(g), candidates.index(g)),
+        )
+    else:
+        total = corpus.stats()["items"]
+        ceiling = max(2, total // 5)  # present in >20% of corpus = generic
+        freq = {g: corpus.document_frequency(g) for g in candidates}
+        ranked = sorted(
+            candidates,
+            key=lambda g: (
+                freq[g] == 0,  # can't retrieve anything
+                _penalty(g),
+                freq[g] > ceiling,  # retrieves everything
+                -freq[g],
+                -len(g),
+            ),
+        )
+    chosen: List[str] = []
+    for term in ranked:
+        # overlapping n-grams ("大模型" / "模型" / "开源大") retrieve the same
+        # rows; spending a slot on each is pure waste.
+        if any(term in c or c in term for c in chosen):
             continue
-        counts[token] = counts.get(token, 0) + 1
-    ranked = sorted(counts, key=lambda t: (-len(t), -counts[t], t))
-    return ranked[:max_terms]
+        chosen.append(term)
+        if len(chosen) == max_terms:
+            break
+    return chosen
 
 
 # ------------------------------------------------------------------ prompts
@@ -407,7 +484,7 @@ class ClaimAnalyzer:
     # ----------------------------------------------------------- 2. link
     def link_evidence(self, claim: Claim) -> List[EvidenceLink]:
         """Deterministically attach corpus items that mention the claim."""
-        terms = discriminating_terms(claim.text)
+        terms = discriminating_terms(claim.text, corpus=self.corpus)
         rows: List[Dict[str, Any]] = []
         for size in (len(terms), 3, 2, 1):
             if size == 0:
