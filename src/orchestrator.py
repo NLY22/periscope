@@ -342,6 +342,23 @@ class HorizonOrchestrator:
         return self._ai_client_cache
 
     # ------------------------------------------------------------- research
+    def get_claim_store(self):
+        """Claim store over this run's corpus; None when corpus is disabled.
+
+        Read side for the MCP/panel tool surface — analysis writes go through
+        analyze_claims(), but callers only want to query what's there.
+        """
+        corpus = self._get_corpus()
+        if corpus is None:
+            return None
+        from .analysis import ClaimStore
+
+        return ClaimStore(corpus)
+
+    def get_corpus(self):
+        """Public accessor for the evidence corpus (None when disabled)."""
+        return self._get_corpus()
+
     def get_research_session(self):
         """Assemble the long-session research loop over this run's corpus.
 

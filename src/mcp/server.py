@@ -96,10 +96,12 @@ def _record_metrics(tool: str, ok: bool, duration_ms: float, error_code: str | N
         }
 
 
-async def _run_tool(tool: str, runner: Callable[[], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
+async def _run_tool(tool: str, runner: Callable[[], Any]) -> dict[str, Any]:
+    """Run a tool body (sync or coroutine) with metrics + envelope framing."""
     started = perf_counter()
     try:
-        data = await runner()
+        result = runner()
+        data = await result if isinstance(result, Awaitable) else result
         elapsed_ms = (perf_counter() - started) * 1000
         _record_metrics(tool, ok=True, duration_ms=elapsed_ms)
         return _ok(tool, data, duration_ms=elapsed_ms)
@@ -401,6 +403,142 @@ def hz_get_metrics() -> dict[str, Any]:
             error_code=payload["error"]["code"],
         )
         return payload
+
+
+# ------------------------------------------------------- periscope: evidence
+@mcp.tool()
+async def hz_corpus_stats(
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Evidence-corpus overview: stored items by source, clusters, runs, plus
+    claim and research-session counters. The 'what do we already know' probe."""
+
+    return await _run_tool(
+        "hz_corpus_stats",
+        lambda: service.corpus_stats(horizon_path=horizon_path, config_path=config_path)
+    )
+
+
+@mcp.tool()
+async def hz_corpus_search(
+    query: str,
+    limit: int = 20,
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Full-text search over every item ever collected (BM25, CJK-aware)."""
+
+    return await _run_tool(
+        "hz_corpus_search",
+        lambda: service.corpus_search(query=query, limit=limit, horizon_path=horizon_path, config_path=config_path)
+    )
+
+
+@mcp.tool()
+async def hz_corpus_recent(
+    limit: int = 30,
+    source_type: str | None = None,
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Most recently published items in the corpus, optionally one source."""
+
+    return await _run_tool(
+        "hz_corpus_recent",
+        lambda: service.corpus_recent(limit=limit, source_type=source_type, horizon_path=horizon_path, config_path=config_path)
+    )
+
+
+@mcp.tool()
+async def hz_list_claims(
+    status: str = "graded",
+    limit: int = 50,
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Claims by pipeline status (extracted | linked | graded) with verdicts,
+    confidence and independent-source counts."""
+
+    return await _run_tool(
+        "hz_list_claims",
+        lambda: service.list_claims(status=status, limit=limit, horizon_path=horizon_path, config_path=config_path)
+    )
+
+
+@mcp.tool()
+async def hz_get_claim(
+    claim_id: str,
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """One claim in full: verdict, evidence rows, source independence."""
+
+    return await _run_tool(
+        "hz_get_claim",
+        lambda: service.get_claim(claim_id=claim_id, horizon_path=horizon_path, config_path=config_path)
+    )
+
+
+@mcp.tool()
+async def hz_research_start(
+    question: str,
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Open a long-session research task: decompose the question, investigate
+    each sub-question against the corpus, return a cited markdown report.
+    State persists — follow up later, even after restarts."""
+
+    return await _run_tool(
+        "hz_research_start",
+        lambda: service.research_start(question=question, horizon_path=horizon_path, config_path=config_path),
+    )
+
+
+@mcp.tool()
+async def hz_research_followup(
+    session_id: str,
+    message: str,
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Push back on an existing session: the message can narrow, expand or
+    challenge; the sub-question tree is revised and the report re-rendered."""
+
+    return await _run_tool(
+        "hz_research_followup",
+        lambda: service.research_followup(session_id=session_id, message=message, horizon_path=horizon_path, config_path=config_path),
+    )
+
+
+@mcp.tool()
+async def hz_research_status(
+    session_id: str,
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Session state: sub-question tree with statuses/answers/evidence ids,
+    turn history, and the current rendered report."""
+
+    return await _run_tool(
+        "hz_research_status",
+        lambda: service.research_status(session_id=session_id, horizon_path=horizon_path, config_path=config_path)
+    )
+
+
+@mcp.tool()
+async def hz_research_list(
+    limit: int = 20,
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Recent research sessions with their questions and statuses."""
+
+    return await _run_tool(
+        "hz_research_list",
+        lambda: service.research_list(limit=limit, horizon_path=horizon_path, config_path=config_path)
+    )
 
 
 @mcp.tool()

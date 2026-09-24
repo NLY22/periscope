@@ -737,6 +737,209 @@ class HorizonPipelineService:
         except Exception:
             return fallback
 
+    # ------------------------------------------------- periscope: evidence loop
+    def _periscope_orchestrator(
+        self,
+        horizon_path: str | None,
+        config_path: str | None,
+    ) -> Any:
+        """Orchestrator bound to the default config, for corpus/claims/research.
+
+        Research sessions live in the corpus DB, not in memory — every tool
+        call may build a fresh orchestrator and still resume any session_id.
+        """
+        ctx, _, _ = self._build_context(
+            horizon_path=horizon_path, config_path=config_path, sources=None
+        )
+        return self._orchestrator(ctx)
+
+    @staticmethod
+    def _require(obj: Any, name: str) -> Any:
+        if obj is None:
+            raise HorizonMcpError(
+                code="HZ_FEATURE_DISABLED",
+                message=f"{name} is disabled in the current config.",
+                details={"feature": name},
+            )
+        return obj
+
+    @staticmethod
+    def _jsonable(value: Any) -> Any:
+        """Dataclass -> JSON-safe dict (datetimes isoformat'd, recursively)."""
+        if is_dataclass(value) and not isinstance(value, type):
+            return {k: HorizonPipelineService._jsonable(v) for k, v in vars(value).items()}
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, list):
+            return [HorizonPipelineService._jsonable(v) for v in value]
+        if isinstance(value, dict):
+            return {k: HorizonPipelineService._jsonable(v) for k, v in value.items()}
+        return value
+
+    def corpus_stats(
+        self, horizon_path: str | None = None, config_path: str | None = None
+    ) -> dict[str, Any]:
+        orch = self._periscope_orchestrator(horizon_path, config_path)
+        corpus = self._require(orch.get_corpus(), "corpus")
+        from ..research.session import ResearchStore
+
+        stats = corpus.stats()
+        claim_store = orch.get_claim_store()
+        stats["claims"] = claim_store.stats() if claim_store else {"claims": 0}
+        stats["research"] = ResearchStore(corpus).stats()
+        return stats
+
+    def corpus_search(
+        self,
+        query: str,
+        limit: int = 20,
+        horizon_path: str | None = None,
+        config_path: str | None = None,
+    ) -> dict[str, Any]:
+        if not query.strip():
+            raise HorizonMcpError(code="HZ_INVALID_INPUT", message="query must not be empty.")
+        corpus = self._require(
+            self._periscope_orchestrator(horizon_path, config_path).get_corpus(),
+            "corpus",
+        )
+        rows = corpus.search(query, limit=max(1, min(limit, 100)))
+        return {"query": query, "count": len(rows), "items": rows}
+
+    def corpus_recent(
+        self,
+        limit: int = 30,
+        source_type: str | None = None,
+        horizon_path: str | None = None,
+        config_path: str | None = None,
+    ) -> dict[str, Any]:
+        corpus = self._require(
+            self._periscope_orchestrator(horizon_path, config_path).get_corpus(),
+            "corpus",
+        )
+        rows = corpus.recent(limit=max(1, min(limit, 200)), source_type=source_type)
+        return {"count": len(rows), "items": rows}
+
+    def list_claims(
+        self,
+        status: str = "graded",
+        limit: int = 50,
+        horizon_path: str | None = None,
+        config_path: str | None = None,
+    ) -> dict[str, Any]:
+        store = self._require(
+            self._periscope_orchestrator(horizon_path, config_path).get_claim_store(),
+            "analysis",
+        )
+        claims = store.claims_by_status(status, limit=max(1, min(limit, 200)))
+        return {
+            "status": status,
+            "count": len(claims),
+            "claims": [c.to_dict() for c in claims],
+            "stats": store.stats(),
+        }
+
+    def get_claim(
+        self,
+        claim_id: str,
+        horizon_path: str | None = None,
+        config_path: str | None = None,
+    ) -> dict[str, Any]:
+        store = self._require(
+            self._periscope_orchestrator(horizon_path, config_path).get_claim_store(),
+            "analysis",
+        )
+        claim = store.get(claim_id)
+        if claim is None:
+            raise HorizonMcpError(
+                code="HZ_CLAIM_NOT_FOUND",
+                message=f"claim_id={claim_id} does not exist.",
+                details={"claim_id": claim_id},
+            )
+        return {"claim": claim.to_dict(), "evidence": store.evidence_for(claim_id)}
+
+    async def research_start(
+        self,
+        question: str,
+        horizon_path: str | None = None,
+        config_path: str | None = None,
+    ) -> dict[str, Any]:
+        if not question.strip():
+            raise HorizonMcpError(code="HZ_INVALID_INPUT", message="question must not be empty.")
+        session = self._require(
+            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            "research",
+        )
+        report = await session.start(question.strip())
+        return {
+            "session_id": report.session_id,
+            "markdown": report.markdown,
+            "planner_attached": session.llm_available,
+        }
+
+    async def research_followup(
+        self,
+        session_id: str,
+        message: str,
+        horizon_path: str | None = None,
+        config_path: str | None = None,
+    ) -> dict[str, Any]:
+        if not message.strip():
+            raise HorizonMcpError(code="HZ_INVALID_INPUT", message="message must not be empty.")
+        session = self._require(
+            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            "research",
+        )
+        try:
+            report = await session.followup(session_id, message.strip())
+        except KeyError as exc:
+            raise HorizonMcpError(
+                code="HZ_SESSION_NOT_FOUND",
+                message=str(exc),
+                details={"session_id": session_id},
+            ) from exc
+        return {
+            "session_id": report.session_id,
+            "markdown": report.markdown,
+            "planner_attached": session.llm_available,
+        }
+
+    def research_status(
+        self,
+        session_id: str,
+        horizon_path: str | None = None,
+        config_path: str | None = None,
+    ) -> dict[str, Any]:
+        session = self._require(
+            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            "research",
+        )
+        record = session.store.get_session(session_id)
+        if record is None:
+            raise HorizonMcpError(
+                code="HZ_SESSION_NOT_FOUND",
+                message=f"session_id={session_id} does not exist.",
+                details={"session_id": session_id},
+            )
+        return {
+            "session": self._jsonable(record),
+            "subquestions": [self._jsonable(s) for s in session.store.subquestions(session_id)],
+            "turns": [self._jsonable(t) for t in session.store.turns(session_id, limit=50)],
+            "report": session.render_report(session_id),
+        }
+
+    def research_list(
+        self,
+        limit: int = 20,
+        horizon_path: str | None = None,
+        config_path: str | None = None,
+    ) -> dict[str, Any]:
+        session = self._require(
+            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            "research",
+        )
+        sessions = session.store.list_sessions(limit=max(1, min(limit, 100)))
+        return {"count": len(sessions), "sessions": [self._jsonable(s) for s in sessions]}
+
     @staticmethod
     def _profiles(ctx: PipelineContext) -> ProfileRegistry:
         return ProfileRegistry.load(
