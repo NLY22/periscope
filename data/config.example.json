@@ -137,7 +137,10 @@
     },
     "twitter": {
       "enabled": false,
-      "users": ["karpathy", "ylecun"],
+      "users": [
+        "karpathy",
+        "ylecun"
+      ],
       "keywords": [],
       "fetch_limit": 10,
       "fetch_reply_text": false,
@@ -157,7 +160,15 @@
           "provider": "yfinance",
           "fetch_limit": 20,
           "category": "equities",
-          "symbols": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"],
+          "symbols": [
+            "AAPL",
+            "MSFT",
+            "NVDA",
+            "GOOGL",
+            "AMZN",
+            "META",
+            "TSLA"
+          ],
           "profile": "tech-news"
         }
       ]
@@ -165,7 +176,11 @@
     "ossinsight": {
       "enabled": false,
       "period": "past_24_hours",
-      "languages": ["All", "Python", "TypeScript"],
+      "languages": [
+        "All",
+        "Python",
+        "TypeScript"
+      ],
       "keywords": [],
       "min_stars": 10,
       "max_items": 30,
@@ -178,7 +193,10 @@
           "channel": "zaihuapd",
           "enabled": true,
           "fetch_limit": 20,
-          "profile": ["tech-news", "finance-news"]
+          "profile": [
+            "tech-news",
+            "finance-news"
+          ]
         }
       ]
     },
@@ -202,6 +220,43 @@
       "max_results": 100,
       "category": "news",
       "profile": "tech-news"
+    },
+    "bilibili": {
+      "enabled": true,
+      "max_videos": 15,
+      "min_views": 1000,
+      "fetch_comments": 6,
+      "transcript_chars": 2000
+    },
+    "v2ex": {
+      "enabled": true,
+      "base_url": "https://global.v2ex.co",
+      "nodes": [
+        "programmer",
+        "create",
+        "share",
+        "qna"
+      ],
+      "fetch_hot": true,
+      "fetch_replies": 8,
+      "expand_topics": 12
+    },
+    "discourse": {
+      "enabled": true,
+      "sites": [
+        {
+          "base_url": "https://users.rust-lang.org",
+          "name": "Rust Users",
+          "max_topics": 8
+        },
+        {
+          "base_url": "https://meta.discourse.org",
+          "name": "Discourse Meta",
+          "max_topics": 8
+        }
+      ],
+      "max_topics_per_site": 8,
+      "fetch_replies": 4
     }
   },
   "collection": {
@@ -264,5 +319,11 @@
     "enabled": false,
     "languages": null,
     "chunk_size": 4000
+  },
+  "corpus": {
+    "enabled": true,
+    "path": "corpus.db",
+    "cluster_max_distance": 3,
+    "cluster_lookback_rows": 500
   }
 }
