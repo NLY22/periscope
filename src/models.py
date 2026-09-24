@@ -499,6 +499,20 @@ class BilibiliConfig(BaseModel):
     profile: ProfileRoute = None
 
 
+class CorpusConfig(BaseModel):
+    """Persistent evidence corpus (Periscope addition over Horizon).
+
+    When enabled, every fetched item is stored in a local SQLite database
+    with FTS5 full-text search and SimHash near-duplicate clustering, so
+    knowledge accumulates across runs instead of being rebuilt daily.
+    """
+
+    enabled: bool = True
+    path: str = "corpus.db"  # relative to the data directory
+    cluster_max_distance: int = 3  # Hamming bits; <=3 ≈ near-identical
+    cluster_lookback_rows: int = 500  # rows re-grouped per run
+
+
 class SourcesConfig(BaseModel):
     """All sources configuration."""
 
@@ -688,3 +702,4 @@ class Config(BaseModel):
     email: Optional[EmailConfig] = None
     webhook: Optional[WebhookConfig] = None
     wechat: Optional[WeChatConfig] = None
+    corpus: CorpusConfig = Field(default_factory=CorpusConfig)

@@ -226,6 +226,54 @@ class HorizonOrchestrator:
             else None
         )
         self.last_fetch_report: Optional[FetchReport] = None
+        self._corpus = None  # lazy: opened on first use when config.corpus.enabled
+
+    # ------------------------------------------------------------------ corpus
+    def _get_corpus(self):
+        """Lazily open (or create) the persistent evidence corpus."""
+        if self._corpus is None and self.config.corpus.enabled:
+            from .corpus import Corpus
+
+            path = Path(self.storage.data_dir) / self.config.corpus.path
+            self._corpus = Corpus(path)
+            self.console.print(
+                f"{self.icons['fetched']} Evidence corpus: {path} "
+                f"({self._corpus.stats()['items']} items)\n"
+            )
+        return self._corpus
+
+    def persist_to_corpus(
+        self, items: List[ContentItem], since: datetime
+    ) -> None:
+        """Store fetched items in the evidence corpus (best-effort).
+
+        Corpus failures must never break the daily pipeline, so errors are
+        reported and swallowed; the run simply behaves like stateless Horizon.
+        """
+        corpus = None
+        try:
+            corpus = self._get_corpus()
+            if corpus is None:
+                return
+            run_id = corpus.begin_run(since)
+            new_count = corpus.add_items(items, run_id)
+            corpus.recompute_clusters(
+                max_distance=self.config.corpus.cluster_max_distance,
+                lookback_rows=self.config.corpus.cluster_lookback_rows,
+            )
+            corpus.finish_run(
+                run_id,
+                items_new=new_count,
+                items_total_seen=len(items),
+            )
+            self.console.print(
+                f"{self.icons['fetched']} Corpus: +{new_count} new items "
+                f"({corpus.stats()['items']} total)\n"
+            )
+        except Exception as exc:
+            self.console.print(
+                f"[yellow]Corpus persistence failed (pipeline continues): {exc}[/yellow]\n"
+            )
 
     async def run(self, force_hours: int = None) -> None:
         """Execute the complete workflow.
@@ -522,6 +570,9 @@ class HorizonOrchestrator:
             all_items: List[ContentItem] = []
             for outcome in outcomes:
                 all_items.extend(outcome.items)
+
+            # Periscope: accumulate evidence in the persistent corpus.
+            self.persist_to_corpus(all_items, since)
 
             return all_items
 
