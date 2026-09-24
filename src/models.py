@@ -514,6 +514,23 @@ class CorpusConfig(BaseModel):
     cluster_lookback_rows: int = 500  # rows re-grouped per run
 
 
+class AnalysisConfig(BaseModel):
+    """Claim-level correctness analysis (Phase C).
+
+    Extraction and grading are the only LLM steps and both are budget-
+    bounded per run; evidence linking and independence counting are
+    deterministic and free.
+    """
+
+    enabled: bool = True
+    max_claims_per_item: int = 5
+    evidence_per_claim: int = 6
+    grade_min_sources: int = 2  # >= N independent clusters before grading
+    grade_budget_per_run: int = 8  # LLM calls reserved for grading
+    extract_top_items: int = 12  # analyse at most this many new items/run
+    item_content_chars: int = 3500
+
+
 class SourcesConfig(BaseModel):
     """All sources configuration."""
 
@@ -704,3 +721,4 @@ class Config(BaseModel):
     webhook: Optional[WebhookConfig] = None
     wechat: Optional[WeChatConfig] = None
     corpus: CorpusConfig = Field(default_factory=CorpusConfig)
+    analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)

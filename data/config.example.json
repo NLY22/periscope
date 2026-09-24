@@ -325,5 +325,13 @@
     "path": "corpus.db",
     "cluster_max_distance": 3,
     "cluster_lookback_rows": 500
+  },
+  "analysis": {
+    "enabled": true,
+    "max_claims_per_item": 5,
+    "evidence_per_claim": 6,
+    "grade_min_sources": 2,
+    "grade_budget_per_run": 8,
+    "extract_top_items": 12
   }
 }

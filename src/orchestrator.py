@@ -39,6 +39,10 @@ from .processing import ProfileRegistry
 from .processing.tools import ToolRegistry
 
 
+# Sentinel: distinguishes "AI client not yet built" from "built, but None".
+_AI_UNSET = object()
+
+
 _TRACKING_QUERY_PARAMETERS = {
     "_ga",
     "dclid",
@@ -227,6 +231,7 @@ class HorizonOrchestrator:
         )
         self.last_fetch_report: Optional[FetchReport] = None
         self._corpus = None  # lazy: opened on first use when config.corpus.enabled
+        self._ai_client_cache = _AI_UNSET  # lazy, optional (see _get_optional_ai_client)
 
     # ------------------------------------------------------------------ corpus
     def _get_corpus(self):
@@ -273,6 +278,78 @@ class HorizonOrchestrator:
         except Exception as exc:
             self.console.print(
                 f"[yellow]Corpus persistence failed (pipeline continues): {exc}[/yellow]\n"
+            )
+
+    # ------------------------------------------------------------- analysis
+    def _get_claim_analyzer(self):
+        """Build the claim analyzer over an open corpus; None if unavailable."""
+        corpus = self._get_corpus()
+        if corpus is None or not self.config.analysis.enabled:
+            return None
+        from .analysis import ClaimAnalyzer, ClaimStore
+
+        return ClaimAnalyzer(
+            store=ClaimStore(corpus),
+            corpus=corpus,
+            client=self._get_optional_ai_client(),
+            max_claims_per_item=self.config.analysis.max_claims_per_item,
+            evidence_per_claim=self.config.analysis.evidence_per_claim,
+            grade_min_sources=self.config.analysis.grade_min_sources,
+            content_chars=self.config.analysis.item_content_chars,
+        )
+
+    def _get_optional_ai_client(self):
+        """AI client for background enrichment — optional by design.
+
+        The daily digest needs a working LLM; claim analysis should degrade
+        to deterministic mode (link + count) when no API key is configured.
+        """
+        if self._ai_client_cache is _AI_UNSET:
+            try:
+                self._ai_client_cache = create_ai_client(self.config.ai)
+            except Exception as exc:
+                self.console.print(
+                    f"[yellow]Analysis LLM unavailable ({type(exc).__name__}); "
+                    f"running deterministic claim linking only.[/yellow]"
+                )
+                self._ai_client_cache = None
+        return self._ai_client_cache
+
+    async def analyze_claims(self, items: List[ContentItem]) -> None:
+        """Run the correctness loop over freshly fetched items (best-effort).
+
+        Budgets: extraction touches only the top N new items; grading gets
+        its own call budget and only ever sees claims with enough
+        independent sources. Unfinished claims persist and resume next run.
+        """
+        try:
+            analyzer = self._get_claim_analyzer()
+            if analyzer is None:
+                return
+            ranked = sorted(
+                items,
+                key=lambda i: (i.processing.analysis.score or 0.0) if i.processing and i.processing.analysis else 0.0,
+                reverse=True,
+            )
+            targets = ranked[: self.config.analysis.extract_top_items]
+            extracted = 0
+            for item in targets:
+                extracted += len(await analyzer.extract_claims(item))
+            linked = analyzer.link_all_pending()
+            graded = await analyzer.grade_pending(
+                max_calls=self.config.analysis.grade_budget_per_run
+            )
+            store_stats = analyzer.store.stats()
+            self.console.print(
+                f"{self.icons['ai']} Claims: {extracted} extracted, "
+                f"{linked} linked, {graded} graded "
+                f"(corpus total {store_stats['claims']}, "
+                f"{store_stats['multi_source']} multi-source, "
+                f"LLM calls {analyzer.llm_calls})\n"
+            )
+        except Exception as exc:
+            self.console.print(
+                f"[yellow]Claim analysis failed (pipeline continues): {exc}[/yellow]\n"
             )
 
     async def run(self, force_hours: int = None) -> None:
@@ -348,6 +425,10 @@ class HorizonOrchestrator:
 
             # 6. Search related stories + enrich with background knowledge (2nd AI pass)
             await self.enrich_items(important_items)
+
+            # 6b. Correctness loop (Periscope): claims -> evidence -> verdicts.
+            # Runs after scoring so extraction targets the highest-value items.
+            await self.analyze_claims(analyzed_items)
 
             # 7. Generate and save daily summaries for each configured language
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
