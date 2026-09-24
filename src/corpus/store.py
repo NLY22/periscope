@@ -103,7 +103,13 @@ class Corpus:
     def __init__(self, path: Path | str):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.path))
+        self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
+        # check_same_thread=False: this store is opened once and shared by
+        # the CLI loop, the MCP server and the web panel, where "the thread
+        # that opened it" is an implementation detail of the event loop
+        # (uvicorn workers, TestClient portals). All callers are cooperative
+        # async code on a single loop, so there is never real concurrency on
+        # this connection; WAL keeps crash-consistency regardless.
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")

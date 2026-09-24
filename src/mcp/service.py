@@ -848,7 +848,7 @@ class HorizonPipelineService:
             self._periscope_orchestrator(horizon_path, config_path).get_claim_store(),
             "analysis",
         )
-        claim = store.get(claim_id)
+        claim = store.get_claim(claim_id)
         if claim is None:
             raise HorizonMcpError(
                 code="HZ_CLAIM_NOT_FOUND",

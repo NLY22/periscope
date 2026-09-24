@@ -23,6 +23,8 @@ dependencies = [
     "opencc-python-reimplemented>=0.1.7",
     "trafilatura>=2.1.0",
     "qrcode>=7.4",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +43,7 @@ twitter = [
 [project.scripts]
 periscope = "src.main:main"
 periscope-mcp = "src.mcp.server:main"
+periscope-web = "src.web.server:main"
 periscope-wizard = "src.setup.wizard:main"
 periscope-webhook = "src.services.webhook_cli:main"
 periscope-wechat = "src.services.wechat_cli:main"

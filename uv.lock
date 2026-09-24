@@ -1094,72 +1094,6 @@ wheels = [
 ]
 
 [[package]]
-name = "horizon"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "anthropic" },
-    { name = "beautifulsoup4" },
-    { name = "ddgs" },
-    { name = "feedparser" },
-    { name = "google-genai" },
-    { name = "httpx" },
-    { name = "markdown" },
-    { name = "mcp" },
-    { name = "openai" },
-    { name = "opencc-python-reimplemented" },
-    { name = "pydantic" },
-    { name = "python-dateutil" },
-    { name = "python-dotenv" },
-    { name = "qrcode" },
-    { name = "rich" },
-    { name = "tenacity" },
-    { name = "trafilatura" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-cov" },
-]
-openbb = [
-    { name = "openbb" },
-    { name = "openbb-benzinga" },
-]
-twitter = [
-    { name = "playwright" },
-    { name = "playwright-stealth" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "anthropic", specifier = ">=0.39.0" },
-    { name = "beautifulsoup4", specifier = ">=4.12.0" },
-    { name = "ddgs", specifier = ">=7.0.0" },
-    { name = "feedparser", specifier = ">=6.0.11" },
-    { name = "google-genai", specifier = ">=0.3.0" },
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "markdown", specifier = ">=3.10.2" },
-    { name = "mcp", specifier = ">=1.0.0" },
-    { name = "openai", specifier = ">=1.54.0" },
-    { name = "openbb", marker = "extra == 'openbb'", specifier = ">=4.4.0" },
-    { name = "openbb-benzinga", marker = "extra == 'openbb'", specifier = ">=1.6.0" },
-    { name = "opencc-python-reimplemented", specifier = ">=0.1.7" },
-    { name = "playwright", marker = "extra == 'twitter'", specifier = ">=1.40.0" },
-    { name = "playwright-stealth", marker = "extra == 'twitter'", specifier = ">=1.0.0" },
-    { name = "pydantic", specifier = ">=2.9.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
-    { name = "python-dateutil", specifier = ">=2.9.0" },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "qrcode", specifier = ">=7.4" },
-    { name = "rich", specifier = ">=13.9.0" },
-    { name = "tenacity", specifier = ">=9.0.0" },
-    { name = "trafilatura", specifier = ">=2.1.0" },
-]
-provides-extras = ["dev", "openbb", "twitter"]
-
-[[package]]
 name = "hpack"
 version = "4.1.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -2362,6 +2296,76 @@ sdist = { url = "https://mirrors.aliyun.com/pypi/packages/21/04/8b1f0388389c0595
 wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/ef/d4/2cf83b5fb7fae8939ed596009465c6de0b8fafa70abd486ed9d192e457f7/peewee-4.0.5-py3-none-any.whl", hash = "sha256:05bf687660f04f925bcb7d744e5af826ca526322f2fad894bfa4f1d0f3bcaf50" },
 ]
+
+[[package]]
+name = "periscope"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "anthropic" },
+    { name = "beautifulsoup4" },
+    { name = "ddgs" },
+    { name = "fastapi" },
+    { name = "feedparser" },
+    { name = "google-genai" },
+    { name = "httpx" },
+    { name = "markdown" },
+    { name = "mcp" },
+    { name = "openai" },
+    { name = "opencc-python-reimplemented" },
+    { name = "pydantic" },
+    { name = "python-dateutil" },
+    { name = "python-dotenv" },
+    { name = "qrcode" },
+    { name = "rich" },
+    { name = "tenacity" },
+    { name = "trafilatura" },
+    { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+openbb = [
+    { name = "openbb" },
+    { name = "openbb-benzinga" },
+]
+twitter = [
+    { name = "playwright" },
+    { name = "playwright-stealth" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anthropic", specifier = ">=0.39.0" },
+    { name = "beautifulsoup4", specifier = ">=4.12.0" },
+    { name = "ddgs", specifier = ">=7.0.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "feedparser", specifier = ">=6.0.11" },
+    { name = "google-genai", specifier = ">=0.3.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "markdown", specifier = ">=3.10.2" },
+    { name = "mcp", specifier = ">=1.0.0" },
+    { name = "openai", specifier = ">=1.54.0" },
+    { name = "openbb", marker = "extra == 'openbb'", specifier = ">=4.4.0" },
+    { name = "openbb-benzinga", marker = "extra == 'openbb'", specifier = ">=1.6.0" },
+    { name = "opencc-python-reimplemented", specifier = ">=0.1.7" },
+    { name = "playwright", marker = "extra == 'twitter'", specifier = ">=1.40.0" },
+    { name = "playwright-stealth", marker = "extra == 'twitter'", specifier = ">=1.0.0" },
+    { name = "pydantic", specifier = ">=2.9.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
+    { name = "python-dateutil", specifier = ">=2.9.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "qrcode", specifier = ">=7.4" },
+    { name = "rich", specifier = ">=13.9.0" },
+    { name = "tenacity", specifier = ">=9.0.0" },
+    { name = "trafilatura", specifier = ">=2.1.0" },
+    { name = "uvicorn", specifier = ">=0.30.0" },
+]
+provides-extras = ["dev", "openbb", "twitter"]
 
 [[package]]
 name = "platformdirs"
