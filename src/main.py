@@ -23,14 +23,13 @@ def print_banner():
     """Print the application banner."""
     banner = r"""
 [bold blue]
-  _    _            _
- | |  | |          (_)
- | |__| | ___  _ __ _ ___  ___  _ __
- |  __  |/ _ \| '__| |_  / / _ \| '_ \
- | |  | | (_) | |  | |/ / | (_) | | | |
- |_|  |_|\___/|_|  |_/___| \___/|_| |_|
+ ___ _ __ _ __ ___  _ __   ___  ___  ___  ___
+/ __| '_ \ '_ ` _ \| '_ \ / _ \/ __|/ _ \/ __|
+\__ \ |_) | | | | | | |_) |  __/\__ \ (_) \__ \
+|___/ .__/|_| |_| |_| .__/ \___||___/\___/|___/
+    |_|             |_|              潜望镜
 [/bold blue]
-[cyan]  AI-Driven Information Aggregation System[/cyan]
+[cyan]  From daily briefing to persistent research[/cyan]
     """
     console.print(banner)
 

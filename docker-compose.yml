@@ -1,16 +1,36 @@
 services:
-  horizon:
+  # Long-lived web panel: browse the corpus, drill into claim verdicts,
+  # run iterative research sessions. Data dir is shared with the collector,
+  # so both see the same corpus.db / llm_cache.db.
+  periscope-web:
     build:
       context: .
       # args:
-      #   EXTRAS: trafilatura  # comma-separated optional extras, e.g. "trafilatura,openbb"
-    container_name: horizon
+      #   EXTRAS: openbb  # comma-separated optional extras
+    container_name: periscope-web
+    entrypoint: ["uv", "run", "periscope-web"]
+    command: ["--host", "0.0.0.0", "--port", "8790", "--data-dir", "/app/data"]
+    ports:
+      - "8790:8790"
     volumes:
       - ./data:/app/data
       - ./.env:/app/.env:ro
     environment:
       - TZ=UTC
-    restart: "no"
-    # Run daily at 8:00 AM UTC (adjust as needed)
-    # For one-time run, use: docker compose run --rm horizon
+    restart: unless-stopped
+
+  # One-shot collector: fetch -> score -> digest -> corpus persistence.
+  # Run manually (`docker compose run --rm periscope-collect --hours 24`)
+  # or schedule it yourself (cron/systemd timer) — the corpus accumulates
+  # across runs, that's the whole point.
+  periscope-collect:
+    build:
+      context: .
+    container_name: periscope-collect
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env:ro
+    environment:
+      - TZ=UTC
     command: ["--hours", "24"]
+    restart: "no"

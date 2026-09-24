@@ -1,7 +1,6 @@
-# Use Python 3.11 slim image
+# Periscope — daily collector (default) or web panel (periscope-web service)
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
 # Install uv for faster dependency management
@@ -29,17 +28,18 @@ RUN set -eu; \
     fi; \
     uv sync --frozen --no-dev "$@"
 
-# Runtime data is mounted here; keep the image and process unprivileged.
-RUN useradd --create-home --uid 10001 horizon \
-    && chown -R horizon:horizon /app
+# Runtime data (corpus.db, llm_cache.db, config.json) is mounted here;
+# keep the image and process unprivileged.
+RUN useradd --create-home --uid 10001 periscope \
+    && mkdir -p /app/data \
+    && chown -R periscope:periscope /app
 
-# Create volume mount points
+ENV PYTHONUNBUFFERED=1
+USER periscope
+
 VOLUME ["/app/data"]
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-USER horizon
-
-# Run the application
-ENTRYPOINT ["uv", "run", "horizon"]
+# Default: one collection pass (cron-friendly). Override the command for the
+# panel service (see docker-compose.yml).
+ENTRYPOINT ["uv", "run", "periscope"]
 CMD []

@@ -27,7 +27,7 @@
 
 📡 Your own AI-powered news radar. Generates daily briefings in English & Chinese. | 构建你专属的 AI 新闻雷达
 
-[📖 Live Demo](https://thysrael.github.io/Periscope/) · [📋 Configuration Guide](https://thysrael.github.io/Periscope/configuration) · [💬 QQ Group](#community) · [简体中文](README_zh.md) · [日本語](README_ja.md)
+[📖 Live Demo](https://thysrael.github.io/Periscope/) · [📋 Configuration Guide](https://thysrael.github.io/Periscope/configuration) · [💬 QQ Group](#community)
 
 </div>
 
@@ -110,6 +110,30 @@ Assign a profile to a source, or let AI choose. Want a different take? Adapt an 
 
 Run the full pipeline through the CLI, or let an AI assistant call its stages through [MCP](src/mcp/README.md).
 
+## Periscope's Own Layer: From Briefing to Research
+
+Upstream Horizon answers *"what is worth reading today"* and forgets by tomorrow. Periscope keeps four first-principles upgrades — they're what this fork exists for:
+
+1. **Evidence corpus (`corpus.db`)** — every item ever collected is stored with a SimHash fingerprint and near-duplicate clustering, searchable with SQLite FTS5 (CJK-aware). Knowledge accumulates across runs instead of evaporating after the digest.
+2. **Claim-level correctness** — top items are distilled into atomic, checkable claims; each claim is linked to corpus evidence, and *independent sources* are counted by duplicate cluster: ten syndicated copies of one press release are one vote, not ten. Grading (supported / contested / unsupported + confidence) is budget-bounded per run.
+3. **Long-session research** — ask a question, get a decomposed sub-question tree investigated against the corpus, with a cited markdown report. Follow-ups iterate the same session across days and restarts (state lives in SQLite).
+4. **Honest degradation everywhere** — no LLM key? The corpus still grows, evidence still links deterministically, reports still say *"尚未回答"* with collected evidence rather than hallucinating. The default LLM is the free **Agnes** tier (`agnes-2.5-flash`), and every call goes through a persistent response cache + throttle, so crash-recovery runs and repeated prompts cost zero quota.
+
+### Drive it
+
+```bash
+# terminal: one collection pass (fetch -> score -> digest -> corpus + claims)
+uv run periscope --hours 24
+
+# web panel: 证据库 / 研究报告 / 核查台 (http://localhost:8790)
+uv run periscope-web --data-dir data
+
+# MCP: 22 tools for any MCP client (hz_research_start, hz_corpus_search, ...)
+uv run periscope-mcp
+```
+
+Config keys: `corpus`, `analysis`, `research` (see `data/config.example.json`). Point `.env` at `AGNES_API_KEY` for the full experience; everything else runs without any key.
+
 ## Quick Start
 
 ### 1. Install
@@ -151,7 +175,7 @@ git clone https://github.com/Thysrael/Periscope.git
 cd Periscope
 
 # Optional: build with comma-separated extras before the first run
-docker compose build --build-arg EXTRAS=openbb periscope
+docker compose build --build-arg EXTRAS=openbb periscope-collect
 ```
 
 Full-text extraction with `trafilatura` is included in the base install. The `twitter` extra also requires a Playwright browser and system packages, which the current Dockerfile does not install.
@@ -275,7 +299,10 @@ uv run periscope [OPTIONS]
 **B. Docker**
 
 ```bash
-docker compose run --rm periscope [OPTIONS]
+# collector, one pass
+docker compose run --rm periscope-collect --hours 24
+# web panel on :8790
+docker compose up -d periscope-web
 ```
 
 | Option | Default | Description |
@@ -305,6 +332,9 @@ Schedule Periscope with **GitHub Actions** using the [daily workflow template](.
 | **OSS Insight** | Trending open-source repositories | — |
 | **GDELT** | News matching a search query | — |
 | **Google News** | News search via RSS | — |
+| **Bilibili** 🆕 | Popular videos (title, stats, top comments; CC-subtitle transcript when present) | Yes |
+| **V2EX** 🆕 | Node topics + hot topics, replies included | Yes |
+| **Discourse** 🆕 | Any Discourse forum's latest topics (Rust Users, etc.) | Yes |
 
 ## Where Your Briefing Goes
 
