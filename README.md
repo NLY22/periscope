@@ -45,6 +45,8 @@
 - [进阶用法](#进阶用法)
 - [配置参考](#配置参考)
 - [项目结构](#项目结构)
+- [开发与测试](#开发与测试)
+- [安全与可靠性](#安全与可靠性)
 - [文档](#文档)
 - [项目状态](#项目状态)
 - [贡献](#贡献)
@@ -59,7 +61,7 @@
 
 你的品味决定了你读什么，也决定了你希望从中得到什么。一篇新闻报道需要回答「为什么重要」，一篇工程深度长文需要回答「我能用上什么」。Periscope 的 **Profile（画像）** 为每一类内容定义各自的评分标准与输出形式，让简报读起来像是为你手工挑选的。
 
-Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游只回答「今天有什么值得读」，到了第二天就遗忘；本 fork 在此之上增加了**证据语料库、声明级核查、长会话研究与 Web 面板**四层持久化能力，让知识能够跨运行累积。详见[本 fork 的独有层次](#本-fork-的独有层次)。
+Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游只回答「今天有什么值得读」，到了第二天就遗忘；本 fork 在此之上增加了**证据语料库、声明级核查与长会话研究**三项核心能力，并提供 **Web 面板**与扩展的 **MCP** 入口，让知识能够跨运行累积。详见[本 fork 的独有层次](#本-fork-的独有层次)。
 
 ## 核心特性
 
@@ -149,14 +151,14 @@ Profile 是一套可复用的编辑规则：**什么内容该收录、什么值�
 
 ## 本 fork 的独有层次
 
-上游 Horizon 只回答「今天有什么值得读」，并且到了第二天就遗忘。Periscope 保留了四项第一性升级——这正是本 fork 存在的意义：
+上游 Horizon 只回答「今天有什么值得读」，并且到了第二天就遗忘。本 fork 在此基础上做了四项增强：
 
 1. **证据语料库（`corpus.db`）** — 所有曾经采集过的条目都会带 SimHash 指纹与近似重复聚簇被持久化存储，可用 SQLite FTS5（对 CJK 友好）检索。知识会跨运行累积，而不是在生成摘要后就蒸发。
 2. **声明级正确性核查** — 高分条目会被蒸馏为原子化、可核查的声明；每条声明都与语料证据关联，并按重复聚簇统计*独立信源*：一份通稿被十家媒体转载，只算一票而非十票。评级（supported / contested / unsupported + 置信度）每轮有预算上限。
 3. **长会话研究** — 提出一个问题，会得到一棵分解后的子问题树，逐题对照语料取证，并输出带引用的 Markdown 报告。追问会在同一会话上跨天、跨重启迭代（状态保存在 SQLite 中）。
 4. **处处诚实降级** — 没有 LLM key？语料照常增长，证据照常确定性关联，报告会写明*「尚未回答」*并附上已收集的证据，而不是编造内容。默认 LLM 是免费的 **Agnes** 层（`agnes-2.5-flash`），且每次调用都经过持久化响应缓存与限流，因此崩溃恢复运行与重复提示词都不消耗额外额度。
 
-这三个能力层由 CLI、Web 面板与 MCP 三个入口共享同一份 `corpus.db`，因此会话与证据跨入口、跨重启都可见。
+这些能力由 CLI、Web 面板与 MCP 三个入口共享同一份 `corpus.db`，因此会话与证据跨入口、跨重启都可见。
 
 ### 驱动它
 
@@ -192,6 +194,8 @@ uv sync --extra dev
 # 或使用 pip
 pip install -e .
 ```
+
+Periscope 需要 **Python 3.11 及以上**（见 `pyproject.toml` 的 `requires-python`）。
 
 `dev` 目前是 `pyproject.toml` 中的可选 extra，因此安装 pytest 等开发依赖请使用 `uv sync --extra dev`。
 
@@ -345,7 +349,7 @@ docker compose up -d periscope-web
 
 ### 4. 自动化（可选）
 
-使用 **GitHub Actions** 定时运行 Periscope，可参考[每日工作流模板](.github/workflows/daily-summary.yml.disabled)。该模板在本仓库中处于禁用状态；配置好你的部署方式后，将其重命名为 `daily-summary.yml` 即可启用。
+Periscope 适合用系统定时器调度，例如 `cron` 或 `systemd timer`；Docker Compose 也可直接配合定时任务使用。若将其托管在 GitHub，仓库内提供了[每日工作流模板](.github/workflows/daily-summary.yml.disabled)（本仓库中处于禁用状态），配置好后重命名为 `daily-summary.yml` 即可启用。
 
 ## 支持的 AI 提供商
 
@@ -374,9 +378,9 @@ docker compose up -d periscope-web
 | **RSS / Atom** | 任意 RSS 或 Atom 源 | 可选全文抽取 |
 | **Reddit** | 子版块 + 用户帖子 | 是（前 N 条评论） |
 | **Telegram** | 公开频道消息 | — |
-| **Twitter / X** | 用户时间线 + 关键词搜索（Apify） | 是（前 N 条回复） |
+| **Twitter / X** | 用户时间线 + 关键词搜索（Apify）；另支持 Playwright + Cookie 的免 token 模式 | 是（前 N 条回复） |
 | **GitHub** | 用户事件与仓库 Release | — |
-| **OpenBB** | 按自选股/提供商抓取公司财经新闻 | — |
+| **OpenBB** | 按自选股/提供商抓取公司财经新闻（可选 SEC filings） | — |
 | **OSS Insight** | 开源趋势仓库 | — |
 | **GDELT** | 匹配搜索词的全球新闻 | — |
 | **Google News** | 经 RSS 的新闻搜索 | — |
@@ -474,6 +478,23 @@ periscope/
 └── pyproject.toml
 ```
 
+## 开发与测试
+
+```bash
+uv sync --extra dev                    # 安装开发依赖
+uv run pytest                          # 运行全部测试
+uv run pytest tests/test_corpus.py     # 运行单个测试文件
+```
+
+测试位于 `tests/`，覆盖流水线各阶段、各数据源抓取器、证据语料库与声明核查、研究会话、Web 面板与 MCP 服务等。
+
+## 安全与可靠性
+
+- **SSRF 防护** — 抓取与正文抽取前校验 URL 的 scheme、主机与端口，解析后要求所有地址为公网，并逐跳校验重定向。
+- **路径逃逸防护** — 摘要与运行产物写入前校验目标路径位于允许目录内。
+- **凭据脱敏** — MCP 返回的有效配置会递归脱敏 `token`、`secret`、`password` 等字段，Webhook 日志同样脱敏。
+- **降级而非崩溃** — LLM 缓存读写失败、单个数据源抓取失败、声明评级失败都不会中断整条流水线。
+
 ## 文档
 
 | 指南 | 说明 |
@@ -490,7 +511,7 @@ periscope/
 
 Periscope 已支持完整的每日简报闭环：多源采集、Profile 驱动的分析与富化、去重、评论摘要、双语生成、GitHub Pages 发布、邮件投递、Webhook 投递、微信投递、Docker 部署、MCP 集成与配置向导。
 
-本 fork 在此基础上额外提供四层持久化能力（见[本 fork 的独有层次](#本-fork-的独有层次)），并已提供 Web 面板这一独立入口。
+本 fork 在此基础上额外提供证据语料库、声明级核查与长会话研究三项核心能力，并提供 Web 面板这一独立入口（见[本 fork 的独有层次](#本-fork-的独有层次)）。
 
 后续计划：
 
