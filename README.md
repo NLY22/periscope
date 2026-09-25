@@ -23,11 +23,67 @@
 ![MiniMax](https://img.shields.io/badge/MiniMax-FF6F00?style=flat-square&logo=minimax&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-FFFFFF?style=flat-square&logo=Ollama&logoColor=black)
 
-📡 你专属的 AI 新闻雷达，自动生成中英双语每日简报。
+📡 你专属的 AI 新闻雷达：聚合多源信息，自动筛选、去重、富化，生成中英双语每日简报，并把每一天的知识沉淀成可检索、可核查、可研究的证据库。
 
-[📖 在线演示](https://thysrael.github.io/Periscope/) · [📋 配置指南](docs/configuration.md) · [💬 QQ 群](#社区)
+[📖 在线演示](https://thysrael.github.io/Periscope/) · [📋 配置指南](docs/configuration.md) · [🧩 Profile 定制](docs/profiles.md) · [💬 QQ 群](#社区)
 
 </div>
+
+---
+
+## 目录
+
+- [简介](#简介)
+- [核心特性](#核心特性)
+- [截图](#截图)
+- [工作原理](#工作原理)
+- [本 fork 的独有层次](#本-fork-的独有层次)
+- [快速开始](#快速开始)
+- [支持的 AI 提供商](#支持的-ai-提供商)
+- [支持的数据源](#支持的数据源)
+- [投递渠道](#投递渠道)
+- [进阶用法](#进阶用法)
+- [配置参考](#配置参考)
+- [项目结构](#项目结构)
+- [文档](#文档)
+- [项目状态](#项目状态)
+- [贡献](#贡献)
+- [社区](#社区)
+- [赞助支持](#赞助支持)
+- [致谢](#致谢)
+- [许可证](#许可证)
+
+## 简介
+
+好的内容散落在订阅源、论坛与时间线里，而你的注意力是有限的。**Periscope 会替你收集、筛选、去重**，再把真正值得一读的内容连同背景与社区讨论一起送到你面前。
+
+你的品味决定了你读什么，也决定了你希望从中得到什么。一篇新闻报道需要回答「为什么重要」，一篇工程深度长文需要回答「我能用上什么」。Periscope 的 **Profile（画像）** 为每一类内容定义各自的评分标准与输出形式，让简报读起来像是为你手工挑选的。
+
+Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游只回答「今天有什么值得读」，到了第二天就遗忘；本 fork 在此之上增加了**证据语料库、声明级核查、长会话研究与 Web 面板**四层持久化能力，让知识能够跨运行累积。详见[本 fork 的独有层次](#本-fork-的独有层次)。
+
+## 核心特性
+
+- **📡 聚合你的信息源** — 订阅 RSS、Hacker News、Reddit、Telegram、X、GitHub、Bilibili、V2EX、Discourse、YouTube、财经资讯等 14 类来源。
+- **🎯 判断什么值得读** — 用 Profile 定义评分细则，为每个 Profile 设置阈值，并在同一 Profile 内合并重复报道。
+- **🧩 为每篇内容定制处理方式** — 通过 Markdown 提示词与 JSON block 定义，自由组合摘要、背景、解决方案或要点。
+- **💬 不止于标题** — 在有助于解释事件时，自动补充联网检索到的背景与社区讨论。
+- **⚖️ 兼顾你的所有兴趣** — 限制简报总长度与各分类占比，避免某一热门话题挤占其余内容。
+- **📬 在你习惯的地方阅读** — 生成中英双语 Markdown 简报，发布到 Pages，或通过邮件、Webhook、微信投递。
+- **🧠 让每一天都可积累** — 所有采集过的内容进入证据语料库，可全文检索、做声明核查，并作为长会话研究的素材。
+- **🧯 诚实的降级** — 没有 LLM key 也能运行：语料照常增长、证据照常确定性关联，报告会如实标注「尚未回答」而不是编造内容。
+
+### 一份简报，多种读法
+
+Profile 是一套可复用的编辑规则：**什么内容该收录、什么值得保留、该写成什么样。** 内置示例如下：
+
+| 你关注的内容 | Profile | 你将得到 |
+|---|---|---|
+| 科技新闻 | `tech-news` | 事件与背景，必要时附影响分析与社区讨论 |
+| 工程深度长文 | `tech-blog` | 背景、解决方案与可落地的要点 |
+| AI 创作者素材 | `ai-creator` | 摘要，必要时附热点切入角度与内容思路 |
+| 财经资讯 | `finance-news` | 公司动态与市场脉络 |
+
+你可以为某个信息源指定 Profile，也可以让 AI 自动选择。想要不一样的风格？通常无需改 Python，直接改编现有 Profile 即可。[定制你的 Profile →](docs/profiles.md)
 
 ## 截图
 
@@ -71,33 +127,6 @@
 </table>
 </details>
 
-## 为什么选择 Periscope？
-
-好的内容散落在订阅源、论坛和时间线里，而你的注意力是有限的。Periscope 会替你收集、筛选、去重，再把真正值得一读的内容连同背景与社区讨论一起送到你面前。
-
-你的品味决定了你读什么，也决定了你希望从中得到什么。一篇新闻报道需要回答「为什么重要」；一篇工程深度长文需要回答「我能用上什么」。Periscope 的 **Profile（画像）** 为每类内容定义各自的评分标准与输出形式，让简报读起来像是为你手工挑选的。
-
-## 功能特性
-
-- **📡 聚合你的信息源** — 订阅 RSS、Hacker News、Reddit、Telegram、X、GitHub、财经资讯等。
-- **🎯 判断什么值得读** — 用 Profile 定义评分细则，设置各自的阈值，并在同一 Profile 内合并重复报道。
-- **🧩 为每篇内容定制处理方式** — 通过 Markdown 提示词与 JSON block 定义，选择摘要、背景、解决方案或要点。
-- **💬 不止于标题** — 在有助于解释事件时，补充联网检索到的背景与社区讨论。
-- **⚖️ 兼顾你的所有兴趣** — 限制简报总长度与各分类占比，避免某一热门话题挤占其余内容。
-- **📬 在你习惯的地方阅读** — 生成中英双语 Markdown 简报，发布到 Pages，或通过邮件与 Webhook 投递。
-
-### 一份简报，多种读法
-
-Profile 是一套可复用的编辑规则：**什么内容该收录、什么值得保留、该写成什么样。** 内置示例如下：
-
-| 你关注的内容 | Profile | 你将得到 |
-|---|---|---|
-| 科技新闻 | `tech-news` | 事件与背景，必要时附影响分析与社区讨论 |
-| 工程深度长文 | `tech-blog` | 背景、解决方案与可落地的要点 |
-| AI 创作者素材 | `ai-creator` | 摘要，必要时附热点切入角度与内容思路 |
-
-你可以为某个信息源指定 Profile，也可以让 AI 自动选择。想要不一样的风格？通常无需改 Python，直接改编现有 Profile 即可。[定制你的 Profile →](docs/profiles.md)
-
 ## 工作原理
 
 ![Periscope 架构：十余个信息源汇入 Profile 驱动的流水线，结合历史与联网检索工具，投递到 Markdown、Pages、邮件、微信与 Webhook。](docs/assets/architecture.svg)
@@ -106,9 +135,19 @@ Profile 是一套可复用的编辑规则：**什么内容该收录、什么值�
 
 **Profile 决定处理方式，运行期配置反映你的阅读偏好。** 每个条目只会路由到一个 Profile。分析、过滤与去重在富化之前完成，随后入选条目按 Profile 分组形成简报。
 
+一次完整运行（`periscope --hours 24`）的阶段顺序如下：
+
+1. **采集** — 并发抓取所有已启用数据源，每个源独立成败，结果同时写入证据语料库并重算近似重复聚簇。
+2. **跨源去重** — 规范化 URL（剥离 `utm_*`、`gclid` 等跟踪参数），合并指向同一内容的多源条目。
+3. **分析** — 分类路由到 Profile，由 AI 完成评分、理由、摘要与标签。
+4. **选择与过滤** — Profile 阈值过滤 → AI 主题去重 → 均衡配额（`digest` 配置）。
+5. **富化** — 第二遍 AI，按 Profile 定义的 block 生成多语言产物，可调用联网检索与历史检索工具。
+6. **声明核查** — 将高分条目蒸馏为原子声明，关联语料证据并评级（本 fork 新增，尽力而为）。
+7. **摘要与投递** — 程序化渲染多语言 Markdown 日报，保存到 `data/summaries/`，并按配置发布或投递。
+
 你可以通过 CLI 运行完整流水线，也可以让 AI 助手经由 [MCP](src/mcp/README.md) 调用其中的各个阶段。
 
-## Periscope 的独有层次：从简报到研究
+## 本 fork 的独有层次
 
 上游 Horizon 只回答「今天有什么值得读」，并且到了第二天就遗忘。Periscope 保留了四项第一性升级——这正是本 fork 存在的意义：
 
@@ -116,6 +155,8 @@ Profile 是一套可复用的编辑规则：**什么内容该收录、什么值�
 2. **声明级正确性核查** — 高分条目会被蒸馏为原子化、可核查的声明；每条声明都与语料证据关联，并按重复聚簇统计*独立信源*：一份通稿被十家媒体转载，只算一票而非十票。评级（supported / contested / unsupported + 置信度）每轮有预算上限。
 3. **长会话研究** — 提出一个问题，会得到一棵分解后的子问题树，逐题对照语料取证，并输出带引用的 Markdown 报告。追问会在同一会话上跨天、跨重启迭代（状态保存在 SQLite 中）。
 4. **处处诚实降级** — 没有 LLM key？语料照常增长，证据照常确定性关联，报告会写明*「尚未回答」*并附上已收集的证据，而不是编造内容。默认 LLM 是免费的 **Agnes** 层（`agnes-2.5-flash`），且每次调用都经过持久化响应缓存与限流，因此崩溃恢复运行与重复提示词都不消耗额外额度。
+
+这三个能力层由 CLI、Web 面板与 MCP 三个入口共享同一份 `corpus.db`，因此会话与证据跨入口、跨重启都可见。
 
 ### 驱动它
 
@@ -302,17 +343,6 @@ docker compose up -d periscope-web
 
 `--data-dir` 会改变状态目录，包括摘要、订阅者以及默认配置位置；`--config` 只改变配置文件。生成的报告保存在 `data/summaries/`（若设置了 `--data-dir` 则为 `<data-dir>/summaries/`）。两者组合使用及自定义配置位置的初始化方式见[配置路径](docs/configuration.md#configuration-paths)。
 
-除主命令外，Periscope 还提供以下入口：
-
-| 命令 | 用途 |
-|------|------|
-| `periscope` | 运行一次完整流水线（采集 → 评分 → 摘要 → 语料 + 声明核查） |
-| `periscope-wizard` | 交互式配置向导，生成 `data/config.json` |
-| `periscope-web` | 证据库 / 研究报告 / 核查台 Web 面板（默认 `:8790`） |
-| `periscope-mcp` | MCP 服务（stdio，22 个工具 + resources） |
-| `periscope-webhook` | Webhook 连通性测试与干跑预览 |
-| `periscope-wechat` | 微信 iLink 登录 / 状态 / 测试发送 |
-
 ### 4. 自动化（可选）
 
 使用 **GitHub Actions** 定时运行 Periscope，可参考[每日工作流模板](.github/workflows/daily-summary.yml.disabled)。该模板在本仓库中处于禁用状态；配置好你的部署方式后，将其重命名为 `daily-summary.yml` 即可启用。
@@ -341,7 +371,7 @@ docker compose up -d periscope-web
 | 数据源 | 抓取内容 | 评论 / 附加能力 |
 |--------|----------|-----------------|
 | **Hacker News** | 按分数排序的热门帖子 | 是（前 N 条评论） |
-| **RSS / Atom** | 任意 RSS 或 Atom 源 | — |
+| **RSS / Atom** | 任意 RSS 或 Atom 源 | 可选全文抽取 |
 | **Reddit** | 子版块 + 用户帖子 | 是（前 N 条评论） |
 | **Telegram** | 公开频道消息 | — |
 | **Twitter / X** | 用户时间线 + 关键词搜索（Apify） | 是（前 N 条回复） |
@@ -350,12 +380,12 @@ docker compose up -d periscope-web
 | **OSS Insight** | 开源趋势仓库 | — |
 | **GDELT** | 匹配搜索词的全球新闻 | — |
 | **Google News** | 经 RSS 的新闻搜索 | — |
-| **Bilibili** | 热门视频（标题、统计、热门评论；有 CC 字幕时提取转录） | 是 |
-| **V2EX** | 节点主题 + 热门主题，含回复 | 是 |
-| **Discourse** | 任意 Discourse 论坛的最新主题（如 Rust Users） | 是 |
-| **YouTube** | 经官方公开 atom feed 抓取频道更新（标题 + 描述文本） | 是 |
+| **Bilibili** | 热门视频（标题、统计、热门评论） | 是；有 CC 字幕时提取转录 |
+| **V2EX** | 节点主题 + 热门主题 | 是（含回复） |
+| **Discourse** | 任意 Discourse 论坛的最新主题 | 是（含楼层讨论） |
+| **YouTube** | 经官方公开 atom feed 抓取频道更新 | 标题 + 描述文本 |
 
-## 简报的投递渠道
+## 投递渠道
 
 Periscope 可以通过多种方式发布或投递生成的简报：
 
@@ -366,17 +396,83 @@ Periscope 可以通过多种方式发布或投递生成的简报：
 | **Webhook 通知** | 把成功或失败结果推送到飞书/Lark、钉钉、Slack、Discord 或任意自定义 Webhook 端点 |
 | **微信通知** | 通过 iLink Bot 在扫码登录并收到你的消息后发送简报；受微信回复条数限制 |
 
-投递配置见[配置指南](docs/configuration.md)。若要从 AI 助手运行流水线各阶段，请使用 **MCP Server**：[工具说明](src/mcp/README.md) · [客户端配置](src/mcp/integration.md)。
+## 进阶用法
 
-## 赞助支持
+### Web 面板
 
-Periscope 是一个利用业余时间维护的开源项目。如果你想支持本项目或希望出现在此列表中，欢迎[提交 Issue](https://atomgit.com/NLY22/periscope/issues/new)或[邮件联系](mailto:thysrael@163.com)。
+```bash
+uv run periscope-web --data-dir data        # 默认 http://localhost:8790
+```
 
-| 支持者 | 详情 |
-|-----------|---------|
-| [<img src="docs/assets/compshare-logo.png" alt="Compshare / 优云智算" width="220" />](https://www.compshare.cn/?ytag=GPU_YY_git_Periscope) | Compshare 目前为 Periscope 提供支持。Compshare 是 UCloud 旗下的 AI 云平台，提供高性价比的包月与按量付费国内模型 Agent 方案，低至 49 元/月起，同时提供稳定官方转发的海外模型，支持 Claude Code、Codex 及 API 使用，具备企业级高并发、7×24 技术支持与自助开票能力。<br><br>通过他们的[链接](https://www.compshare.cn/?ytag=GPU_YY_git_Periscope)注册可获赠 5 元试用额度。 |
-| [<img src="docs/assets/apimart-logo.jpg" alt="APIMart" width="220" />](https://go.apimart.ai/gh-periscope) | 感谢 APIMart 赞助本项目！APIMart 是一个低成本的 AI 图像与视频生成 API 平台——GPT-Image-2 低至 $0.006/张，一美元可生成 160+ 张图片。一套异步 API 同时覆盖图像与视频：提交任务、获取 ID、通过轮询或回调取回结果。可批量处理数万张图片而不超时，切换模型无需改动代码。按量付费、无月费——[点此注册](https://go.apimart.ai/gh-periscope)即可开始。 |
-| [<img src="docs/assets/ofoxai-logo.svg" alt="OfoxAI" width="220" />](https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=periscope) | OfoxAI 是一个统一的 AI API 平台，汇集多家提供商的文本、图像与视频模型。凭借 OpenAI 兼容端点以及原生 Anthropic 与 Gemini 接口，开发者可通过一个平台访问用于 AI 应用、Agent 与内容创作的各类模型。<br><br>[探索 OfoxAI 的模型与 API →](https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=periscope) |
+三栏式界面：**证据库**（全文检索）、**研究报告**（长会话研究，可追问迭代）、**核查台**（按 verdict 展示声明与证据）。顶部可一键触发采集。API 文档位于 `/api/docs`。
+
+### MCP 服务
+
+```bash
+uv run periscope-mcp
+```
+
+以 stdio 方式运行，提供 22 个 `hz_*` 工具与 7 个 `horizon://` 资源，覆盖配置校验、分阶段流水线、运行产物、证据检索、声明核查、研究会话与 Webhook 通知。详见 [MCP 工具说明](src/mcp/README.md) 与[客户端配置](src/mcp/integration.md)。
+
+### 微信与 Webhook 命令行
+
+```bash
+uv run periscope-wechat login      # 扫码登录 iLink Bot
+uv run periscope-wechat status     # 查看登录状态
+uv run periscope-wechat test       # 测试发送（可 --dry-run 预览）
+
+uv run periscope-webhook --dry-run # 预览 Webhook 请求
+```
+
+## 配置参考
+
+完整示例见 [`data/config.example.json`](data/config.example.json)，密钥见 [`.env.example`](.env.example)。主要配置块：
+
+| 配置块 | 作用 |
+|--------|------|
+| `ai` | 提供商、模型、`api_key_env`、`base_url`、`provider_chain`、温度、并发与限流 |
+| `sources` | 各数据源及其分类、Profile 指定 |
+| `collection` | 默认时间窗口 `time_window_hours` |
+| `digest` | 简报总长度与分类配额（`max_items`、`category_groups`） |
+| `processing` | `profiles_dir`、`default_profile`、单 Profile 偏好 `profile_settings` |
+| `display` | 图标风格 `icon_style`（`emoji` / `nerd` / `ascii`） |
+| `extractors` | 正文抽取器配置 |
+| `email` | 邮件订阅与 SMTP/IMAP 设置 |
+| `webhook` | Webhook 端点、平台适配、消息模板与投递语言 |
+| `wechat` | 微信投递开关、语言与分块大小 |
+| `corpus` | 证据语料库：`enabled`、`path`、`cluster_max_distance`、`cluster_lookback_rows` |
+| `analysis` | 声明核查：`max_claims_per_item`、`evidence_per_claim`、`grade_min_sources`、`grade_budget_per_run`、`extract_top_items` |
+| `research` | 长会话研究：`evidence_per_question`、`max_evidence_chars`、`planner_budget_per_invocation` |
+
+## 项目结构
+
+```
+periscope/
+├── src/
+│   ├── main.py               # CLI 主入口
+│   ├── orchestrator.py       # 流水线编排与阶段复用
+│   ├── models.py             # 数据模型与配置定义
+│   ├── scrapers/             # 14 类数据源抓取器
+│   ├── ai/                   # 多 provider 客户端、分析/富化/摘要/本地化
+│   ├── processing/           # Profile 加载、历史检索、内容处理
+│   ├── corpus/               # 证据语料库（SQLite + FTS5 + SimHash）
+│   ├── analysis/             # 声明级核查
+│   ├── research/             # 长会话研究
+│   ├── web/                  # Web 面板（FastAPI + 单文件三栏 UI）
+│   ├── mcp/                  # MCP 服务与运行产物存储
+│   ├── services/             # 邮件 / Webhook / 微信投递
+│   ├── setup/                # 交互式配置向导
+│   ├── extractors/           # 正文抽取（trafilatura）
+│   └── storage/              # 配置与摘要存储
+├── profiles/                 # 内置 Profile（tech-news / tech-blog / ai-creator / finance-news）
+├── docs/                     # 文档与站点资源
+├── tests/                    # 测试
+├── data/                     # 配置示例与运行数据
+├── scripts/                  # 辅助脚本
+├── Dockerfile
+├── docker-compose.yml
+└── pyproject.toml
+```
 
 ## 文档
 
@@ -394,13 +490,21 @@ Periscope 是一个利用业余时间维护的开源项目。如果你想支持�
 
 Periscope 已支持完整的每日简报闭环：多源采集、Profile 驱动的分析与富化、去重、评论摘要、双语生成、GitHub Pages 发布、邮件投递、Webhook 投递、微信投递、Docker 部署、MCP 集成与配置向导。
 
-本 fork 在此基础上额外提供四层持久化能力（见上文[「Periscope 的独有层次」](#periscope-的独有层次从简报到研究)），并已提供 Web 面板这一独立入口。
+本 fork 在此基础上额外提供四层持久化能力（见[本 fork 的独有层次](#本-fork-的独有层次)），并已提供 Web 面板这一独立入口。
 
 后续计划：
 
 - 支持更多数据源类型，例如 Discord
 - 在 AtomGit 上发布 Release
 - 发布到 PyPI，支持 `pip install`
+
+## 贡献
+
+欢迎贡献。代码、文档与信息源分享的规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。参与前请阅读 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)，安全问题请参考 [SECURITY.md](SECURITY.md)。
+
+### 分享信息源
+
+想把发现的优质信息源分享给 Periscope 社区？请通过 **[periscope1123.top](https://periscope1123.top)** 提交。
 
 ## 社区
 
@@ -413,13 +517,15 @@ Periscope 已支持完整的每日简报闭环：多源采集、Profile 驱动�
   用 QQ 扫码或搜索群号加入。
 </p>
 
-## 贡献
+## 赞助支持
 
-欢迎贡献。代码、文档与信息源分享的规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+Periscope 是一个利用业余时间维护的开源项目。如果你想支持本项目或希望出现在此列表中，欢迎[提交 Issue](https://atomgit.com/NLY22/periscope/issues/new)或[邮件联系](mailto:thysrael@163.com)。
 
-### 分享信息源
-
-想把发现的优质信息源分享给 Periscope 社区？请通过 **[periscope1123.top](https://periscope1123.top)** 提交。
+| 支持者 | 详情 |
+|-----------|---------|
+| [<img src="docs/assets/compshare-logo.png" alt="Compshare / 优云智算" width="220" />](https://www.compshare.cn/?ytag=GPU_YY_git_Periscope) | Compshare 目前为 Periscope 提供支持。Compshare 是 UCloud 旗下的 AI 云平台，提供高性价比的包月与按量付费国内模型 Agent 方案，低至 49 元/月起，同时提供稳定官方转发的海外模型，支持 Claude Code、Codex 及 API 使用，具备企业级高并发、7×24 技术支持与自助开票能力。<br><br>通过他们的[链接](https://www.compshare.cn/?ytag=GPU_YY_git_Periscope)注册可获赠 5 元试用额度。 |
+| [<img src="docs/assets/apimart-logo.jpg" alt="APIMart" width="220" />](https://go.apimart.ai/gh-periscope) | 感谢 APIMart 赞助本项目！APIMart 是一个低成本的 AI 图像与视频生成 API 平台——GPT-Image-2 低至 $0.006/张，一美元可生成 160+ 张图片。一套异步 API 同时覆盖图像与视频：提交任务、获取 ID、通过轮询或回调取回结果。可批量处理数万张图片而不超时，切换模型无需改动代码。按量付费、无月费——[点此注册](https://go.apimart.ai/gh-periscope)即可开始。 |
+| [<img src="docs/assets/ofoxai-logo.svg" alt="OfoxAI" width="220" />](https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=periscope) | OfoxAI 是一个统一的 AI API 平台，汇集多家提供商的文本、图像与视频模型。凭借 OpenAI 兼容端点以及原生 Anthropic 与 Gemini 接口，开发者可通过一个平台访问用于 AI 应用、Agent 与内容创作的各类模型。<br><br>[探索 OfoxAI 的模型与 API →](https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=periscope) |
 
 ## 致谢
 
