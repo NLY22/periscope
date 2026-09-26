@@ -504,6 +504,7 @@ class HorizonOrchestrator:
             max_retrieval_rounds=self.config.research.max_retrieval_rounds,
             min_evidence_for_answer=self.config.research.min_evidence_for_answer,
             collector=self._collect_on_demand,
+            report_template=self.config.research.report_template,
         )
 
     async def analyze_claims(self, items: List[ContentItem]) -> None:

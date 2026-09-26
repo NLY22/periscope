@@ -512,6 +512,7 @@ CI 见 `.github/workflows/tests.yml`：Linux 与 Windows 各跑一遍全量测�
 | [抓取器](docs/scrapers.md) | 各数据源抓取器细节与扩展说明 |
 | [正文抽取](docs/extractors.md) | RSS 源的全文抽取 |
 | [检索与取证评测](docs/evaluation.md) | 消融表、标注口径、已知不足 |
+| [取证检索与证据分层](docs/retrieval.md) | 噪声从哪来、怎么分层、找不到时怎么加宽、怎么复现 |
 | [MCP 工具](src/mcp/README.md) | 面向 MCP 兼容客户端的工具参考 |
 | [架构与生态设计](docs/horizon-hub-design.md) | HorizonHub 数据源市场与推荐的产品设计 |
 

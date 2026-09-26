@@ -583,6 +583,9 @@ class ResearchConfig(BaseModel):
     # with cheaper/other moves before declaring a sub-question unanswerable.
     max_retrieval_rounds: int = 3
     min_evidence_for_answer: int = 3
+    # Report skeleton: "auto" infers 背景调查/市场调研/方法探索 from the main
+    # question, a name forces one, "flat" keeps the original flat list.
+    report_template: str = "auto"
 
 
 class RetrievalConfig(BaseModel):

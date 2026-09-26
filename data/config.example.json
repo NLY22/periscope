@@ -347,7 +347,8 @@
     "planner_budget_per_invocation": 12,
     "claimable_only": true,
     "max_retrieval_rounds": 3,
-    "min_evidence_for_answer": 3
+    "min_evidence_for_answer": 3,
+    "report_template": "auto"
   },
   "retrieval": {
     "query_expansion": true,

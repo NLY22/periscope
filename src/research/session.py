@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional, Protocol
 from ..analysis.claims import discriminating_terms
 from ..corpus.citations import audit_report
 from ..corpus.store import Corpus
+from .templates import ReportTemplate, build_skeleton, resolve_template
 
 logger = logging.getLogger(__name__)
 
@@ -357,6 +358,7 @@ class ResearchSession:
         max_retrieval_rounds: int = 3,
         min_evidence_for_answer: int = 3,
         collector: Optional[Any] = None,
+        report_template: Optional[str] = None,
     ):
         self.store = store
         self.corpus = corpus
@@ -377,6 +379,9 @@ class ResearchSession:
         # async (question) -> int; wired by the orchestrator when a
         # keyword-driven source is configured, so a thin corpus can be widened.
         self.collector = collector
+        # "auto" infers 背景调查/市场调研/方法探索 from the question; "flat" or
+        # None keeps the original unanswered-question-shaped report.
+        self.report_template = report_template
         self.planner_calls = 0
 
     @property
@@ -552,6 +557,102 @@ class ResearchSession:
         query = str(data.get("query", "")).strip()
         return query or None
 
+    def _render_template(
+        self,
+        template: ReportTemplate,
+        active: List[SubQuestion],
+        marks_for,
+        attempts,
+    ) -> List[str]:
+        """Render under the template's sections plus the three computed blocks.
+
+        Sections are headings the reader expects; their content is still only
+        what the session actually has. An empty section says 未覆盖 rather than
+        being padded, and the timeline / disagreements / open questions are
+        built from stored dates and verdicts, not from the model.
+        """
+        evidence_rows: List[Dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for sq in active:
+            for item_id in sq.evidence_ids:
+                if item_id in seen_ids:
+                    continue
+                seen_ids.add(item_id)
+                row = self.corpus._conn.execute(
+                    "SELECT id, title, url, source_type, published_at, claimable"
+                    " FROM items WHERE id=?",
+                    (item_id,),
+                ).fetchone()
+                if row is None:
+                    continue
+                record = self.corpus._row_to_dict(row)
+                record["claims"] = self._claims_for_item(item_id)
+                evidence_rows.append(record)
+
+        skeleton = build_skeleton(template, active, evidence_rows)
+        lines: List[str] = [f"_报告骨架：{template.label}_", ""]
+
+        for section in template.sections:
+            lines.append(f"## {section.heading}")
+            members = skeleton["sections"].get(section.heading, [])
+            if not members:
+                lines.append("_（未覆盖：本轮没有子问题落到这一节）_")
+                lines.append("")
+                continue
+            for sq in members:
+                lines.append(f"### {sq.text}")
+                if sq.status == "answered" and sq.answer:
+                    lines.append(sq.answer.strip())
+                    marks = marks_for(sq)
+                    if marks:
+                        lines.append(f"证据来源：{marks}")
+                else:
+                    lines.append("_（尚未回答，等待下一轮迭代）_")
+                    tried = attempts(sq)
+                    if tried:
+                        lines.append(tried)
+                    marks = marks_for(sq)
+                    if marks:
+                        lines.append(f"已收集证据，待分析：{marks}")
+                lines.append("")
+
+        if skeleton["uncategorised"]:
+            lines.append("## 其他")
+            for sq in skeleton["uncategorised"]:
+                lines.append(f"### {sq.text}")
+                if sq.answer:
+                    lines.append(sq.answer.strip())
+                lines.append("")
+
+        lines.append("## 时间线")
+        if skeleton["timeline"]:
+            for entry in skeleton["timeline"]:
+                lines.append(f"- {entry['date']} — {entry['title']}")
+        else:
+            lines.append("_（证据中没有可用的发布日期）_")
+        lines.append("")
+
+        lines.append("## 分歧点")
+        if skeleton["disagreements"]:
+            for row in skeleton["disagreements"]:
+                contested = [
+                    c["text"] for c in row.get("claims", []) if c.get("verdict") == "contested"
+                ]
+                lines.append(f"- {row['title']}：" + ("；".join(contested) or "存在矛盾说法"))
+        else:
+            lines.append("_（核查层尚未发现相互矛盾的独立说法）_")
+        lines.append("")
+
+        lines.append("## 未决问题")
+        if skeleton["open_questions"]:
+            for sq in skeleton["open_questions"]:
+                tried = attempts(sq)
+                lines.append(f"- {sq.text}" + (f"（{tried.removeprefix('_取证尝试：_')}）" if tried else ""))
+        else:
+            lines.append("_（全部子问题已回答）_")
+        lines.append("")
+        return lines
+
     async def gather_evidence_async(
         self,
         query: str,
@@ -686,35 +787,44 @@ class ResearchSession:
             status_line += "（未回答的子问题将在后续迭代或语料扩充后处理）"
         lines += [status_line, ""]
 
-        for sq in active:
-            lines.append(f"## {sq.text}")
-            if sq.status == "answered" and sq.answer:
-                lines.append(sq.answer.strip())
-                if sq.evidence_ids:
-                    marks = " ".join(
-                        c for c in (cite(i) for i in sq.evidence_ids[:4]) if c
-                    )
-                    if marks:
-                        lines.append(f"\n证据来源：{marks}")
-                else:
-                    lines.append("_（本条回答暂无语料支撑，仅供参考）_")
-            elif sq.status == "open":
-                lines.append("_（尚未回答：缺少模型调用预算或语料证据，等待下一轮迭代）_")
-                tried = self.store.actions_for(sq.id)
-                if tried:
-                    lines.append("_取证尝试：_" + "；".join(
-                        f"{a['action']}"
-                        + (f"→{','.join(a['source_types'])}" if a.get("source_types") else "")
-                        + f"(+{a['new_items']})"
-                        for a in tried
-                    ))
-                if sq.evidence_ids:
-                    marks = " ".join(
-                        c for c in (cite(i) for i in sq.evidence_ids[:4]) if c
-                    )
-                    if marks:
-                        lines.append(f"已收集证据，待分析：{marks}")
-            lines.append("")
+        def marks_for(sq) -> str:
+            return " ".join(c for c in (cite(i) for i in sq.evidence_ids[:4]) if c)
+
+        def attempts(sq) -> str:
+            tried = self.store.actions_for(sq.id)
+            if not tried:
+                return ""
+            return "_取证尝试：_" + "；".join(
+                f"{a['action']}"
+                + (f"→{','.join(a['source_types'])}" if a.get("source_types") else "")
+                + f"(+{a['new_items']})"
+                for a in tried
+            )
+
+        template = resolve_template(self.report_template, session.question)
+        if template is not None:
+            lines += self._render_template(template, active, marks_for, attempts)
+        else:
+            for sq in active:
+                lines.append(f"## {sq.text}")
+                if sq.status == "answered" and sq.answer:
+                    lines.append(sq.answer.strip())
+                    if sq.evidence_ids:
+                        marks = marks_for(sq)
+                        if marks:
+                            lines.append(f"\n证据来源：{marks}")
+                    else:
+                        lines.append("_（本条回答暂无语料支撑，仅供参考）_")
+                elif sq.status == "open":
+                    lines.append("_（尚未回答：缺少模型调用预算或语料证据，等待下一轮迭代）_")
+                    tried = attempts(sq)
+                    if tried:
+                        lines.append(tried)
+                    if sq.evidence_ids:
+                        marks = marks_for(sq)
+                        if marks:
+                            lines.append(f"已收集证据，待分析：{marks}")
+                lines.append("")
 
         # verdict digest: what the correctness layer already knows
         verdict_rows = self._session_claim_verdicts(subs)

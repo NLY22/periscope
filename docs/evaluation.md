@@ -37,4 +37,13 @@ uv run pytest tests/test_eval_metrics.py         # 指标实现 + harness 的行
 
 - **样本量**：19 条 / 5 问，够验证机制方向和回归，不够当论文级结论；扩充路径是接真实 `corpus.db` 抽样 + 人工标注。
 - **stub 与真实模型不能混谈**：D/E/F 的扩展与语义腿用的是脚本里声明的同义形替身。引用这张表时必须带上这句限制。
-- **核查层的准确性尚未测**：声明评级（supported / contested / unsupported）与人工判断的一致率还没有数据。计划是标注 50–100 条真实语料蒸出的声明，报 precision / recall / macro-F1，并按"独立信源数"分桶看一致率随源数怎么变 —— 这一步会同时证伪或证实"论坛回帖是否抬高独立源计数"。人评是主证据。
+- **核查层的准确性尚未测**：声明评级（supported / contested / unsupported）与人工判断的一致率还没有数据。工具已就位，缺的是标注本身：
+
+  ```bash
+  uv run python scripts/eval_claims.py --export data/corpus.db                    # 导出待标注表（附证据摘录）
+  uv run python scripts/eval_claims.py --score  data/eval/claims_labels.json      # 一致率 + 按独立信源数分桶
+  ```
+
+  口径是普通的 per-class precision / recall / F1 + macro-F1（`src/analysis/agreement.py`，含手算用例），另按 `independent_sources` 分 1 / 2 / 3+ 桶看人工一致率随源数怎么变 —— 这一条会同时证伪或证实"论坛回帖是否抬高独立源计数"。下一步需要的是 50–100 条人工标注，人评是主证据。
+- `unsupported` 与 FEVER 式 `not_enough_information` **不合并**：本流水线的 `unsupported` 指"存储的摘录无法确认"，更接近证据不足而非反驳，合并会悄悄改变数字的含义。
+- **报告骨架与引用核验不在这张表里**：`docs/retrieval.md` 描述的模板（背景调查 / 市场调研 / 方法探索）和 `src/corpus/citations.py` 的引用反解是结构性保证，不是排序指标，由测试验证而非消融表。
