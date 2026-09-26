@@ -5,6 +5,8 @@
 
 <p><sub>上游 Horizon 的口号是「享受新闻本身，其余交给 Periscope」；本 fork 多做一步 —— 除了帮你读，还要说清每句话出自谁、有几家独立支撑、哪里互相矛盾。</sub></p>
 
+> ⚠️ **本仓库是 fork（`NLY22/periscope`），不是上游。** 下面的 Trendshift / HelloGitHub 徽章、在线演示站点、QQ 群与赞助位都属于上游项目；本 fork 独有的能力见[能力对照](#本-fork-与上游的能力对照)，协作请在本仓库开 issue / PR。
+
 <a href="https://trendshift.io/repositories/22864?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-22864" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/22864/daily" alt="Periscope | Trendshift" width="250" height="55"/></a>
 <a href="https://trendshift.io/repositories/22864?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-22864" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/22864/weekly?language=Python" alt="Periscope | Trendshift" width="250" height="55"/></a>
 <a href="https://hellogithub.com/repository/Thysrael/Periscope" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=7a4b606e28e4477998d35851cf4fdddf&claim_uid=rtjnLkYT7ziQJUG" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" /></a>
