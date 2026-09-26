@@ -61,7 +61,7 @@
 
 你的品味决定了你读什么，也决定了你希望从中得到什么。一篇新闻报道需要回答「为什么重要」，一篇工程深度长文需要回答「我能用上什么」。Periscope 的 **Profile（画像）** 为每一类内容定义各自的评分标准与输出形式，让简报读起来像是为你手工挑选的。
 
-Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游只回答「今天有什么值得读」，到了第二天就遗忘；本 fork 在此之上增加了**证据语料库、声明级核查与长会话研究**三项核心能力，并提供 **Web 面板**与扩展的 **MCP** 入口，让知识能够跨运行累积。详见[本 fork 的独有层次](#本-fork-的独有层次)。
+Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游只回答「今天有什么值得读」，到了第二天就遗忘；本 fork 在此之上增加了**证据语料库、声明级核查与长会话研究**三项核心能力，并提供 **Web 面板**与扩展的 **MCP** 入口，让知识能够跨运行累积；再往下是两项支撑机制——**证据分层**与**自适应取证**，它们决定了前三项在噪声里是否真的站得住。详见[本 fork 的独有层次](#本-fork-的独有层次)。
 
 ## 核心特性
 
@@ -151,14 +151,17 @@ Profile 是一套可复用的编辑规则：**什么内容该收录、什么值�
 
 ## 本 fork 的独有层次
 
-上游 Horizon 只回答「今天有什么值得读」，并且到了第二天就遗忘。本 fork 在此基础上做了四项增强：
+上游 Horizon 只回答「今天有什么值得读」，并且到了第二天就遗忘。本 fork 在此基础上做了六项增强：
 
 1. **证据语料库（`corpus.db`）** — 所有曾经采集过的条目都会带 SimHash 指纹与近似重复聚簇被持久化存储，可用 SQLite FTS5（对 CJK 友好）检索。知识会跨运行累积，而不是在生成摘要后就蒸发。
 2. **声明级正确性核查** — 高分条目会被蒸馏为原子化、可核查的声明；每条声明都与语料证据关联，并按重复聚簇统计*独立信源*：一份通稿被十家媒体转载，只算一票而非十票。评级（supported / contested / unsupported + 置信度）每轮有预算上限。
 3. **长会话研究** — 提出一个问题，会得到一棵分解后的子问题树，逐题对照语料取证，并输出带引用的 Markdown 报告。追问会在同一会话上跨天、跨重启迭代（状态保存在 SQLite 中）。
 4. **处处诚实降级** — 没有 LLM key？语料照常增长，证据照常确定性关联，报告会写明*「尚未回答」*并附上已收集的证据，而不是编造内容。默认 LLM 是免费的 **Agnes** 层（`agnes-2.5-flash`），且每次调用都经过持久化响应缓存与限流，因此崩溃恢复运行与重复提示词都不消耗额外额度。
 
-这些能力由 CLI、Web 面板与 MCP 三个入口共享同一份 `corpus.db`，因此会话与证据跨入口、跨重启都可见。
+5. **证据分层** — 抓取器会把评论区、楼层回复、视频字幕接进同一条正文。分层把它们拆回 `primary`（作者亲写）与 `community`（人群发言）：声明只从前者蒸馏，证据只与前者关联，独立信源计数不会被一句回帖抬高，报告引用的也是前者。可用 `analysis.claimable_only` / `research.claimable_only` 关闭，用于对照。
+6. **自适应取证加宽** — 一个子问题不再只有一次查询：先放宽词条，再换没查过的来源族，然后让模型改写查询，最后（显式开启时）用 GDELT / Google News 现采一轮。每次尝试都写进 `research_actions`，未回答的子问题会在报告里列出「取证尝试：动作(+新增条数)」，把"语料里确实没有"和"这次的问法没查到"区分开。
+
+这些能力由 CLI、Web 面板与 MCP 三个入口共享同一份 `corpus.db`，因此会话与证据跨入口、跨重启都可见。各层的实际收益见[检索与取证评测](docs/evaluation.md)。
 
 ### 驱动它
 
@@ -445,8 +448,9 @@ uv run periscope-webhook --dry-run # 预览 Webhook 请求
 | `webhook` | Webhook 端点、平台适配、消息模板与投递语言 |
 | `wechat` | 微信投递开关、语言与分块大小 |
 | `corpus` | 证据语料库：`enabled`、`path`、`cluster_max_distance`、`cluster_lookback_rows` |
-| `analysis` | 声明核查：`max_claims_per_item`、`evidence_per_claim`、`grade_min_sources`、`grade_budget_per_run`、`extract_top_items` |
-| `research` | 长会话研究：`evidence_per_question`、`max_evidence_chars`、`planner_budget_per_invocation` |
+| `analysis` | 声明核查：`max_claims_per_item`、`evidence_per_claim`、`grade_min_sources`、`grade_budget_per_run`、`extract_top_items`、`claimable_only` |
+| `research` | 长会话研究：`evidence_per_question`、`max_evidence_chars`、`planner_budget_per_invocation`、`claimable_only`、`max_retrieval_rounds`、`min_evidence_for_answer` |
+| `retrieval` | 取证检索：`query_expansion`、`expansion_max_terms`、`semantic` + `embedding_model`/`embedding_base_url`/`embedding_api_key_env`、`semantic_top_k`、`index_batch_size`、`on_demand_collection` |
 
 ## 项目结构
 
@@ -484,7 +488,10 @@ periscope/
 uv sync --extra dev                    # 安装开发依赖
 uv run pytest                          # 运行全部测试
 uv run pytest tests/test_corpus.py     # 运行单个测试文件
+uv run python scripts/eval_retrieval.py  # 检索消融表（docs/evaluation.md）
 ```
+
+CI 见 `.github/workflows/tests.yml`：Linux 与 Windows 各跑一遍全量测试，并执行一次检索 harness（只看能否复现，不在 CI 里断言指标数值）。
 
 测试位于 `tests/`，覆盖流水线各阶段、各数据源抓取器、证据语料库与声明核查、研究会话、Web 面板与 MCP 服务等。
 
@@ -504,6 +511,7 @@ uv run pytest tests/test_corpus.py     # 运行单个测试文件
 | [评分](docs/scoring.md) | Periscope 如何评估与排序新闻条目 |
 | [抓取器](docs/scrapers.md) | 各数据源抓取器细节与扩展说明 |
 | [正文抽取](docs/extractors.md) | RSS 源的全文抽取 |
+| [检索与取证评测](docs/evaluation.md) | 消融表、标注口径、已知不足 |
 | [MCP 工具](src/mcp/README.md) | 面向 MCP 兼容客户端的工具参考 |
 | [架构与生态设计](docs/horizon-hub-design.md) | HorizonHub 数据源市场与推荐的产品设计 |
 
@@ -511,7 +519,7 @@ uv run pytest tests/test_corpus.py     # 运行单个测试文件
 
 Periscope 已支持完整的每日简报闭环：多源采集、Profile 驱动的分析与富化、去重、评论摘要、双语生成、GitHub Pages 发布、邮件投递、Webhook 投递、微信投递、Docker 部署、MCP 集成与配置向导。
 
-本 fork 在此基础上额外提供证据语料库、声明级核查与长会话研究三项核心能力，并提供 Web 面板这一独立入口（见[本 fork 的独有层次](#本-fork-的独有层次)）。
+本 fork 在此基础上额外提供证据语料库、声明级核查与长会话研究三项核心能力，以及证据分层与自适应取证两项支撑机制，并提供 Web 面板这一独立入口（见[本 fork 的独有层次](#本-fork-的独有层次)）。
 
 后续计划：
 
@@ -528,6 +536,8 @@ Periscope 已支持完整的每日简报闭环：多源采集、Profile 驱动�
 想把发现的优质信息源分享给 Periscope 社区？请通过 **[periscope1123.top](https://periscope1123.top)** 提交。
 
 ## 社区
+
+> 归属说明：本 fork 的代码仓库、issue 与 PR 均在 <https://atomgit.com/NLY22/periscope>。页面上的 Trendshift / HelloGitHub 徽章、在线演示 `thysrael.github.io`、QQ 群与赞助位沿自上游项目，不是本 fork 的运营渠道。
 
 欢迎加入 Periscope 用户与开发者 QQ 群，分享信息源、Profile 与部署经验。
 
