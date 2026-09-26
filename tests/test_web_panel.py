@@ -19,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture()
 def client(tmp_path):
-    cfg = json.loads((REPO_ROOT / "data" / "config.example.json").read_text())
+    cfg = json.loads((REPO_ROOT / "data" / "config.example.json").read_text(encoding="utf-8"))
     for value in cfg["sources"].values():
         if isinstance(value, dict) and "enabled" in value:
             value["enabled"] = False

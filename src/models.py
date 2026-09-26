@@ -562,6 +562,9 @@ class AnalysisConfig(BaseModel):
     grade_budget_per_run: int = 8  # LLM calls reserved for grading
     extract_top_items: int = 12  # analyse at most this many new items/run
     item_content_chars: int = 3500
+    # Only author-written text may carry a claim; replies/comments/floors are
+    # leads, not evidence. Set False to reproduce the pre-tiering behaviour.
+    claimable_only: bool = True
 
 
 class ResearchConfig(BaseModel):
@@ -575,6 +578,7 @@ class ResearchConfig(BaseModel):
     evidence_per_question: int = 8
     max_evidence_chars: int = 700
     planner_budget_per_invocation: int = 12
+    claimable_only: bool = True  # replies/comments are leads, never evidence
 
 
 class SourcesConfig(BaseModel):

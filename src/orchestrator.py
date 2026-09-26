@@ -323,6 +323,7 @@ class HorizonOrchestrator:
             evidence_per_claim=self.config.analysis.evidence_per_claim,
             grade_min_sources=self.config.analysis.grade_min_sources,
             content_chars=self.config.analysis.item_content_chars,
+            claimable_only=self.config.analysis.claimable_only,
         )
 
     def _get_optional_ai_client(self):
@@ -382,6 +383,7 @@ class HorizonOrchestrator:
             evidence_per_question=self.config.research.evidence_per_question,
             max_evidence_chars=self.config.research.max_evidence_chars,
             planner_budget_per_invocation=self.config.research.planner_budget_per_invocation,
+            claimable_only=self.config.research.claimable_only,
         )
 
     async def analyze_claims(self, items: List[ContentItem]) -> None:

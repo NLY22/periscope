@@ -287,6 +287,7 @@ class ResearchSession:
         evidence_per_question: int = 8,
         max_evidence_chars: int = 700,
         planner_budget_per_invocation: int = 12,
+        claimable_only: bool = True,
     ):
         self.store = store
         self.corpus = corpus
@@ -294,7 +295,15 @@ class ResearchSession:
         self.evidence_per_question = evidence_per_question
         self.max_evidence_chars = max_evidence_chars
         self.planner_budget = planner_budget_per_invocation
+        # Evidence must rest on what an author asserted. With tiering on,
+        # replies and comment blocks stay out of the sub-question's evidence
+        # set (they are reachable through gather_leads instead).
+        self.claimable_only = claimable_only
         self.planner_calls = 0
+
+    @property
+    def _search_tier(self) -> str:
+        return "claimable" if self.claimable_only else "all"
 
     @property
     def llm_available(self) -> bool:
@@ -368,14 +377,18 @@ class ResearchSession:
         scores: Dict[str, float] = {}
         rows_by_id: Dict[str, Dict[str, Any]] = {}
         for term in terms:
-            for rank, row in enumerate(self.corpus.search(term, limit=self.evidence_per_question)):
+            for rank, row in enumerate(
+                self.corpus.search(
+                    term, limit=self.evidence_per_question, tier=self._search_tier
+                )
+            ):
                 scores[row["id"]] = scores.get(row["id"], 0.0) + 1.0 / (rank + 1)
                 rows_by_id.setdefault(row["id"], row)
         ordered = sorted(scores, key=lambda i: -scores[i])[: self.evidence_per_question]
         evidence: List[Dict[str, Any]] = []
         for item_id in ordered:
             row = rows_by_id[item_id]
-            snippet = re.sub(r"\s+", " ", row.get("content") or "")
+            snippet = re.sub(r"\s+", " ", self._author_text(row) or "")
             evidence.append(
                 {
                     "id": row["id"],
@@ -388,6 +401,12 @@ class ResearchSession:
                 }
             )
         return evidence
+
+    def _author_text(self, row: Dict[str, Any]) -> str:
+        """The layer of a corpus row a report may quote as evidence."""
+        if not self.claimable_only:
+            return row.get("content") or ""
+        return row.get("claimable") or ""
 
     def _claims_for_item(self, item_id: str) -> List[Dict[str, Any]]:
         try:
