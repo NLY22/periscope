@@ -1,0 +1,439 @@
+{
+  "top_k": 10,
+  "configs": [
+    {
+      "name": "A 旧行为(全量文本, 单词条)",
+      "settings": {
+        "tier": "all",
+        "term_budget": 4
+      },
+      "metrics": {
+        "mrr": 1.0,
+        "ndcg@10": 0.8302,
+        "ndcg@5": 0.8046,
+        "precision@10": 0.42,
+        "precision@5": 0.64,
+        "recall@10": 0.8833,
+        "recall@5": 0.7333
+      },
+      "runs": {
+        "q1": [
+          "ev:news-reprint",
+          "ev:forum-noise",
+          "ev:news-globe",
+          "ev:forum-thread",
+          "ev:yt",
+          "ev:googlenews-rumor",
+          "ev:gdelt-round",
+          "ev:dist-openforge-cli",
+          "ev:dist-zephyr",
+          "ev:dist-openforge-rfc"
+        ],
+        "q2": [
+          "ev:hn",
+          "ev:discourse-contradict",
+          "ev:gdelt-round",
+          "ev:yt",
+          "ev:dist-3bn-market",
+          "ev:googlenews-rumor",
+          "ev:dist-seriesb-glossary",
+          "ev:news-globe",
+          "ev:news-reprint",
+          "ev:forum-thread"
+        ],
+        "q3": [
+          "ev:googlenews-rumor",
+          "ev:forum-thread",
+          "ev:news-globe",
+          "ev:news-reprint",
+          "ev:yt",
+          "ev:gdelt-round",
+          "ev:dist-zephyr",
+          "ev:dist-openforge-cli",
+          "ev:dist-lattice",
+          "ev:dist-openforge-rfc"
+        ],
+        "q4": [
+          "ev:yt",
+          "ev:news-globe",
+          "ev:news-reprint",
+          "ev:hn",
+          "ev:dist-northwind-gp",
+          "ev:googlenews-rumor",
+          "ev:gdelt-round",
+          "ev:forum-thread",
+          "ev:dist-openforge-cli",
+          "ev:dist-openforge-rfc"
+        ],
+        "q5": [
+          "ev:blog-parser",
+          "ev:dist-tokenizer-bench"
+        ]
+      }
+    },
+    {
+      "name": "B +证据分层",
+      "settings": {
+        "tier": "claimable",
+        "term_budget": 4
+      },
+      "metrics": {
+        "mrr": 1.0,
+        "ndcg@10": 0.8502,
+        "ndcg@5": 0.8241,
+        "precision@10": 0.42,
+        "precision@5": 0.68,
+        "recall@10": 0.875,
+        "recall@5": 0.7583
+      },
+      "runs": {
+        "q1": [
+          "ev:news-reprint",
+          "ev:news-globe",
+          "ev:forum-thread",
+          "ev:yt",
+          "ev:googlenews-rumor",
+          "ev:gdelt-round",
+          "ev:dist-zephyr",
+          "ev:dist-openforge-rfc",
+          "ev:dist-openforge-cli",
+          "ev:hn"
+        ],
+        "q2": [
+          "ev:hn",
+          "ev:discourse-contradict",
+          "ev:gdelt-round",
+          "ev:yt",
+          "ev:dist-3bn-market",
+          "ev:googlenews-rumor",
+          "ev:dist-seriesb-glossary",
+          "ev:forum-thread",
+          "ev:news-globe",
+          "ev:dist-openforge-rfc"
+        ],
+        "q3": [
+          "ev:googlenews-rumor",
+          "ev:forum-thread",
+          "ev:yt",
+          "ev:news-globe",
+          "ev:news-reprint",
+          "ev:gdelt-round",
+          "ev:dist-zephyr",
+          "ev:dist-openforge-rfc",
+          "ev:dist-lattice",
+          "ev:dist-openforge-cli"
+        ],
+        "q4": [
+          "ev:yt",
+          "ev:news-globe",
+          "ev:news-reprint",
+          "ev:hn",
+          "ev:dist-northwind-gp",
+          "ev:googlenews-rumor",
+          "ev:forum-thread",
+          "ev:gdelt-round",
+          "ev:dist-openforge-rfc",
+          "ev:dist-openforge-cli"
+        ],
+        "q5": [
+          "ev:blog-parser",
+          "ev:dist-tokenizer-bench"
+        ]
+      }
+    },
+    {
+      "name": "C B+放宽词条",
+      "settings": {
+        "tier": "claimable",
+        "term_budget": 2
+      },
+      "metrics": {
+        "mrr": 1.0,
+        "ndcg@10": 0.8915,
+        "ndcg@5": 0.7574,
+        "precision@10": 0.5,
+        "precision@5": 0.6,
+        "recall@10": 1.0,
+        "recall@5": 0.675
+      },
+      "runs": {
+        "q1": [
+          "ev:news-globe",
+          "ev:news-reprint",
+          "ev:googlenews-rumor",
+          "ev:forum-thread",
+          "ev:gdelt-round",
+          "ev:yt",
+          "ev:dist-openforge-rfc",
+          "ev:dist-openforge-cli",
+          "ev:hn",
+          "ev:discourse-contradict"
+        ],
+        "q2": [
+          "ev:hn",
+          "ev:discourse-contradict",
+          "ev:dist-3bn-market",
+          "ev:googlenews-rumor",
+          "ev:forum-thread",
+          "ev:gdelt-round",
+          "ev:yt",
+          "ev:news-globe",
+          "ev:dist-openforge-rfc",
+          "ev:news-reprint"
+        ],
+        "q3": [
+          "ev:googlenews-rumor",
+          "ev:yt",
+          "ev:forum-thread",
+          "ev:gdelt-round",
+          "ev:news-globe",
+          "ev:dist-openforge-rfc",
+          "ev:news-reprint",
+          "ev:dist-openforge-cli",
+          "ev:hn",
+          "ev:discourse-contradict"
+        ],
+        "q4": [
+          "ev:yt",
+          "ev:news-globe",
+          "ev:news-reprint",
+          "ev:googlenews-rumor",
+          "ev:forum-thread",
+          "ev:gdelt-round",
+          "ev:dist-openforge-rfc",
+          "ev:dist-openforge-cli",
+          "ev:hn",
+          "ev:discourse-contradict"
+        ],
+        "q5": [
+          "ev:blog-parser",
+          "ev:dist-tokenizer-bench"
+        ]
+      }
+    },
+    {
+      "name": "D B+查询扩展(stub)",
+      "settings": {
+        "tier": "claimable",
+        "term_budget": 4,
+        "expander": "stub"
+      },
+      "metrics": {
+        "mrr": 1.0,
+        "ndcg@10": 0.9343,
+        "ndcg@5": 0.884,
+        "precision@10": 0.5,
+        "precision@5": 0.72,
+        "recall@10": 1.0,
+        "recall@5": 0.7917
+      },
+      "runs": {
+        "q1": [
+          "ev:yt",
+          "ev:news-reprint",
+          "ev:news-globe",
+          "ev:forum-thread",
+          "ev:hn",
+          "ev:discourse-contradict",
+          "ev:googlenews-rumor",
+          "ev:gdelt-round",
+          "ev:dist-3bn-market",
+          "ev:dist-seriesb-glossary"
+        ],
+        "q2": [
+          "ev:yt",
+          "ev:hn",
+          "ev:discourse-contradict",
+          "ev:gdelt-round",
+          "ev:forum-thread",
+          "ev:news-reprint",
+          "ev:news-globe",
+          "ev:googlenews-rumor",
+          "ev:dist-3bn-market",
+          "ev:dist-seriesb-glossary"
+        ],
+        "q3": [
+          "ev:googlenews-rumor",
+          "ev:yt",
+          "ev:forum-thread",
+          "ev:discourse-contradict",
+          "ev:news-globe",
+          "ev:news-reprint",
+          "ev:gdelt-round",
+          "ev:dist-did-not-close",
+          "ev:hn",
+          "ev:dist-seriesb-glossary"
+        ],
+        "q4": [
+          "ev:yt",
+          "ev:news-globe",
+          "ev:news-reprint",
+          "ev:hn",
+          "ev:dist-northwind-gp",
+          "ev:googlenews-rumor",
+          "ev:forum-thread",
+          "ev:gdelt-round",
+          "ev:dist-3bn-market",
+          "ev:dist-openforge-rfc"
+        ],
+        "q5": [
+          "ev:blog-parser",
+          "ev:dist-tokenizer-bench"
+        ]
+      }
+    },
+    {
+      "name": "E B+语义路(stub)",
+      "settings": {
+        "tier": "claimable",
+        "term_budget": 4,
+        "embedder": "stub"
+      },
+      "metrics": {
+        "mrr": 1.0,
+        "ndcg@10": 0.9044,
+        "ndcg@5": 0.8241,
+        "precision@10": 0.48,
+        "precision@5": 0.68,
+        "recall@10": 0.9667,
+        "recall@5": 0.7583
+      },
+      "runs": {
+        "q1": [
+          "ev:news-reprint",
+          "ev:news-globe",
+          "ev:forum-thread",
+          "ev:yt",
+          "ev:gdelt-round",
+          "ev:googlenews-rumor",
+          "ev:discourse-contradict",
+          "ev:dist-zephyr",
+          "ev:hn",
+          "ev:dist-openforge-rfc"
+        ],
+        "q2": [
+          "ev:hn",
+          "ev:discourse-contradict",
+          "ev:gdelt-round",
+          "ev:yt",
+          "ev:forum-thread",
+          "ev:googlenews-rumor",
+          "ev:dist-3bn-market",
+          "ev:news-globe",
+          "ev:news-reprint",
+          "ev:dist-seriesb-glossary"
+        ],
+        "q3": [
+          "ev:googlenews-rumor",
+          "ev:forum-thread",
+          "ev:yt",
+          "ev:news-globe",
+          "ev:news-reprint",
+          "ev:gdelt-round",
+          "ev:dist-openforge-rfc",
+          "ev:discourse-contradict",
+          "ev:dist-lattice",
+          "ev:dist-openforge-cli"
+        ],
+        "q4": [
+          "ev:yt",
+          "ev:news-globe",
+          "ev:news-reprint",
+          "ev:hn",
+          "ev:dist-northwind-gp",
+          "ev:dist-openforge-rfc",
+          "ev:googlenews-rumor",
+          "ev:dist-openforge-cli",
+          "ev:gdelt-round",
+          "ev:forum-thread"
+        ],
+        "q5": [
+          "ev:blog-parser",
+          "ev:dist-tokenizer-bench"
+        ]
+      }
+    },
+    {
+      "name": "F 全开(分层+扩展+语义+放宽)",
+      "settings": {
+        "tier": "claimable",
+        "term_budget": 4,
+        "expander": "stub",
+        "embedder": "stub",
+        "widen": true
+      },
+      "metrics": {
+        "mrr": 1.0,
+        "ndcg@10": 0.9284,
+        "ndcg@5": 0.8482,
+        "precision@10": 0.5,
+        "precision@5": 0.68,
+        "recall@10": 1.0,
+        "recall@5": 0.7583
+      },
+      "runs": {
+        "q1": [
+          "ev:yt",
+          "ev:news-reprint",
+          "ev:news-globe",
+          "ev:forum-thread",
+          "ev:hn",
+          "ev:discourse-contradict",
+          "ev:gdelt-round",
+          "ev:googlenews-rumor",
+          "ev:dist-3bn-market",
+          "ev:dist-zephyr"
+        ],
+        "q2": [
+          "ev:yt",
+          "ev:hn",
+          "ev:discourse-contradict",
+          "ev:gdelt-round",
+          "ev:forum-thread",
+          "ev:news-reprint",
+          "ev:news-globe",
+          "ev:googlenews-rumor",
+          "ev:dist-3bn-market",
+          "ev:dist-seriesb-glossary"
+        ],
+        "q3": [
+          "ev:googlenews-rumor",
+          "ev:forum-thread",
+          "ev:yt",
+          "ev:discourse-contradict",
+          "ev:news-reprint",
+          "ev:news-globe",
+          "ev:gdelt-round",
+          "ev:dist-did-not-close",
+          "ev:hn",
+          "ev:dist-seriesb-glossary"
+        ],
+        "q4": [
+          "ev:yt",
+          "ev:news-globe",
+          "ev:news-reprint",
+          "ev:hn",
+          "ev:dist-northwind-gp",
+          "ev:dist-openforge-rfc",
+          "ev:googlenews-rumor",
+          "ev:dist-openforge-cli",
+          "ev:gdelt-round",
+          "ev:forum-thread"
+        ],
+        "q5": [
+          "ev:blog-parser",
+          "ev:dist-tokenizer-bench"
+        ]
+      }
+    }
+  ],
+  "provenance": {
+    "fixture": "data\\eval\\corpus_fixture.json",
+    "queries": "data\\eval\\queries.json",
+    "stub_legs": [
+      "expansion-stub",
+      "semantic-stub"
+    ],
+    "note": "Stub legs prove plumbing, not model quality. Rerun with a real provider (--expander llm --embedder provider) before quoting expansion or semantic gains."
+  }
+}

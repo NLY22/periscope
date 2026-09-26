@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from ..ai.utils import parse_json_response
+from ..corpus.sections import claimable_text
 from ..corpus.store import Corpus
 from ..models import ContentItem
 
@@ -414,6 +415,7 @@ class ClaimAnalyzer:
         evidence_per_claim: int = 6,
         grade_min_sources: int = 2,
         content_chars: int = 3500,
+        claimable_only: bool = True,
     ):
         self.store = store
         self.corpus = corpus
@@ -422,7 +424,14 @@ class ClaimAnalyzer:
         self.evidence_per_claim = evidence_per_claim
         self.grade_min_sources = grade_min_sources
         self.content_chars = content_chars
+        # Ablation knob for the evaluation harness: with False the pipeline
+        # behaves like Phase C and treats comment/reply text as evidence.
+        self.claimable_only = claimable_only
         self.llm_calls = 0  # observable budget accounting for tests/UI
+
+    @property
+    def _search_tier(self) -> str:
+        return "claimable" if self.claimable_only else "all"
 
     @property
     def llm_available(self) -> bool:
@@ -431,7 +440,7 @@ class ClaimAnalyzer:
     # ---------------------------------------------------------- 1. extract
     async def extract_claims(self, item: ContentItem) -> List[Claim]:
         """Distill one item into persisted claims ([] when no LLM/no text)."""
-        body = (item.content or "").strip()
+        body = self._author_text(item.content)
         if not body or self.client is None:
             return []
         user = (
@@ -490,7 +499,9 @@ class ClaimAnalyzer:
             if size == 0:
                 break
             query = " ".join(terms[: min(size, len(terms))])
-            rows = self.corpus.search(query, limit=self.evidence_per_claim + 4)
+            rows = self.corpus.search(
+                query, limit=self.evidence_per_claim + 4, tier=self._search_tier
+            )
             if rows:
                 break
         # Keep only items that actually share signal with the claim, and
@@ -610,13 +621,23 @@ class ClaimAnalyzer:
             graded += 1
         return graded
 
+    def _author_text(self, content: Optional[str]) -> str:
+        """Author-written text of an item body.
+
+        A reply in a comment thread is somebody's opinion, not the item's
+        assertion; feeding it to extraction turns crowd noise into claims.
+        """
+        text = content or ""
+        return claimable_text(text) if self.claimable_only else text.strip()
+
     def _excerpt(self, item_id: str, chars: int = 400) -> str:
         row = self.corpus._conn.execute(
-            "SELECT content FROM items WHERE id=?", (item_id,)
+            "SELECT content, claimable FROM items WHERE id=?", (item_id,)
         ).fetchone()
         if row is None:
             return ""
-        return re.sub(r"\s+", " ", row["content"] or "")[:chars]
+        source = row["claimable"] if self.claimable_only else row["content"]
+        return re.sub(r"\s+", " ", source or "")[:chars]
 
 
 def _bigrams(s: str) -> set:

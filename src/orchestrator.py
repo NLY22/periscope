@@ -231,7 +231,8 @@ class HorizonOrchestrator:
             else None
         )
         self.last_fetch_report: Optional[FetchReport] = None
-        self._corpus = None  # lazy: opened on first use when config.corpus.enabled
+        self._corpus = None  # lazy: opened on first use
+        self._retriever = None  # lazy: hybrid evidence retrieval policy when config.corpus.enabled
         self._ai_client_cache = _AI_UNSET  # lazy, optional (see _get_optional_ai_client)
         self._llm_cache = None  # lazy: shared persistent LLM response cache
 
@@ -323,6 +324,7 @@ class HorizonOrchestrator:
             evidence_per_claim=self.config.analysis.evidence_per_claim,
             grade_min_sources=self.config.analysis.grade_min_sources,
             content_chars=self.config.analysis.item_content_chars,
+            claimable_only=self.config.analysis.claimable_only,
         )
 
     def _get_optional_ai_client(self):
@@ -343,6 +345,55 @@ class HorizonOrchestrator:
         return self._ai_client_cache
 
     # ------------------------------------------------------------- research
+    def _get_retriever(self):
+        """Build the hybrid evidence retriever for this run.
+
+        Legs are attached only when they are both configured and possible:
+        no corpus -> None (research falls back to its lexical core), no
+        embedding model -> no vector leg, no API key -> no expansion. Nothing
+        here may make a run fail that would otherwise work.
+        """
+        if self._retriever is not None:
+            return self._retriever
+        corpus = self._get_corpus()
+        if corpus is None:
+            return None
+
+        from .ai.embeddings import EmbeddingClient
+        from .corpus.retrieval import HybridRetriever
+        from .corpus.semantic import EmbeddingIndex
+
+        retrieval = self.config.retrieval
+        tier = "claimable" if self.config.research.claimable_only else "all"
+
+        index = None
+        embedder = None
+        if retrieval.semantic and retrieval.embedding_model:
+            try:
+                index = EmbeddingIndex(corpus, retrieval.embedding_model)
+                embedder = EmbeddingClient.from_config(self.config)
+                if embedder is None:
+                    index = None
+            except Exception as exc:
+                self.console.print(
+                    f"[yellow]Semantic retrieval disabled ({type(exc).__name__}).[/yellow]"
+                )
+                index = None
+                embedder = None
+
+        client = self._get_optional_ai_client() if retrieval.query_expansion else None
+
+        self._retriever = HybridRetriever(
+            corpus,
+            tier=tier,
+            index=index,
+            embedder=embedder,
+            expansion_client=client,
+            expansion_max_terms=retrieval.expansion_max_terms,
+            semantic_top_k=retrieval.semantic_top_k,
+        )
+        return self._retriever
+
     def get_claim_store(self):
         """Claim store over this run's corpus; None when corpus is disabled.
 
@@ -359,6 +410,72 @@ class HorizonOrchestrator:
     def get_corpus(self):
         """Public accessor for the evidence corpus (None when disabled)."""
         return self._get_corpus()
+
+    async def _collect_on_demand(self, question: str) -> int:
+        """Fetch once from the key-less search sources for one sub-question.
+
+        This is the widening move the corpus cannot do by itself: when nothing
+        stored answers a sub-question, searching the open web for its terms and
+        appending the result to the corpus turns "no evidence" into a first
+        round of evidence. It only runs when explicitly enabled and only for a
+        search source the user already configured, and it never touches the
+        digest/notification path — the items just land in the corpus.
+        """
+        if not self.config.retrieval.on_demand_collection:
+            return 0
+        corpus = self._get_corpus()
+        if corpus is None:
+            return 0
+
+        from copy import deepcopy
+        from datetime import timedelta
+
+        import httpx
+
+        from .scrapers.gdelt import GDELTScraper
+        from .scrapers.google_news import GoogleNewsScraper
+
+        query = " ".join(str(question or "").split())[:120]
+        if not query:
+            return 0
+
+        since = datetime.now(timezone.utc) - timedelta(days=30)
+        built = []
+        for name, source, scraper_cls in (
+            ("GDELT", self.config.sources.gdelt, GDELTScraper),
+            ("Google News", self.config.sources.google_news, GoogleNewsScraper),
+        ):
+            if source is None:
+                continue
+            probe = deepcopy(source)
+            probe.query = query
+            probe.enabled = True
+            built.append((name, scraper_cls(probe, None), since))
+
+        if not built:
+            return 0
+
+        items: List[ContentItem] = []
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            for name, scraper, window in built:
+                try:
+                    scraper.client = client
+                    fetched = await scraper.fetch(window)
+                    items.extend(fetched)
+                except Exception as exc:
+                    self.console.print(
+                        f"[yellow]  on-demand {name} fetch failed ({type(exc).__name__})[/yellow]"
+                    )
+
+        if not items:
+            return 0
+        new = corpus.add_items(items)
+        if new:
+            corpus.recompute_clusters(
+                max_distance=self.config.corpus.cluster_max_distance,
+                lookback_rows=self.config.corpus.cluster_lookback_rows,
+            )
+        return new
 
     def get_research_session(self):
         """Assemble the long-session research loop over this run's corpus.
@@ -382,6 +499,12 @@ class HorizonOrchestrator:
             evidence_per_question=self.config.research.evidence_per_question,
             max_evidence_chars=self.config.research.max_evidence_chars,
             planner_budget_per_invocation=self.config.research.planner_budget_per_invocation,
+            claimable_only=self.config.research.claimable_only,
+            retriever=self._get_retriever(),
+            max_retrieval_rounds=self.config.research.max_retrieval_rounds,
+            min_evidence_for_answer=self.config.research.min_evidence_for_answer,
+            collector=self._collect_on_demand,
+            report_template=self.config.research.report_template,
         )
 
     async def analyze_claims(self, items: List[ContentItem]) -> None:

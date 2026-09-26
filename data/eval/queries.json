@@ -1,0 +1,65 @@
+{
+  "comment": "Query set for retrieval evaluation. Grades: 2 = the item's author-written text directly settles the question (including a contradiction, which is evidence for a verification question); 1 = on-topic but partial; items whose only mention of the topic is inside comment/reply text are graded 0 on purpose, so a retriever that surfaces crowd noise is penalised.",
+  "queries": [
+    {
+      "id": "q1",
+      "query": "OpenForge B 轮 估值 30 亿",
+      "expansion": ["Series B", "$3 billion valuation"],
+      "relevant": {
+        "ev:news-globe": 2,
+        "ev:news-reprint": 2,
+        "ev:hn": 2,
+        "ev:yt": 2,
+        "ev:discourse-contradict": 2,
+        "ev:forum-thread": 1,
+        "ev:gdelt-round": 1,
+        "ev:googlenews-rumor": 1
+      }
+    },
+    {
+      "id": "q2",
+      "query": "OpenForge Series B $3 billion valuation",
+      "expansion": ["B 轮", "估值 30 亿"],
+      "relevant": {
+        "ev:hn": 2,
+        "ev:yt": 2,
+        "ev:news-globe": 2,
+        "ev:discourse-contradict": 2,
+        "ev:news-reprint": 1,
+        "ev:gdelt-round": 1
+      }
+    },
+    {
+      "id": "q3",
+      "query": "OpenForge 融资 是否 关闭",
+      "expansion": ["did not close", "Series B"],
+      "relevant": {
+        "ev:discourse-contradict": 2,
+        "ev:news-globe": 2,
+        "ev:googlenews-rumor": 2,
+        "ev:hn": 1,
+        "ev:gdelt-round": 1,
+        "ev:yt": 1
+      }
+    },
+    {
+      "id": "q4",
+      "query": "Northwind Capital 领投 OpenForge",
+      "expansion": ["led by Northwind"],
+      "relevant": {
+        "ev:news-globe": 2,
+        "ev:news-reprint": 2,
+        "ev:yt": 1,
+        "ev:hn": 1
+      }
+    },
+    {
+      "id": "q5",
+      "query": "parser rewrite trigram 索引 加速",
+      "expansion": [],
+      "relevant": {
+        "ev:blog-parser": 2
+      }
+    }
+  ]
+}

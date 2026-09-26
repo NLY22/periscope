@@ -32,9 +32,10 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from ..models import ContentItem
+from .sections import claimable_text
 from .simhash import cluster_pairs, fingerprint
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _MASK64 = (1 << 64) - 1
 
@@ -55,6 +56,7 @@ CREATE TABLE IF NOT EXISTS items (
     published_at TEXT NOT NULL,
     fetched_at TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
+    claimable TEXT NOT NULL DEFAULT '',
     metadata_json TEXT NOT NULL DEFAULT '{}',
     fingerprint INTEGER NOT NULL,
     cluster_id TEXT,
@@ -85,6 +87,30 @@ CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE OF title, content, author ON 
     VALUES (new.rowid, new.title, new.content, new.author);
 END;
 
+-- Evidence-side index over the author-written layer only. Comment/reply text
+-- stays searchable in items_fts (the panel wants recall), but claim linking
+-- and grading must never rest on it, so they query this table instead.
+CREATE VIRTUAL TABLE IF NOT EXISTS claim_fts USING fts5(
+    title, claimable,
+    content='items', content_rowid='rowid',
+    tokenize='trigram'
+);
+
+CREATE TRIGGER IF NOT EXISTS claim_ai AFTER INSERT ON items BEGIN
+    INSERT INTO claim_fts(rowid, title, claimable)
+    VALUES (new.rowid, new.title, new.claimable);
+END;
+CREATE TRIGGER IF NOT EXISTS claim_ad AFTER DELETE ON items BEGIN
+    INSERT INTO claim_fts(claim_fts, rowid, title, claimable)
+    VALUES ('delete', old.rowid, old.title, old.claimable);
+END;
+CREATE TRIGGER IF NOT EXISTS claim_au AFTER UPDATE OF title, claimable ON items BEGIN
+    INSERT INTO claim_fts(claim_fts, rowid, title, claimable)
+    VALUES ('delete', old.rowid, old.title, old.claimable);
+    INSERT INTO claim_fts(rowid, title, claimable)
+    VALUES (new.rowid, new.title, new.claimable);
+END;
+
 CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     started_at TEXT NOT NULL,
@@ -113,8 +139,43 @@ class Corpus:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
+        # Order matters: a pre-tiering database must grow the `claimable`
+        # column *before* _SCHEMA creates claim_fts over it, otherwise the
+        # index is built against a missing column and the file corrupts.
+        legacy = self._backfill_legacy_layers()
         self._conn.executescript(_SCHEMA)
+        if legacy:
+            # External-content FTS tables are never auto-populated for rows
+            # written before the index existed, so rebuild both mirrors.
+            self._conn.execute("INSERT INTO items_fts(items_fts) VALUES('rebuild')")
+            self._conn.execute("INSERT INTO claim_fts(claim_fts) VALUES('rebuild')")
+        self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         self._conn.commit()
+
+    def _backfill_legacy_layers(self) -> bool:
+        """Add and fill the author-written column on a pre-tiering database.
+
+        Claims linked before tiering already exist; without this backfill their
+        evidence stops matching the moment linking becomes claimable-only,
+        silently turning graded claims into `unsupported`.
+        """
+        if not self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='items'"
+        ).fetchone():
+            return False
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(items)")}
+        if "claimable" in columns:
+            return False
+        self._conn.execute(
+            "ALTER TABLE items ADD COLUMN claimable TEXT NOT NULL DEFAULT ''"
+        )
+        rows = self._conn.execute("SELECT rowid, content FROM items").fetchall()
+        self._conn.executemany(
+            "UPDATE items SET claimable=? WHERE rowid=?",
+            [(claimable_text(r["content"]), r["rowid"]) for r in rows],
+        )
+        self._conn.commit()
+        return True
 
     # ------------------------------------------------------------------ run
     def begin_run(self, since: datetime) -> int:
@@ -158,6 +219,7 @@ class Corpus:
                     item.published_at.astimezone(timezone.utc).isoformat(),
                     item.fetched_at.astimezone(timezone.utc).isoformat(),
                     content,
+                    claimable_text(content),
                     json.dumps(_jsonable(item.metadata), ensure_ascii=False),
                     _as_signed64(fingerprint(text_for_fp)),
                     run_id,
@@ -167,8 +229,8 @@ class Corpus:
         self._conn.executemany(
             """INSERT OR IGNORE INTO items
                (id, source_type, title, url, author, published_at, fetched_at,
-                content, metadata_json, fingerprint, run_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                content, claimable, metadata_json, fingerprint, run_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         self._conn.commit()
@@ -176,7 +238,20 @@ class Corpus:
         return int(after - before)
 
     # ---------------------------------------------------------------- read
-    def search(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+    # Columns each search tier is allowed to look at. Closed set on purpose:
+    # the names go into SQL text, so nothing user-controlled may reach here.
+    _FTS_BY_TIER = {
+        "all": ("items_fts", "content"),
+        "claimable": ("claim_fts", "claimable"),
+    }
+
+    def search(
+        self,
+        query: str,
+        limit: int = 20,
+        tier: str = "all",
+        source_types: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """FTS5 BM25-ranked full-text search over stored evidence.
 
         User text is sanitised into a conjunction of quoted phrases so FTS
@@ -184,7 +259,23 @@ class Corpus:
         leak into query syntax. Terms shorter than 3 chars can't be matched
         by the trigram tokenizer (common for CJK words like 工作/注册), so
         they fall back to an escaped LIKE scan.
+
+        `tier` selects which authorship layer is searched: `all` (default, the
+        panel's full-corpus view including comments and replies) or
+        `claimable` (author-written text only — what evidence linking and
+        claim grading must use).
+
+        `source_types` narrows the search to one family of sources. The
+        research loop uses this to look where it has not looked yet instead of
+        re-asking the same slice of the corpus.
         """
+        fts_table, body_column = self._FTS_BY_TIER.get(tier, self._FTS_BY_TIER["all"])
+        scoped = ""
+        params_filter: List[Any] = []
+        if source_types:
+            placeholders = ",".join("?" * len(source_types))
+            scoped = f" AND i.source_type IN ({placeholders})"
+            params_filter = list(source_types)
         fts_terms, like_terms = [], []
         for term in query.split():
             term = term.strip('"')
@@ -196,13 +287,13 @@ class Corpus:
         if fts_terms:
             match = " AND ".join('"' + t.replace('"', '""') + '"' for t in fts_terms)
             rows = self._conn.execute(
-                """SELECT i.*, bm25(items_fts) AS rank
-                   FROM items_fts
-                   JOIN items i ON i.rowid = items_fts.rowid
-                   WHERE items_fts MATCH ?
+                f"""SELECT i.*, bm25({fts_table}) AS rank
+                   FROM {fts_table}
+                   JOIN items i ON i.rowid = {fts_table}.rowid
+                   WHERE {fts_table} MATCH ?{scoped}
                    ORDER BY rank
                    LIMIT ?""",
-                (match, limit),
+                (match, *params_filter, limit),
             ).fetchall()
             for r in rows:
                 d = self._row_to_dict(r)
@@ -212,16 +303,30 @@ class Corpus:
                 break
             escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             like = f"%{escaped}%"
+            like_scoped = ""
+            like_params: List[Any] = [like, like]
+            if source_types:
+                placeholders = ",".join("?" * len(source_types))
+                like_scoped = f" AND source_type IN ({placeholders})"
+                like_params += list(source_types)
             rows = self._conn.execute(
-                """SELECT * FROM items
-                   WHERE title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\'
+                f"""SELECT * FROM items
+                   WHERE (title LIKE ? ESCAPE '\\' OR {body_column} LIKE ? ESCAPE '\\'){like_scoped}
                    ORDER BY published_at DESC LIMIT ?""",
-                (like, like, limit - len(results)),
+                (*like_params, limit - len(results)),
             ).fetchall()
             for r in rows:
                 d = self._row_to_dict(r)
                 results.setdefault(d["id"], d)
         return list(results.values())[:limit]
+
+    def source_families(self) -> List[str]:
+        """Every source family present in the corpus, most items first."""
+        rows = self._conn.execute(
+            "SELECT source_type, COUNT(*) AS n FROM items GROUP BY source_type"
+            " ORDER BY n DESC"
+        ).fetchall()
+        return [r["source_type"] for r in rows]
 
     def document_frequency(self, term: str) -> int:
         """How many stored items contain `term` at all (exact substring).

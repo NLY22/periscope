@@ -562,6 +562,9 @@ class AnalysisConfig(BaseModel):
     grade_budget_per_run: int = 8  # LLM calls reserved for grading
     extract_top_items: int = 12  # analyse at most this many new items/run
     item_content_chars: int = 3500
+    # Only author-written text may carry a claim; replies/comments/floors are
+    # leads, not evidence. Set False to reproduce the pre-tiering behaviour.
+    claimable_only: bool = True
 
 
 class ResearchConfig(BaseModel):
@@ -575,6 +578,37 @@ class ResearchConfig(BaseModel):
     evidence_per_question: int = 8
     max_evidence_chars: int = 700
     planner_budget_per_invocation: int = 12
+    claimable_only: bool = True  # replies/comments are leads, never evidence
+    # Widening the search is how a noisy, wide corpus pays off: keep looking
+    # with cheaper/other moves before declaring a sub-question unanswerable.
+    max_retrieval_rounds: int = 3
+    min_evidence_for_answer: int = 3
+    # Report skeleton: "auto" infers 背景调查/市场调研/方法探索 from the main
+    # question, a name forces one, "flat" keeps the original flat list.
+    report_template: str = "auto"
+
+
+class RetrievalConfig(BaseModel):
+    """Evidence retrieval policy (Phase F2).
+
+    The lexical leg is always on and free. Expansion costs one cached LLM call
+    per sub-question; the semantic leg is off unless a model name is given,
+    because an OpenAI-compatible hub may or may not serve /embeddings.
+    """
+
+    query_expansion: bool = True
+    expansion_max_terms: int = 4
+    semantic: bool = False
+    embedding_model: str = ""
+    embedding_base_url: str = ""
+    embedding_api_key_env: str = ""
+    semantic_top_k: int = 30
+    index_batch_size: int = 16
+    # When a sub-question cannot be answered from what is already stored, the
+    # research loop may ask the key-less search sources (GDELT / Google News)
+    # for that question once, and feed the result into the corpus. Off by
+    # default: it reaches the network mid-session, so it must be a choice.
+    on_demand_collection: bool = False
 
 
 class SourcesConfig(BaseModel):
@@ -770,3 +804,4 @@ class Config(BaseModel):
     corpus: CorpusConfig = Field(default_factory=CorpusConfig)
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
     research: ResearchConfig = Field(default_factory=ResearchConfig)
+    retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)

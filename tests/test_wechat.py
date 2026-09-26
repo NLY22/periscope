@@ -48,9 +48,9 @@ def test_session_persistence_ignores_old_fields_and_keeps_credentials_private(tm
     session(context_sends=3).save(path)
     if sys.platform != "win32":
         assert os.stat(path).st_mode & 0o777 == 0o600
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     data["style"] = "overview"  # Existing PR sessions still load after simplification.
-    path.write_text(json.dumps(data))
+    path.write_text(json.dumps(data), encoding="utf-8")
     loaded = WeChatSession.load(path)
     assert loaded.ready and loaded.remaining_budget == 7
     assert loaded.bot_token == "test-token"

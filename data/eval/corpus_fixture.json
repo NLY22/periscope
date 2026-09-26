@@ -1,0 +1,157 @@
+{
+  "comment": "Replayable evidence corpus for retrieval evaluation. Small on purpose: every item exists to make one retrieval decision observable (syndication collapse, crowd-text noise, cross-language phrasing, a genuine contradiction).",
+  "items": [
+    {
+      "id": "ev:news-globe",
+      "source_type": "rss",
+      "title": "OpenForge 完成 B 轮融资",
+      "url": "https://globe.example.com/openforge-series-b",
+      "published_at": "2026-09-18T09:00:00+00:00",
+      "content": "OpenForge 宣布完成 B 轮融资，估值达到 30 亿美元。本轮由 Northwind Capital 领投，资金将用于开源生态与海外扩张。"
+    },
+    {
+      "id": "ev:news-reprint",
+      "source_type": "rss",
+      "title": "OpenForge 完成 B 轮融资（转载）",
+      "url": "https://mirror.example.net/openforge-series-b",
+      "published_at": "2026-09-18T11:30:00+00:00",
+      "content": "OpenForge 宣布完成 B 轮融资，估值达到 30 亿美元。本轮由 Northwind Capital 领投，资金将用于开源生态与海外扩张。"
+    },
+    {
+      "id": "ev:hn",
+      "source_type": "hackernews",
+      "title": "OpenForge closed a Series B at a $3 billion valuation",
+      "url": "https://news.ycombinator.example.com/item?id=openforge",
+      "published_at": "2026-09-18T13:00:00+00:00",
+      "content": "OpenForge closed a Series B at a $3 billion valuation, led by Northwind Capital. The round was first reported in Chinese sources."
+    },
+    {
+      "id": "ev:yt",
+      "source_type": "youtube",
+      "title": "OpenForge Series B 解读",
+      "url": "https://www.youtube.example.com/watch?v=openforge",
+      "published_at": "2026-09-19T02:00:00+00:00",
+      "content": "视频简介：OpenForge Series B, $3B valuation, led by Northwind Capital.\n\n【视频字幕节选】\n creator 口述：OpenForge 的 B 轮已经关闭，估值三十亿美元，领投方是 Northwind Capital。\n\n【评论区 Top】\n 评论区有人说根本没 close，全是通稿。"
+    },
+    {
+      "id": "ev:forum-thread",
+      "source_type": "v2ex",
+      "title": "OpenForge 这轮融资合理吗",
+      "url": "https://www.v2ex.example.com/t/1001",
+      "published_at": "2026-09-18T15:00:00+00:00",
+      "content": "楼主：OpenForge 的 B 轮我早就猜到了，三十亿估值的口径和通稿一致。\n\n【回复精选】\n 回复1：估值是虚的，钱没到账。\n 回复2：通稿写的，别信。"
+    },
+    {
+      "id": "ev:forum-noise",
+      "source_type": "v2ex",
+      "title": "周末去哪玩",
+      "url": "https://www.v2ex.example.com/t/1002",
+      "published_at": "2026-09-19T06:00:00+00:00",
+      "content": "楼主：求推荐周末去处。\n\n【回复精选】\n 回复1：顺便说一句，OpenForge 估值 30 亿这事我是不信的，纯炒作。"
+    },
+    {
+      "id": "ev:discourse-contradict",
+      "source_type": "discourse",
+      "title": "The OpenForge round did not close",
+      "url": "https://forum.example.org/t/77",
+      "published_at": "2026-09-20T01:00:00+00:00",
+      "content": "We have confirmed with two people close to the deal that the OpenForge Series B did not close; the $3 billion valuation figure was a draft that leaked.\n\n【楼层讨论】\n floor2: I would still wait for the filing."
+    },
+    {
+      "id": "ev:blog-parser",
+      "source_type": "rss",
+      "title": "Rewriting our parser",
+      "url": "https://blog.example.com/parser-rewrite",
+      "published_at": "2026-09-17T08:00:00+00:00",
+      "content": "A long-form write-up of the parser rewrite: streaming tokenizer, arena allocation, and why the trigram index got 4x faster."
+    },
+    {
+      "id": "ev:gdelt-round",
+      "source_type": "gdelt",
+      "title": "OpenForge raises B round",
+      "url": "https://wire.example.com/openforge-raises-b",
+      "published_at": "2026-09-18T10:00:00+00:00",
+      "content": "Wire story: OpenForge raises Series B; valuation not disclosed."
+    },
+    {
+      "id": "ev:googlenews-rumor",
+      "source_type": "google_news",
+      "title": "传闻：OpenForge 融资将尽",
+      "url": "https://news.example.org/openforge-rumor",
+      "published_at": "2026-09-21T04:00:00+00:00",
+      "content": "聚合报道：关于 OpenForge B 轮是否关闭，多方说法不一致。"
+    },
+    {
+      "id": "ev:dist-lattice",
+      "source_type": "rss",
+      "title": "Lattice 完成 A 轮融资 8000 万",
+      "url": "https://vendor.example.com/lattice-a",
+      "published_at": "2026-09-15T09:00:00+00:00",
+      "content": "Lattice 完成 A 轮融资 8000 万人民币，用于硬件量产。"
+    },
+    {
+      "id": "ev:dist-zephyr",
+      "source_type": "rss",
+      "title": "Zephyr 估值 12 亿美元",
+      "url": "https://vendor.example.com/zephyr-valuation",
+      "published_at": "2026-09-16T09:00:00+00:00",
+      "content": "Zephyr 在新一轮融资后估值 12 亿美元，创始人拒绝置评。"
+    },
+    {
+      "id": "ev:dist-seriesb-glossary",
+      "source_type": "rss",
+      "title": "Series B 术语解释",
+      "url": "https://wiki.example.com/series-b",
+      "published_at": "2026-09-10T09:00:00+00:00",
+      "content": "A glossary entry: what a Series B round means, typical stage, dilution and liquidation preferences."
+    },
+    {
+      "id": "ev:dist-northwind-gp",
+      "source_type": "rss",
+      "title": "Northwind Capital 招募 GP",
+      "url": "https://fund.example.com/northwind-gp",
+      "published_at": "2026-09-12T09:00:00+00:00",
+      "content": "Northwind Capital 发布招聘启事，为新一期基金招募 GP 与投后负责人。"
+    },
+    {
+      "id": "ev:dist-openforge-cli",
+      "source_type": "github",
+      "title": "OpenForge 发布 CLI 工具",
+      "url": "https://github.example.com/openforge/cli",
+      "published_at": "2026-09-19T09:00:00+00:00",
+      "content": "OpenForge releases a command line tool for scaffold generation; no funding news in this post."
+    },
+    {
+      "id": "ev:dist-openforge-rfc",
+      "source_type": "discourse",
+      "title": "OpenForge 开源治理 RFC",
+      "url": "https://forum.example.org/t/rfc-12",
+      "published_at": "2026-09-17T09:00:00+00:00",
+      "content": "RFC on OpenForge governance: maintainer roles, voting, and release cadence.\n\n【楼层讨论】\n floor2: funding is irrelevant to this thread."
+    },
+    {
+      "id": "ev:dist-3bn-market",
+      "source_type": "gdelt",
+      "title": "$3 billion: how big is the tooling market",
+      "url": "https://analysis.example.com/market-size",
+      "published_at": "2026-09-14T09:00:00+00:00",
+      "content": "Market sizing analysis estimates the segment at $3 billion by 2028; no single company is named."
+    },
+    {
+      "id": "ev:dist-tokenizer-bench",
+      "source_type": "rss",
+      "title": "解析器 benchmark：tokenizer 对比",
+      "url": "https://bench.example.com/tokenizer",
+      "published_at": "2026-09-13T09:00:00+00:00",
+      "content": "Benchmark of three tokenizer libraries on latency and memory, unrelated to any rewrite project."
+    },
+    {
+      "id": "ev:dist-did-not-close",
+      "source_type": "hackernews",
+      "title": "Why the shop did not close on time",
+      "url": "https://news.ycombinator.example.com/item?id=shop",
+      "published_at": "2026-09-20T09:00:00+00:00",
+      "content": "Anecdote about a store whose renovation did not close on schedule. No financing involved."
+    }
+  ]
+}
