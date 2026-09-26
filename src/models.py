@@ -581,6 +581,24 @@ class ResearchConfig(BaseModel):
     claimable_only: bool = True  # replies/comments are leads, never evidence
 
 
+class RetrievalConfig(BaseModel):
+    """Evidence retrieval policy (Phase F2).
+
+    The lexical leg is always on and free. Expansion costs one cached LLM call
+    per sub-question; the semantic leg is off unless a model name is given,
+    because an OpenAI-compatible hub may or may not serve /embeddings.
+    """
+
+    query_expansion: bool = True
+    expansion_max_terms: int = 4
+    semantic: bool = False
+    embedding_model: str = ""
+    embedding_base_url: str = ""
+    embedding_api_key_env: str = ""
+    semantic_top_k: int = 30
+    index_batch_size: int = 16
+
+
 class SourcesConfig(BaseModel):
     """All sources configuration."""
 
@@ -774,3 +792,4 @@ class Config(BaseModel):
     corpus: CorpusConfig = Field(default_factory=CorpusConfig)
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
     research: ResearchConfig = Field(default_factory=ResearchConfig)
+    retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)

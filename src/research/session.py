@@ -288,6 +288,7 @@ class ResearchSession:
         max_evidence_chars: int = 700,
         planner_budget_per_invocation: int = 12,
         claimable_only: bool = True,
+        retriever: Optional[Any] = None,
     ):
         self.store = store
         self.corpus = corpus
@@ -299,6 +300,8 @@ class ResearchSession:
         # replies and comment blocks stay out of the sub-question's evidence
         # set (they are reachable through gather_leads instead).
         self.claimable_only = claimable_only
+        # Optional HybridRetriever; None keeps the deterministic lexical path.
+        self.retriever = retriever
         self.planner_calls = 0
 
     @property
@@ -342,8 +345,16 @@ class ResearchSession:
         """Answer every open sub-question, then render and store the report."""
         self.store.set_session_status(session_id, "investigating")
         session = self.store.get_session(session_id)
+        if self.retriever is not None:
+            # Fill the vector index here rather than in the daily pipeline:
+            # embeddings are only worth paying for when someone actually asks
+            # a research question, and the corpus grows between questions.
+            try:
+                await self.retriever.index_pending()
+            except Exception as exc:
+                logger.warning("vector indexing skipped: %s", exc)
         for sq in self.store.open_subquestions(session_id):
-            evidence = self.gather_evidence(sq.text)
+            evidence = await self.gather_evidence_async(sq.text)
             answer: Optional[str] = None
             if self.planner is not None and not self._budget_exhausted():
                 self.planner_calls += 1
@@ -363,6 +374,34 @@ class ResearchSession:
         self.store.add_turn(session_id, "report", report)
         self.store.set_session_status(session_id, "reported")
         return report
+
+    async def gather_evidence_async(self, query: str) -> List[Dict[str, Any]]:
+        """Evidence through the configured retriever, else the lexical core.
+
+        Kept as a separate entry point so the no-key path stays the synchronous
+        lexical one — a session must be able to run with every optional leg
+        unavailable and still produce the same evidence set as before.
+        """
+        if self.retriever is None:
+            return self.gather_evidence(query)
+
+        rows = await self.retriever.gather(query, limit=self.evidence_per_question)
+        evidence: List[Dict[str, Any]] = []
+        for row in rows:
+            snippet = re.sub(r"\s+", " ", self._author_text(row) or "")
+            evidence.append(
+                {
+                    "id": row["id"],
+                    "title": row["title"],
+                    "url": row["url"],
+                    "source_type": row["source_type"],
+                    "published_at": row["published_at"],
+                    "snippet": snippet[: self.max_evidence_chars],
+                    "claims": self._claims_for_item(row["id"]),
+                    "retrieval": row.get("retrieval", {}),
+                }
+            )
+        return evidence
 
     def gather_evidence(self, query: str) -> List[Dict[str, Any]]:
         """Corpus items + their linked claim verdicts for one sub-question.

@@ -231,7 +231,8 @@ class HorizonOrchestrator:
             else None
         )
         self.last_fetch_report: Optional[FetchReport] = None
-        self._corpus = None  # lazy: opened on first use when config.corpus.enabled
+        self._corpus = None  # lazy: opened on first use
+        self._retriever = None  # lazy: hybrid evidence retrieval policy when config.corpus.enabled
         self._ai_client_cache = _AI_UNSET  # lazy, optional (see _get_optional_ai_client)
         self._llm_cache = None  # lazy: shared persistent LLM response cache
 
@@ -344,6 +345,55 @@ class HorizonOrchestrator:
         return self._ai_client_cache
 
     # ------------------------------------------------------------- research
+    def _get_retriever(self):
+        """Build the hybrid evidence retriever for this run.
+
+        Legs are attached only when they are both configured and possible:
+        no corpus -> None (research falls back to its lexical core), no
+        embedding model -> no vector leg, no API key -> no expansion. Nothing
+        here may make a run fail that would otherwise work.
+        """
+        if self._retriever is not None:
+            return self._retriever
+        corpus = self._get_corpus()
+        if corpus is None:
+            return None
+
+        from .ai.embeddings import EmbeddingClient
+        from .corpus.retrieval import HybridRetriever
+        from .corpus.semantic import EmbeddingIndex
+
+        retrieval = self.config.retrieval
+        tier = "claimable" if self.config.research.claimable_only else "all"
+
+        index = None
+        embedder = None
+        if retrieval.semantic and retrieval.embedding_model:
+            try:
+                index = EmbeddingIndex(corpus, retrieval.embedding_model)
+                embedder = EmbeddingClient.from_config(self.config)
+                if embedder is None:
+                    index = None
+            except Exception as exc:
+                self.console.print(
+                    f"[yellow]Semantic retrieval disabled ({type(exc).__name__}).[/yellow]"
+                )
+                index = None
+                embedder = None
+
+        client = self._get_optional_ai_client() if retrieval.query_expansion else None
+
+        self._retriever = HybridRetriever(
+            corpus,
+            tier=tier,
+            index=index,
+            embedder=embedder,
+            expansion_client=client,
+            expansion_max_terms=retrieval.expansion_max_terms,
+            semantic_top_k=retrieval.semantic_top_k,
+        )
+        return self._retriever
+
     def get_claim_store(self):
         """Claim store over this run's corpus; None when corpus is disabled.
 
@@ -384,6 +434,7 @@ class HorizonOrchestrator:
             max_evidence_chars=self.config.research.max_evidence_chars,
             planner_budget_per_invocation=self.config.research.planner_budget_per_invocation,
             claimable_only=self.config.research.claimable_only,
+            retriever=self._get_retriever(),
         )
 
     async def analyze_claims(self, items: List[ContentItem]) -> None:

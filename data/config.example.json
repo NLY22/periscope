@@ -344,6 +344,17 @@
     "enabled": true,
     "evidence_per_question": 8,
     "max_evidence_chars": 700,
-    "planner_budget_per_invocation": 12
+    "planner_budget_per_invocation": 12,
+    "claimable_only": true
+  },
+  "retrieval": {
+    "query_expansion": true,
+    "expansion_max_terms": 4,
+    "semantic": false,
+    "embedding_model": "",
+    "embedding_base_url": "",
+    "embedding_api_key_env": "",
+    "semantic_top_k": 30,
+    "index_batch_size": 16
   }
 }
