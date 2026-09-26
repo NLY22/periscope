@@ -246,7 +246,11 @@ class Corpus:
     }
 
     def search(
-        self, query: str, limit: int = 20, tier: str = "all"
+        self,
+        query: str,
+        limit: int = 20,
+        tier: str = "all",
+        source_types: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """FTS5 BM25-ranked full-text search over stored evidence.
 
@@ -260,8 +264,18 @@ class Corpus:
         panel's full-corpus view including comments and replies) or
         `claimable` (author-written text only — what evidence linking and
         claim grading must use).
+
+        `source_types` narrows the search to one family of sources. The
+        research loop uses this to look where it has not looked yet instead of
+        re-asking the same slice of the corpus.
         """
         fts_table, body_column = self._FTS_BY_TIER.get(tier, self._FTS_BY_TIER["all"])
+        scoped = ""
+        params_filter: List[Any] = []
+        if source_types:
+            placeholders = ",".join("?" * len(source_types))
+            scoped = f" AND i.source_type IN ({placeholders})"
+            params_filter = list(source_types)
         fts_terms, like_terms = [], []
         for term in query.split():
             term = term.strip('"')
@@ -276,10 +290,10 @@ class Corpus:
                 f"""SELECT i.*, bm25({fts_table}) AS rank
                    FROM {fts_table}
                    JOIN items i ON i.rowid = {fts_table}.rowid
-                   WHERE {fts_table} MATCH ?
+                   WHERE {fts_table} MATCH ?{scoped}
                    ORDER BY rank
                    LIMIT ?""",
-                (match, limit),
+                (match, *params_filter, limit),
             ).fetchall()
             for r in rows:
                 d = self._row_to_dict(r)
@@ -289,16 +303,30 @@ class Corpus:
                 break
             escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             like = f"%{escaped}%"
+            like_scoped = ""
+            like_params: List[Any] = [like, like]
+            if source_types:
+                placeholders = ",".join("?" * len(source_types))
+                like_scoped = f" AND source_type IN ({placeholders})"
+                like_params += list(source_types)
             rows = self._conn.execute(
                 f"""SELECT * FROM items
-                   WHERE title LIKE ? ESCAPE '\\' OR {body_column} LIKE ? ESCAPE '\\'
+                   WHERE (title LIKE ? ESCAPE '\\' OR {body_column} LIKE ? ESCAPE '\\'){like_scoped}
                    ORDER BY published_at DESC LIMIT ?""",
-                (like, like, limit - len(results)),
+                (*like_params, limit - len(results)),
             ).fetchall()
             for r in rows:
                 d = self._row_to_dict(r)
                 results.setdefault(d["id"], d)
         return list(results.values())[:limit]
+
+    def source_families(self) -> List[str]:
+        """Every source family present in the corpus, most items first."""
+        rows = self._conn.execute(
+            "SELECT source_type, COUNT(*) AS n FROM items GROUP BY source_type"
+            " ORDER BY n DESC"
+        ).fetchall()
+        return [r["source_type"] for r in rows]
 
     def document_frequency(self, term: str) -> int:
         """How many stored items contain `term` at all (exact substring).

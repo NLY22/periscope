@@ -89,9 +89,23 @@ class HybridRetriever:
         return written
 
     # ---------------------------------------------------------------- retrieve
-    async def gather(self, query: str, limit: int) -> List[Dict[str, Any]]:
-        """Fused evidence rows for one question, best rank first."""
-        terms = _discriminating_terms(query, max_terms=4, corpus=self.corpus) or [query]
+    async def gather(
+        self,
+        query: str,
+        limit: int,
+        term_budget: int = 4,
+        source_types: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fused evidence rows for one query, best rank first.
+
+        `term_budget` is the widening dial: fewer terms means a looser query,
+        which is what the research loop does when a precise question returns
+        nothing. `source_types` restricts the search to families it has not
+        tried yet.
+        """
+        terms = _discriminating_terms(
+            query, max_terms=term_budget, corpus=self.corpus
+        ) or [query]
 
         if self.expansion_client is not None:
             self.expansion_calls += 1
@@ -107,7 +121,10 @@ class HybridRetriever:
             hits = [
                 row["id"]
                 for row in self.corpus.search(
-                    term, limit=self.per_term_limit, tier=self.tier
+                    term,
+                    limit=self.per_term_limit,
+                    tier=self.tier,
+                    source_types=source_types,
                 )
             ]
             if hits:

@@ -41,6 +41,16 @@ drops. Prefer empty lists over invented scope.
 
 Return ONLY JSON: {"add": ["..."], "drop": ["..."]}"""
 
+DECIDE_SYSTEM = """\
+A research sub-question returned too little evidence from a stored corpus.
+Rewrite it as a SEARCH QUERY that would find the material instead:
+- keep the entities, drop the grammar (question words, politeness);
+- prefer the surface forms sources use: product/organisation names,
+  acronyms, version numbers, amounts, dates;
+- if the corpus has both Chinese and English items, pick the language the
+  sources are written in, or mix the two most specific terms.
+Return ONLY JSON: {"query": "..."}"""
+
 
 class LLMPlanner:
     """Turns any AIClient-compatible object (complete(system, user) -> str)."""
@@ -115,6 +125,23 @@ class LLMPlanner:
             contract='Return ONLY {"answer": "..."}',
         )
         return data["answer"].strip()
+
+    async def decide(
+        self, question: str, subquestion: str, corpus_families: List[str]
+    ) -> Dict[str, Any]:
+        """Rewrite an under-evidenced sub-question into a better search query."""
+        user = (
+            f"MAIN QUESTION: {question}\nSUB-QUESTION: {subquestion}\n"
+            "CORPUS SOURCE FAMILIES: "
+            + ", ".join(corpus_families or ["(unknown)"])
+        )
+        data = await self._json(
+            DECIDE_SYSTEM,
+            user,
+            validate=lambda d: isinstance(d.get("query"), str) and bool(d["query"].strip()),
+            contract='Return ONLY {"query": "..."}',
+        )
+        return {"query": data["query"].strip()}
 
     async def revise(
         self, question: str, user_message: str, open_subquestions: List[str]

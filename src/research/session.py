@@ -107,6 +107,18 @@ CREATE TABLE IF NOT EXISTS research_turns (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rturns_session ON research_turns(session_id);
+
+CREATE TABLE IF NOT EXISTS research_actions (
+    id TEXT PRIMARY KEY,
+    subquestion_id TEXT NOT NULL REFERENCES research_subquestions(id),
+    round_number INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    query TEXT NOT NULL,
+    source_types TEXT,
+    new_items INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ractions_sub ON research_actions(subquestion_id);
 """
 
     def __init__(self, corpus: Corpus):
@@ -219,6 +231,58 @@ CREATE INDEX IF NOT EXISTS idx_rturns_session ON research_turns(session_id);
         )
 
     # turns ------------------------------------------------------------------
+    def record_action(
+        self,
+        subquestion_id: str,
+        round_number: int,
+        action: str,
+        query: str,
+        source_types: Optional[List[str]] = None,
+        new_items: int = 0,
+    ) -> None:
+        """Append one retrieval attempt, so "we looked" is auditable."""
+        self._conn.execute(
+            "INSERT INTO research_actions (id, subquestion_id, round_number, action,"
+            " query, source_types, new_items, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                f"act_{uuid.uuid4().hex[:10]}",
+                subquestion_id,
+                round_number,
+                action,
+                query,
+                json.dumps(source_types or [], ensure_ascii=False),
+                new_items,
+                _utc_now().isoformat(),
+            ),
+        )
+        self._conn.commit()
+
+    def actions_for(self, subquestion_id: str) -> List[Dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT round_number, action, query, source_types, new_items"
+            " FROM research_actions WHERE subquestion_id=? ORDER BY round_number, created_at",
+            (subquestion_id,),
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["source_types"] = json.loads(d.get("source_types") or "[]")
+            except json.JSONDecodeError:
+                d["source_types"] = []
+            out.append(d)
+        return out
+
+    def actions_for_session(self, session_id: str) -> List[Dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT a.round_number, a.action, a.query, a.source_types, a.new_items,"
+            " s.text AS subquestion FROM research_actions a"
+            " JOIN research_subquestions s ON s.id = a.subquestion_id"
+            " WHERE s.session_id=? ORDER BY s.id, a.round_number",
+            (session_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def add_turn(self, session_id: str, role: str, content: str) -> Turn:
         turn = Turn(
             id=f"t_{uuid.uuid4().hex[:10]}", session_id=session_id,
@@ -289,6 +353,9 @@ class ResearchSession:
         planner_budget_per_invocation: int = 12,
         claimable_only: bool = True,
         retriever: Optional[Any] = None,
+        max_retrieval_rounds: int = 3,
+        min_evidence_for_answer: int = 3,
+        collector: Optional[Any] = None,
     ):
         self.store = store
         self.corpus = corpus
@@ -302,6 +369,13 @@ class ResearchSession:
         self.claimable_only = claimable_only
         # Optional HybridRetriever; None keeps the deterministic lexical path.
         self.retriever = retriever
+        # Widening budget: how far the loop may go to reach evidence for one
+        # sub-question before it declares the gap honestly.
+        self.max_retrieval_rounds = max(1, max_retrieval_rounds)
+        self.min_evidence_for_answer = max(1, min_evidence_for_answer)
+        # async (question) -> int; wired by the orchestrator when a
+        # keyword-driven source is configured, so a thin corpus can be widened.
+        self.collector = collector
         self.planner_calls = 0
 
     @property
@@ -354,7 +428,7 @@ class ResearchSession:
             except Exception as exc:
                 logger.warning("vector indexing skipped: %s", exc)
         for sq in self.store.open_subquestions(session_id):
-            evidence = await self.gather_evidence_async(sq.text)
+            evidence = await self._gather_until_enough(session, sq)
             answer: Optional[str] = None
             if self.planner is not None and not self._budget_exhausted():
                 self.planner_calls += 1
@@ -375,7 +449,114 @@ class ResearchSession:
         self.store.set_session_status(session_id, "reported")
         return report
 
-    async def gather_evidence_async(self, query: str) -> List[Dict[str, Any]]:
+    # ------------------------------------------------------------- widening
+    def _retrieval_ladder(self) -> List[str]:
+        """Widening order for one sub-question: cheapest and likeliest first.
+
+        Free moves (looser terms, an untouched slice of the corpus) come before
+        paid ones (a model-written rephrasing, a new collection pass), because
+        the binding constraint is a rate-limited free tier, not compute.
+        """
+        ladder = ["baseline", "widen_terms", "switch_source_family"]
+        if self.planner is not None:
+            ladder.append("rewrite_query")
+        if self.collector is not None:
+            ladder.append("collect_keywords")
+        return ladder
+
+    async def _gather_until_enough(
+        self, session: Session, sq: SubQuestion
+    ) -> List[Dict[str, Any]]:
+        """Evidence for one sub-question, widening the search as it comes up short.
+
+        Every attempt is recorded, so a report can say what was tried instead
+        of looking like the corpus simply had nothing.
+        """
+        found: Dict[str, Dict[str, Any]] = {}
+
+        async def ask(query: str, term_budget: int, families: Optional[List[str]]) -> int:
+            rows = await self.gather_evidence_async(
+                query, term_budget=term_budget, source_types=families
+            )
+            new = 0
+            for row in rows:
+                if row["id"] not in found:
+                    found[row["id"]] = row
+                    new += 1
+            return new
+
+        first = await ask(sq.text, 4, None)
+        self.store.record_action(sq.id, 1, "baseline", sq.text, None, first)
+
+        round_number = 1
+        for action in self._retrieval_ladder()[1:]:
+            if len(found) >= self.min_evidence_for_answer:
+                break
+            if round_number >= self.max_retrieval_rounds:
+                break
+            round_number += 1
+
+            if action == "widen_terms":
+                new = await ask(sq.text, 2, None)
+                self.store.record_action(sq.id, round_number, action, sq.text, None, new)
+            elif action == "switch_source_family":
+                families = self._untried_families(found)
+                if not families:
+                    self.store.record_action(sq.id, round_number, action, sq.text, [], 0)
+                    continue
+                new = await ask(sq.text, 3, families)
+                self.store.record_action(sq.id, round_number, action, sq.text, families, new)
+            elif action == "rewrite_query":
+                rewritten = await self._rewrite(session, sq)
+                if not rewritten:
+                    self.store.record_action(sq.id, round_number, action, sq.text, [], 0)
+                    continue
+                new = await ask(rewritten, 3, None)
+                self.store.record_action(sq.id, round_number, action, rewritten, None, new)
+            elif action == "collect_keywords":
+                collected = 0
+                try:
+                    collected = int(await self.collector(sq.text) or 0)
+                except Exception as exc:
+                    logger.warning("on-demand collection failed: %s", exc)
+                new = await ask(sq.text, 3, None)
+                self.store.record_action(sq.id, round_number, action, sq.text, None, new)
+
+        return list(found.values())
+
+    def _untried_families(self, found: Dict[str, Dict[str, Any]]) -> List[str]:
+        used = {row.get("source_type") for row in found.values()}
+        return [f for f in self.corpus.source_families() if f not in used][:4]
+
+    async def _rewrite(self, session: Session, sq: SubQuestion) -> Optional[str]:
+        """Ask the planner for a differently-worded query; None if unavailable.
+
+        `decide` is intentionally optional on the Planner protocol: a host
+        that supplies only decompose/answer/revise keeps the deterministic
+        widening ladder.
+        """
+        decide = getattr(self.planner, "decide", None)
+        if decide is None or self._budget_exhausted():
+            return None
+        self.planner_calls += 1
+        try:
+            data = await decide(
+                session.question, sq.text, self.corpus.source_families()
+            )
+        except Exception as exc:
+            logger.warning("query rewrite failed (%s); keeping original wording", exc)
+            return None
+        if not isinstance(data, dict):
+            return None
+        query = str(data.get("query", "")).strip()
+        return query or None
+
+    async def gather_evidence_async(
+        self,
+        query: str,
+        term_budget: int = 4,
+        source_types: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """Evidence through the configured retriever, else the lexical core.
 
         Kept as a separate entry point so the no-key path stays the synchronous
@@ -383,9 +564,14 @@ class ResearchSession:
         unavailable and still produce the same evidence set as before.
         """
         if self.retriever is None:
-            return self.gather_evidence(query)
+            return self.gather_evidence(query, term_budget, source_types)
 
-        rows = await self.retriever.gather(query, limit=self.evidence_per_question)
+        rows = await self.retriever.gather(
+            query,
+            limit=self.evidence_per_question,
+            term_budget=term_budget,
+            source_types=source_types,
+        )
         evidence: List[Dict[str, Any]] = []
         for row in rows:
             snippet = re.sub(r"\s+", " ", self._author_text(row) or "")
@@ -403,14 +589,19 @@ class ResearchSession:
             )
         return evidence
 
-    def gather_evidence(self, query: str) -> List[Dict[str, Any]]:
+    def gather_evidence(
+        self,
+        query: str,
+        term_budget: int = 4,
+        source_types: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """Corpus items + their linked claim verdicts for one sub-question.
 
         A sub-question is not a search query: FTS phrases demand exact
         substrings, so we decompose into discriminating terms (same helper
         the claim linker uses) and merge per-term hits by accumulated BM25.
         """
-        terms = discriminating_terms(query, max_terms=4, corpus=self.corpus)
+        terms = discriminating_terms(query, max_terms=term_budget, corpus=self.corpus)
         if not terms:
             terms = [query]
         scores: Dict[str, float] = {}
@@ -418,7 +609,10 @@ class ResearchSession:
         for term in terms:
             for rank, row in enumerate(
                 self.corpus.search(
-                    term, limit=self.evidence_per_question, tier=self._search_tier
+                    term,
+                    limit=self.evidence_per_question,
+                    tier=self._search_tier,
+                    source_types=source_types,
                 )
             ):
                 scores[row["id"]] = scores.get(row["id"], 0.0) + 1.0 / (rank + 1)
@@ -505,6 +699,14 @@ class ResearchSession:
                     lines.append("_（本条回答暂无语料支撑，仅供参考）_")
             elif sq.status == "open":
                 lines.append("_（尚未回答：缺少模型调用预算或语料证据，等待下一轮迭代）_")
+                tried = self.store.actions_for(sq.id)
+                if tried:
+                    lines.append("_取证尝试：_" + "；".join(
+                        f"{a['action']}"
+                        + (f"→{','.join(a['source_types'])}" if a.get("source_types") else "")
+                        + f"(+{a['new_items']})"
+                        for a in tried
+                    ))
                 if sq.evidence_ids:
                     marks = " ".join(
                         c for c in (cite(i) for i in sq.evidence_ids[:4]) if c

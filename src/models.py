@@ -579,6 +579,10 @@ class ResearchConfig(BaseModel):
     max_evidence_chars: int = 700
     planner_budget_per_invocation: int = 12
     claimable_only: bool = True  # replies/comments are leads, never evidence
+    # Widening the search is how a noisy, wide corpus pays off: keep looking
+    # with cheaper/other moves before declaring a sub-question unanswerable.
+    max_retrieval_rounds: int = 3
+    min_evidence_for_answer: int = 3
 
 
 class RetrievalConfig(BaseModel):
@@ -597,6 +601,11 @@ class RetrievalConfig(BaseModel):
     embedding_api_key_env: str = ""
     semantic_top_k: int = 30
     index_batch_size: int = 16
+    # When a sub-question cannot be answered from what is already stored, the
+    # research loop may ask the key-less search sources (GDELT / Google News)
+    # for that question once, and feed the result into the corpus. Off by
+    # default: it reaches the network mid-session, so it must be a choice.
+    on_demand_collection: bool = False
 
 
 class SourcesConfig(BaseModel):

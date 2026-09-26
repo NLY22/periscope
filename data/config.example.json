@@ -345,7 +345,9 @@
     "evidence_per_question": 8,
     "max_evidence_chars": 700,
     "planner_budget_per_invocation": 12,
-    "claimable_only": true
+    "claimable_only": true,
+    "max_retrieval_rounds": 3,
+    "min_evidence_for_answer": 3
   },
   "retrieval": {
     "query_expansion": true,
@@ -355,6 +357,7 @@
     "embedding_base_url": "",
     "embedding_api_key_env": "",
     "semantic_top_k": 30,
-    "index_batch_size": 16
+    "index_batch_size": 16,
+    "on_demand_collection": false
   }
 }
