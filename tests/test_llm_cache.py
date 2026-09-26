@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 
 import pytest
 
@@ -91,18 +90,38 @@ def test_concurrent_misses_collapse_to_one_upstream_call(cache) -> None:
     assert inner.calls == 1
 
 
-def test_throttle_spaces_upstream_calls(cache) -> None:
+def test_throttle_spaces_upstream_calls(cache, monkeypatch) -> None:
+    """Assert the spacing the client asked for, not how long the OS actually slept.
+
+    Timing the real sleep was flaky on Windows — clock granularity is ~15ms and
+    a `sleep(0.05)` under full-suite load can return under a 0.04 assertion,
+    turning CI red for reasons unrelated to the code. The contract here is
+    "a cache miss waits out the throttle window", which is observable directly.
+    """
+    from src.ai import cache as cache_module
+
+    requested: list[float] = []
+
+    async def fake_sleep(delay, *args, **kwargs):
+        requested.append(delay)
+
+    monkeypatch.setattr(cache_module.asyncio, "sleep", fake_sleep)
+
     inner = FakeInner("x")
     client = CachingAIClient(inner, cache, throttle_sec=0.05)
 
     async def two_prompts():
         await client.complete("s", "one")
-        start = time.monotonic()
         await client.complete("s", "two")
-        return time.monotonic() - start
 
-    gap = asyncio.run(two_prompts())
-    assert gap >= 0.04  # second call waited out the throttle window
+    asyncio.run(two_prompts())
+
+    assert inner.calls == 2 and client.misses == 2
+    assert requested == [pytest.approx(0.05, abs=0.005)]
+
+    # a hit must not be spaced at all: the throttle is for the upstream, not us
+    asyncio.run(client.complete("s", "one"))
+    assert len(requested) == 1 and client.hits == 1
 
 
 def test_broken_cache_degrades_to_passthrough() -> None:

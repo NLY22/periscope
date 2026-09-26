@@ -1,7 +1,11 @@
 <div align="center">
 <h1>🌅 Periscope</h1>
 
-<p><strong>享受新闻本身，其余交给 Periscope</strong></p>
+<p><strong>把广而杂的信息源，变成可核查的证据库</strong></p>
+
+<p><sub>上游 Horizon 的口号是「享受新闻本身，其余交给 Periscope」；本 fork 多做一步 —— 除了帮你读，还要说清每句话出自谁、有几家独立支撑、哪里互相矛盾。</sub></p>
+
+> ⚠️ **本仓库是 fork（`NLY22/periscope`），不是上游。** 下面的 Trendshift / HelloGitHub 徽章、在线演示站点、QQ 群与赞助位都属于上游项目；本 fork 独有的能力见[能力对照](#本-fork-与上游的能力对照)，协作请在本仓库开 issue / PR。
 
 <a href="https://trendshift.io/repositories/22864?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-22864" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/22864/daily" alt="Periscope | Trendshift" width="250" height="55"/></a>
 <a href="https://trendshift.io/repositories/22864?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-22864" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/22864/weekly?language=Python" alt="Periscope | Trendshift" width="250" height="55"/></a>
@@ -11,6 +15,8 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge&logo=opensourceinitiative&logoColor=white)](LICENSE)
 [![Tool uv](https://img.shields.io/badge/Tool-uv-4B275F?style=for-the-badge&logo=uv&logoColor=white)](https://github.com/astral-sh/uv)
 [![Repo](https://img.shields.io/badge/Repo-AtomGit-263238?style=for-the-badge&logo=git&logoColor=white)](https://atomgit.com/NLY22/periscope)
+[![Fork of](https://img.shields.io/badge/fork%20of-Thysrael%2FHorizon-orange?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Thysrael/Horizon)
+![Status](https://img.shields.io/badge/status-Phase%20F1%E2%80%93F6%20已合并%20main-2ea44f?style=for-the-badge)
 [![Commits](https://img.shields.io/badge/Commits-main-blue?style=for-the-badge&logo=git&logoColor=white)](https://atomgit.com/NLY22/periscope/commits/main)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge&logo=git&logoColor=white)](https://atomgit.com/NLY22/periscope/pulls)
 ![Sources Welcome](https://img.shields.io/badge/sources-welcome-f97316?style=for-the-badge&logo=rss&logoColor=white)
@@ -25,7 +31,7 @@
 
 📡 你专属的 AI 新闻雷达：聚合多源信息，自动筛选、去重、富化，生成中英双语每日简报，并把每一天的知识沉淀成可检索、可核查、可研究的证据库。
 
-[📖 在线演示](https://thysrael.github.io/Periscope/) · [📋 配置指南](docs/configuration.md) · [🧩 Profile 定制](docs/profiles.md) · [💬 QQ 群](#社区)
+📖 在线演示（**上游站点**，非本 fork 部署） · [📋 配置指南](docs/configuration.md) · [🧩 Profile 定制](docs/profiles.md) · [🔎 取证检索机制](docs/retrieval.md) · [📊 评测](docs/evaluation.md)
 
 </div>
 
@@ -33,7 +39,9 @@
 
 ## 目录
 
+- [先说清楚：这是 fork，不是上游](#先说清楚这是-fork不是上游)
 - [简介](#简介)
+- [本 fork 与上游的能力对照](#本-fork-与上游的能力对照)
 - [核心特性](#核心特性)
 - [截图](#截图)
 - [工作原理](#工作原理)
@@ -55,6 +63,19 @@
 - [致谢](#致谢)
 - [许可证](#许可证)
 
+## 先说清楚：这是 fork，不是上游
+
+| | 上游 | 本仓库 |
+|---|---|---|
+| 项目 | [Thysrael/Horizon](https://github.com/Thysrael/Horizon)（上游后期也把项目改名为 Periscope） | `NLY22/periscope`，Horizon 的 fork |
+| 回答的问题 | 今天有什么值得读 | 这个说法**站不站得住**，以及围绕它如何做长时研究 |
+| 来源面 | 以搜索引擎可索引的内容为主 | 加上论坛、视频描述、CC 字幕、评论区 |
+| 记忆 | 每次运行独立，次日即忘 | `corpus.db` 持久证据库，跨运行、跨入口累积 |
+| 结论可核性 | AI 评分与摘要 | 声明级核查 + 独立信源计数 + 引用反解核验 |
+| 维护与协作 | 上游作者的渠道 | <https://atomgit.com/NLY22/periscope> 的 issue / PR |
+
+> **本页面上的 Trendshift、HelloGitHub、LINUX.DO、小红书徽章，在线演示 `thysrael.github.io`，QQ 群、`periscope1123.top` 与 `thysrael@163.com` 等联系方式以及三家赞助位，全部属于上游项目。** 本 fork 不经这些渠道分发，也不为其内容负责。下文用 `（上游）` / `（本 fork）` 标注每条能力的出处。
+
 ## 简介
 
 好的内容散落在订阅源、论坛与时间线里，而你的注意力是有限的。**Periscope 会替你收集、筛选、去重**，再把真正值得一读的内容连同背景与社区讨论一起送到你面前。
@@ -63,16 +84,37 @@
 
 Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游只回答「今天有什么值得读」，到了第二天就遗忘；本 fork 在此之上增加了**证据语料库、声明级核查与长会话研究**三项核心能力，并提供 **Web 面板**与扩展的 **MCP** 入口，让知识能够跨运行累积；再往下是两项支撑机制——**证据分层**与**自适应取证**，它们决定了前三项在噪声里是否真的站得住。详见[本 fork 的独有层次](#本-fork-的独有层次)。
 
+## 本 fork 与上游的能力对照
+
+| 能力 | 出处 | 落在哪 |
+|---|---|---|
+| 多源聚合、Profile 评分、双语日报、邮件 / Webhook / 微信投递、配置向导 | （上游） | `src/scrapers`（四个新源除外）、`src/processing`、`src/services`、`src/setup` |
+| Bilibili / V2EX / Discourse / YouTube 四个源，含 B 站 CC 字幕层 | （本 fork） | `src/scrapers/{bilibili,v2ex,discourse,youtube}.py` |
+| 证据语料库：SQLite + FTS5 + 手写 SimHash 聚簇，跨运行累积 | （本 fork） | `src/corpus/store.py`、`src/corpus/simhash.py` |
+| 证据分层：作者亲写 vs 人群发言，独立信源计数只认前者 | （本 fork） | `src/corpus/sections.py`、`items.claimable` + `claim_fts` |
+| 取证检索：查询扩展 + 向量路 + RRF 融合 | （本 fork） | `src/corpus/retrieval.py`、`src/ai/{expand,embeddings}.py`、`src/corpus/semantic.py` |
+| 声明级核查 + 评级一致率工具 | （本 fork） | `src/analysis/{claims,agreement}.py`、`scripts/eval_claims.py` |
+| 长会话研究：子问题树、崩溃续跑、缺证时自适应加宽 | （本 fork） | `src/research/`、`research_actions` 表 |
+| 报告骨架（背景调查 / 市场调研 / 方法探索）+ 引用反解核验 | （本 fork） | `src/research/templates.py`、`src/corpus/citations.py` |
+| 检索消融评测（Recall / Precision / nDCG / MRR） | （本 fork） | `src/corpus/metrics.py`、`scripts/eval_retrieval.py`、`docs/evaluation.md` |
+| Web 面板 | （本 fork） | `src/web/`（上游无） |
+
+**这个 fork 的立场一句话**：把来源放宽到论坛与流媒体，信息质量必然下降；全部工作在于让"降下去的质量"被分层、检索、计数与引用核验**重新补回来**，并用消融表说明补回了多少。
+
 ## 核心特性
 
-- **📡 聚合你的信息源** — 订阅 RSS、Hacker News、Reddit、Telegram、X、GitHub、Bilibili、V2EX、Discourse、YouTube、财经资讯等 14 类来源。
+下面每条标明出处，便于与上游对比：
+
+- **📡 聚合你的信息源（上游 + 本 fork）** — RSS、Hacker News、Reddit、Telegram、X、GitHub、财经资讯等 10 类来自上游；**Bilibili、V2EX、Discourse、YouTube 四类及 B 站 CC 字幕层是本 fork 加的**。
 - **🎯 判断什么值得读** — 用 Profile 定义评分细则，为每个 Profile 设置阈值，并在同一 Profile 内合并重复报道。
 - **🧩 为每篇内容定制处理方式** — 通过 Markdown 提示词与 JSON block 定义，自由组合摘要、背景、解决方案或要点。
 - **💬 不止于标题** — 在有助于解释事件时，自动补充联网检索到的背景与社区讨论。
 - **⚖️ 兼顾你的所有兴趣** — 限制简报总长度与各分类占比，避免某一热门话题挤占其余内容。
 - **📬 在你习惯的地方阅读** — 生成中英双语 Markdown 简报，发布到 Pages，或通过邮件、Webhook、微信投递。
-- **🧠 让每一天都可积累** — 所有采集过的内容进入证据语料库，可全文检索、做声明核查，并作为长会话研究的素材。
-- **🧯 诚实的降级** — 没有 LLM key 也能运行：语料照常增长、证据照常确定性关联，报告会如实标注「尚未回答」而不是编造内容。
+- **🧠 让每一天都可积累（本 fork）** — 所有采集过的内容进入证据语料库，可全文检索、做声明核查，并作为长会话研究的素材；**证据分层**保证评论与回复只作线索，不充当信源。
+- **🧯 诚实的降级（本 fork）** — 没有 LLM key 也能运行：语料照常增长、证据照常确定性关联，报告会如实标注「尚未回答」而不是编造内容。
+- **🔍 找不到就换打法（本 fork）** — 一个子问题不再只有一次查询：放宽词条、换来源族、让模型改写问法，每步写入 `research_actions`，报告尾部列出「取证尝试」，把"语料里没有"和"问法不对"分开。
+- **✅ 引用可自查（本 fork）** — 成品报告可被反向核验：幽灵引用、指向不存在条目、只靠人群发言支撑的引用，都会被点名（`src/corpus/citations.py`）。
 
 ### 一份简报，多种读法
 
@@ -518,7 +560,7 @@ CI 见 `.github/workflows/tests.yml`：Linux 与 Windows 各跑一遍全量测�
 
 ## 项目状态
 
-Periscope 已支持完整的每日简报闭环：多源采集、Profile 驱动的分析与富化、去重、评论摘要、双语生成、GitHub Pages 发布、邮件投递、Webhook 投递、微信投递、Docker 部署、MCP 集成与配置向导。
+本 fork 继承的日报闭环（上游）：多源采集、Profile 驱动的分析与富化、去重、评论摘要、双语生成、邮件 / Webhook / 微信投递、Docker 部署、MCP 集成与配置向导。其中 **GitHub Pages 发布这一条在本平台上不生效** —— `deploy-docs.yml` 仍是 GitHub Pages 专用配置，待换成平台静态托管或删除。
 
 本 fork 在此基础上额外提供证据语料库、声明级核查与长会话研究三项核心能力，以及证据分层与自适应取证两项支撑机制，并提供 Web 面板这一独立入口（见[本 fork 的独有层次](#本-fork-的独有层次)）。
 
@@ -530,11 +572,11 @@ Periscope 已支持完整的每日简报闭环：多源采集、Profile 驱动�
 
 ## 贡献
 
-欢迎贡献。代码、文档与信息源分享的规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。参与前请阅读 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)，安全问题请参考 [SECURITY.md](SECURITY.md)。
+欢迎在**本仓库**贡献：issue 与 PR 请开在 <https://atomgit.com/NLY22/periscope>，上游仓库的 issue 与本 fork 无关。规范见 [CONTRIBUTING.md](CONTRIBUTING.md)，行为准则见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)，安全问题见 [SECURITY.md](SECURITY.md)。动手前建议先读 [docs/retrieval.md](docs/retrieval.md) 与 [docs/evaluation.md](docs/evaluation.md) —— 新增能力要能进消融表，否则只是加功能。
 
 ### 分享信息源
 
-想把发现的优质信息源分享给 Periscope 社区？请通过 **[periscope1123.top](https://periscope1123.top)** 提交。
+想把发现的优质信息源分享出去？**上游社区**通过 **[periscope1123.top](https://periscope1123.top)** 收集（该站点不由本 fork 运营）；本 fork 的信息源改动请直接开 PR 或 issue。
 
 ## 社区
 
@@ -561,7 +603,9 @@ Periscope 是一个利用业余时间维护的开源项目。如果你想支持�
 
 ## 致谢
 
-- 特别感谢 [LINUX.DO](https://linux.do/) 提供推广平台。
+- 本项目 fork 自 [Thysrael/Horizon](https://github.com/Thysrael/Horizon)：日报流水线、Profile 体系与投递渠道均为上游成果；本 fork 的贡献集中在证据分层、取证检索、声明核查与长会话研究（见[能力对照](#本-fork-与上游的能力对照)）。
+- **命名提示**：上游后期也把项目称为 Periscope，因此**"Periscope"这个名字本身不足以区分两个项目**。请以仓库地址 `NLY22/periscope` 与本页的对照表为准。若要彻底改名（包名与 `periscope-*` 六个 CLI 入口一起改）是一个独立决定，尚未执行。
+- 特别感谢 [LINUX.DO](https://linux.do/) 提供推广平台（上游渠道）。
 - 特别感谢 [HelloGitHub](https://hellogithub.com/) 提供宝贵的指导与建议。
 - 特别感谢 [AIGC Link](https://xhslink.com/m/80ngts127cA) 在小红书上的推广。
 
