@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Protocol
 
 from ..analysis.claims import discriminating_terms
+from ..corpus.citations import audit_report
 from ..corpus.store import Corpus
 
 logger = logging.getLogger(__name__)
@@ -732,6 +733,10 @@ class ResearchSession:
             for r in refs:
                 n = ref_numbers[r["id"]]
                 lines.append(f"[{n}] `{r['source_type']}` {r['title']} — {r['url']}")
+            # Make the guarantee checkable rather than merely intended: a reader
+            # (or the panel) can re-run the same audit on the finished text.
+            lines.append("")
+            lines.append(f"> {audit_report(chr(10).join(lines), self.corpus).summary()}")
         return "\n".join(lines).strip()
 
     def _session_claim_verdicts(self, subs: List[SubQuestion]) -> List[Dict[str, Any]]:

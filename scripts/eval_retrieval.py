@@ -226,7 +226,9 @@ async def main() -> int:
         }
         corpus.close()
 
-    args.out.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    args.out.write_text(
+        json.dumps(results, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n"
+    )
     if not args.json_only:
         print(markdown_table(table))
         print(f"\n写入 {args.out.relative_to(REPO_ROOT)}")
