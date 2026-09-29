@@ -1,5 +1,6 @@
 """Core data models for Horizon."""
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 import re
@@ -34,21 +35,77 @@ class SourceDefinition(NamedTuple):
     item_fields: tuple[str, ...] = ()
 
 
+SourceKind = Literal["official", "forum", "ugc_social", "aggregator", "search_engine"]
+
+
+@dataclass(frozen=True)
+class RateLimit:
+    """How politely one host may be polled."""
+
+    requests: int = 1
+    per_seconds: float = 2.0
+    jitter: float = 0.3  # +/-30%, so the interval is not a fingerprint
+
+
+@dataclass(frozen=True)
+class SourceSpec:
+    """Everything a source is, minus the code that fetches it.
+
+    Pure metadata on purpose: `models.py` must not import scrapers (they all
+    import models), so the key -> class binding lives in
+    `src/sources/registry.py`. `credibility_prior` is a hand-set constant in
+    P0; P1 calibrates it against the human-labelled verdicts.
+    """
+
+    key: str
+    label: str
+    kind: SourceKind
+    credibility_prior: float
+    login_required: bool
+    editorial_gate: bool
+    time_basis_default: Literal["published", "crawled", "unknown"]
+    rate_limit: Optional[RateLimit]
+    config_field: str
+    config_is_list: bool = False
+    item_fields: tuple = ()
+
+
+_GENTLE = RateLimit(requests=1, per_seconds=2.0)
+
+SOURCE_SPECS: tuple = (
+    SourceSpec("github", "GitHub", "official", 0.75, False, True, "published",
+               None, "github", config_is_list=True),
+    SourceSpec("hackernews", "Hacker News", "forum", 0.50, False, False, "published",
+               _GENTLE, "hackernews"),
+    SourceSpec("rss", "RSS Feeds", "official", 0.70, False, True, "published",
+               None, "rss", config_is_list=True),
+    SourceSpec("reddit", "Reddit", "ugc_social", 0.40, False, False, "published",
+               _GENTLE, "reddit", item_fields=("subreddits", "users")),
+    SourceSpec("telegram", "Telegram", "official", 0.55, False, False, "published",
+               _GENTLE, "telegram", item_fields=("channels",)),
+    SourceSpec("twitter", "Twitter", "ugc_social", 0.40, False, False, "published",
+               None, "twitter", item_fields=("users", "keywords")),
+    SourceSpec("openbb", "OpenBB", "aggregator", 0.60, False, True, "published",
+               None, "openbb", item_fields=("watchlists",)),
+    SourceSpec("ossinsight", "OSS Insight", "aggregator", 0.60, False, True, "published",
+               None, "ossinsight"),
+    SourceSpec("gdelt", "GDELT", "aggregator", 0.55, False, True, "published",
+               None, "gdelt"),
+    SourceSpec("google_news", "Google News", "aggregator", 0.55, False, True, "published",
+               None, "google_news"),
+    SourceSpec("bilibili", "Bilibili", "ugc_social", 0.35, False, False, "published",
+               _GENTLE, "bilibili"),
+    SourceSpec("v2ex", "V2EX", "forum", 0.45, False, False, "published",
+               _GENTLE, "v2ex"),
+    SourceSpec("discourse", "Discourse", "forum", 0.50, False, False, "published",
+               _GENTLE, "discourse", item_fields=("sites",)),
+    SourceSpec("youtube", "YouTube", "official", 0.60, False, False, "published",
+               None, "youtube", item_fields=("channels",)),
+)
+
 SOURCE_REGISTRY = {
-    SourceType.GITHUB.value: SourceDefinition("github", config_is_list=True),
-    SourceType.HACKERNEWS.value: SourceDefinition("hackernews"),
-    SourceType.RSS.value: SourceDefinition("rss", config_is_list=True),
-    SourceType.REDDIT.value: SourceDefinition("reddit", item_fields=("subreddits", "users")),
-    SourceType.TELEGRAM.value: SourceDefinition("telegram", item_fields=("channels",)),
-    SourceType.TWITTER.value: SourceDefinition("twitter", item_fields=("users", "keywords")),
-    SourceType.OPENBB.value: SourceDefinition("openbb", item_fields=("watchlists",)),
-    SourceType.OSSINSIGHT.value: SourceDefinition("ossinsight"),
-    SourceType.GDELT.value: SourceDefinition("gdelt"),
-    SourceType.GOOGLE_NEWS.value: SourceDefinition("google_news"),
-    SourceType.BILIBILI.value: SourceDefinition("bilibili"),
-    SourceType.V2EX.value: SourceDefinition("v2ex"),
-    SourceType.DISCOURSE.value: SourceDefinition("discourse"),
-    SourceType.YOUTUBE.value: SourceDefinition("youtube", item_fields=("channels",)),
+    spec.key: SourceDefinition(spec.config_field, spec.config_is_list, spec.item_fields)
+    for spec in SOURCE_SPECS
 }
 
 ProfileRoute = Optional[Union[str, List[str]]]
