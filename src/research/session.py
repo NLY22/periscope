@@ -22,6 +22,7 @@ Layering (same discipline as the claim pipeline):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -33,6 +34,8 @@ from typing import Any, Dict, List, Optional, Protocol
 from ..analysis.claims import discriminating_terms
 from ..corpus.citations import audit_report
 from ..corpus.store import Corpus
+from .drafts import Draft, DraftSection, DraftStore, ResearchRequest, body_hash
+from .moves import AskUser, Deepen, Finalize, Move, MoveContext, Rescope
 from .templates import ReportTemplate, build_skeleton, resolve_template
 
 logger = logging.getLogger(__name__)
@@ -59,7 +62,7 @@ class SubQuestion:
 class Turn:
     id: str
     session_id: str
-    role: str  # user | report
+    role: str  # user | report | assistant_question
     content: str
     created_at: datetime = field(default_factory=_utc_now)
 
@@ -68,7 +71,7 @@ class Turn:
 class Session:
     id: str
     question: str
-    status: str = "created"  # created | investigating | reported | closed
+    status: str = "created"  # created|planning|investigating|awaiting_user|drafting|reported|closed
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
 
@@ -341,6 +344,14 @@ class Planner(Protocol):
     ) -> Dict[str, List[str]]:
         """Tree delta after a follow-up: {"add": [...], "drop": [...]}."""
 
+    async def next_move(self, ctx: "MoveContext") -> "Move":
+        """Choose what the loop should do next.
+
+        Optional: `ResearchSession.decide_move` falls back to a deterministic
+        policy when a planner does not implement it, so a session with no
+        model reachable still terminates instead of hanging.
+        """
+
 
 class ResearchSession:
     """The stateful loop over one research question."""
@@ -383,6 +394,9 @@ class ResearchSession:
         # None keeps the original unanswered-question-shaped report.
         self.report_template = report_template
         self.planner_calls = 0
+        # Draft revisions live in the same SQLite file as the corpus and the
+        # session state, so a resumed process sees the user's edits too.
+        self.drafts = DraftStore(corpus)
 
     @property
     def _search_tier(self) -> str:
@@ -451,11 +465,310 @@ class ResearchSession:
                 evidence_ids=[e["id"] for e in evidence],
             )
         report = self.render_report(session_id)
+        self.commit_draft(session_id, report)
         self.store.add_turn(session_id, "report", report)
         self.store.set_session_status(session_id, "reported")
         return report
 
-    # ------------------------------------------------------------- widening
+    # ----------------------------------------------------------------- draft
+    _HEADING = re.compile(r"^## +(.+?)\s*$", re.MULTILINE)
+
+    @staticmethod
+    def section_id(title: str) -> str:
+        """Stable per-title handle, so a lock survives a re-render."""
+        slug = re.sub(r"\W+", "-", title.strip().lower()).strip("-")
+        return f"s_{slug[:48] or hashlib.sha256(title.encode()).hexdigest()[:8]}"
+
+    def split_markdown(self, markdown: str) -> List[DraftSection]:
+        """Break a rendered report into addressable sections.
+
+        Heading text is the identity: it is what a reader sees and what a
+        re-render reproduces, so locking a section by title keeps working
+        across revisions while the citation numbers underneath it move.
+        """
+        text = markdown or ""
+        preamble = text[: self._HEADING.search(text).start()] if self._HEADING.search(
+            text
+        ) else text
+        sections: List[DraftSection] = []
+        if preamble.strip():
+            sections.append(DraftSection(id="s_overview", title="概览", body=preamble.strip()))
+        matches = list(self._HEADING.finditer(text))
+        for index, match in enumerate(matches):
+            start = match.end()
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+            body = text[start:end].strip()
+            if body:
+                sections.append(DraftSection(id=self.section_id(match[1]), title=match[1], body=body))
+        return sections
+
+    def commit_draft(self, session_id: str, markdown: str) -> "Draft":
+        """Store a rendered report as a new revision, keeping the user's prose.
+
+        A section the user edited or locked is never overwritten: when the new
+        render differs it is marked `stale` and left as the user wrote it.
+        """
+        fresh = self.split_markdown(markdown)
+        previous = self.drafts.latest(session_id)
+        kept: Dict[str, DraftSection] = {}
+        if previous is not None:
+            kept = {s.id: s for s in previous.sections}
+        for section in fresh:
+            old = kept.get(section.id)
+            if old is None or not (old.locked or old.hash != body_hash(old.body)):
+                continue
+            if old.body != section.body:
+                stale = DraftSection.from_dict(old.to_dict())
+                stale.stale = True
+                fresh[fresh.index(section)] = stale
+        # user sections that no longer appear in the render stay put: dropping
+        # a branch is a scope decision, and silently deleting the user's prose
+        # is exactly what a versioned artefact must never do.
+        for section in kept.values():
+            if section.id not in {s.id for s in fresh}:
+                carried = DraftSection.from_dict(section.to_dict())
+                carried.stale = True
+                fresh.append(carried)
+        return self.drafts.save(session_id, fresh, origin="render")
+
+    def edit_section(self, session_id: str, section_id: str, body: str) -> Draft:
+        """Record a user edit as its own revision and lock that section."""
+        current = self.drafts.latest(session_id)
+        if current is None:
+            raise KeyError(f"session {session_id} has no draft to edit")
+        target = current.section(section_id)
+        if target is None:
+            raise KeyError(f"unknown section {section_id} in revision {current.revision}")
+        sections = [DraftSection.from_dict(s.to_dict()) for s in current.sections]
+        for index, section in enumerate(sections):
+            if section.id == section_id:
+                sections[index] = DraftSection(
+                    id=section.id, title=section.title, body=body.strip(),
+                    evidence_ids=section.evidence_ids, subquestion_id=section.subquestion_id,
+                    locked=True, stale=False, verdicts=section.verdicts,
+                )
+        return self.drafts.save(session_id, sections, origin="user_edit")
+
+    # ------------------------------------------------------------------ move
+    def move_context(self, session_id: str, user_message: str = "") -> MoveContext:
+        subs = []
+        for sq in self.store.subquestions(session_id):
+            subs.append({
+                "id": sq.id, "text": sq.text, "status": sq.status,
+                "parent_id": sq.parent_id, "answer": sq.answer,
+                "evidence_ids": list(sq.evidence_ids),
+            })
+        draft = self.drafts.latest(session_id)
+        return MoveContext(
+            session_id=session_id,
+            question=(self.store.get_session(session_id).question if self.store.get_session(session_id) else ""),
+            subquestions=subs,
+            draft_sections=[s.to_dict() for s in (draft.sections if draft else [])],
+            pending_requests=[r.to_dict() for r in self.drafts.pending_requests(session_id)],
+            user_message=user_message,
+            budget_left=max(0, self.planner_budget - self.planner_calls),
+        )
+
+    async def decide_move(self, ctx: MoveContext) -> Move:
+        """Pick the next verb, or fall back to a deterministic one.
+
+        The fallback matters: a session with no reachable model must still be
+        able to finish. Asking the user is only ever a model's judgement —
+        guessing at it would turn a working loop into an interrogation.
+        """
+        if self.planner is not None and not self._budget_exhausted():
+            if hasattr(self.planner, "next_move"):
+                self.planner_calls += 1
+                try:
+                    move = await self.planner.next_move(ctx)
+                    if isinstance(move, (AskUser, Rescope, Deepen, Finalize)):
+                        return move
+                    logger.warning("planner returned a non-Move %r; falling back", type(move))
+                except Exception as exc:
+                    logger.warning("next_move failed (%s); using deterministic policy", exc)
+            elif ctx.user_message and hasattr(self.planner, "revise"):
+                # A planner that predates `next_move` still speaks `revise`;
+                # translate its tree delta into the Rescope verb instead of
+                # silently dropping the user's scope change.
+                self.planner_calls += 1
+                try:
+                    delta = await self.planner.revise(
+                        ctx.question, ctx.user_message,
+                        [s["text"] for s in ctx.open_subquestions],
+                    )
+                except Exception as exc:
+                    logger.warning("revise failed: %s", exc)
+                    delta = {}
+                return Rescope(
+                    tuple(delta.get("add") or ()), tuple(delta.get("drop") or ())
+                )
+        open_ids = tuple(s["id"] for s in ctx.open_subquestions)
+        return Deepen(open_ids) if open_ids else Finalize("every branch is settled")
+
+    # ------------------------------------------------------------------ step
+    async def step(
+        self, session_id: str, user_message: str = ""
+    ) -> "TurnResult":
+        """One round: decide a move, apply it locally, return the delta.
+
+        Unlike `investigate()` this does not re-walk the whole tree. A user
+        edit, an answer to a request, or a narrowing instruction each touch the
+        branches they mention, and the LLM cost scales with those.
+        """
+        session = self.store.get_session(session_id)
+        if session is None:
+            raise KeyError(f"unknown research session: {session_id}")
+        if user_message:
+            self.store.add_turn(session_id, "user", user_message)
+        before = self.drafts.latest(session_id)
+        before_verdicts = self._verdict_snapshot(session_id)
+        before_evidence = set(self._new_evidence_ids(session_id))
+        # The report as it stands before this round; a round that recomputes
+        # must return the whole rendered document, not just the draft prose,
+        # or callers of `followup` lose the citation list and the audit line.
+        report_before = self.render_report(session_id)
+
+        ctx = self.move_context(session_id, user_message)
+        self.store.set_session_status(session_id, "planning")
+        move = await self.decide_move(ctx)
+
+        pending: Optional[ResearchRequest] = None
+        affected: Optional[List[str]] = None
+        if isinstance(move, AskUser):
+            turn = self.store.add_turn(session_id, "assistant_question", move.question)
+            pending = self.drafts.open_request(
+                session_id, move.kind,
+                {"question": move.question, "options": list(move.options)},
+                turn_id=turn.id,
+            )
+            self.store.set_session_status(session_id, "awaiting_user")
+        elif isinstance(move, Rescope):
+            affected = self._apply_rescope(session_id, move)
+        elif isinstance(move, Deepen):
+            affected = await self._deepen(session_id, move.subquestion_ids)
+        elif isinstance(move, Finalize):
+            self.store.set_session_status(session_id, "drafting")
+
+        if affected is not None:
+            report = self.render_report(session_id)
+            after = self.commit_draft(session_id, report)
+            self.store.add_turn(session_id, "report", report)
+            self.store.set_session_status(session_id, "reported")
+            rendered = report
+        else:
+            after = self.drafts.latest(session_id)
+            rendered = report_before
+
+        changed = []
+        if after is not None:
+            previous_by_id = {s.id: s for s in (before.sections if before else [])}
+            for section in after.sections:
+                old = previous_by_id.get(section.id)
+                if old is None or old.body != section.body or old.stale != section.stale:
+                    changed.append(section.id)
+        new_evidence = sorted(set(self._new_evidence_ids(session_id)) - before_evidence)
+        verdict_changes = self._verdict_delta(
+            before_verdicts, self._verdict_snapshot(session_id)
+        )
+        return TurnResult(
+            revision=after.revision if after else 0,
+            changed_sections=changed,
+            new_evidence=new_evidence,
+            verdict_changes=verdict_changes,
+            pending_request=pending,
+            move=type(move).__name__.lower(),
+            markdown=rendered or (after.markdown() if after else ""),
+        )
+
+    def _apply_rescope(self, session_id: str, move: Rescope) -> List[str]:
+        current = {s.text: s for s in self.store.subquestions(session_id)}
+        touched: List[str] = []
+        for text in move.add or ():
+            text = text.strip()
+            if text and text not in current:
+                touched.append(self.store.add_subquestion(session_id, text).id)
+        for text in move.drop or ():
+            sq = current.get(text.strip())
+            if sq is not None and sq.status != "dropped":
+                self.store.resolve_subquestion(sq.id, status="dropped")
+                touched.append(sq.id)
+        return touched
+
+    async def _deepen(self, session_id: str, ids: tuple) -> List[str]:
+        """Re-run evidence gathering for just these branches."""
+        self.store.set_session_status(session_id, "investigating")
+        session = self.store.get_session(session_id)
+        wanted = set(ids) or {s.id for s in self.store.open_subquestions(session_id)}
+        touched: List[str] = []
+        for sq in self.store.subquestions(session_id):
+            if sq.id not in wanted or sq.status == "dropped":
+                continue
+            evidence = await self._gather_until_enough(session, sq)
+            answer: Optional[str] = None
+            if self.planner is not None and not self._budget_exhausted():
+                self.planner_calls += 1
+                try:
+                    answer = await self.planner.answer(session.question, sq.text, evidence)
+                except Exception as exc:
+                    logger.warning("answer failed for %s: %s", sq.id, exc)
+            self.store.resolve_subquestion(
+                sq.id,
+                status="answered" if answer else "open",
+                answer=answer,
+                evidence_ids=[e["id"] for e in evidence],
+            )
+            touched.append(sq.id)
+        return touched
+
+    async def answer_request(
+        self, session_id: str, request_id: str, answer: str, *, skip: bool = False
+    ) -> TurnResult:
+        """Feed the user's reply back in and continue from where it stopped."""
+        if not self.drafts.answer_request(request_id, answer, skip=skip):
+            raise KeyError(f"request {request_id} is not open")
+        self.reset_budget()
+        message = answer if not skip else f"(skipped {request_id})"
+        return await self.step(session_id, message)
+
+    def _new_evidence_ids(self, session_id: str) -> List[str]:
+        subs = self.store.subquestions(session_id)
+        return sorted({i for s in subs for i in s.evidence_ids})
+
+    def _verdict_snapshot(self, session_id: str) -> Dict[str, Optional[str]]:
+        """claim_id -> verdict for the claims this session leans on.
+
+        The `claims` table is created by `ClaimStore`, which a session never
+        needs when no analysis ran — so a missing table is a normal empty
+        answer here, not an error, exactly as in `_session_claim_verdicts`.
+        """
+        item_ids = {i for s in self.store.subquestions(session_id) for i in s.evidence_ids}
+        if not item_ids:
+            return {}
+        placeholders = ",".join("?" * len(item_ids))
+        try:
+            rows = self.corpus._conn.execute(
+                f"SELECT id, verdict FROM claims WHERE item_id IN ({placeholders})",
+                tuple(item_ids),
+            ).fetchall()
+        except Exception:
+            return {}
+        return {r["id"]: r["verdict"] for r in rows}
+
+    def _verdict_delta(
+        self, before: Dict[str, Optional[str]], after: Dict[str, Optional[str]]
+    ) -> List[tuple]:
+        """(claim_id, old, new) for every verdict a round actually moved."""
+        changed: List[tuple] = []
+        for claim_id, old in before.items():
+            new = after.get(claim_id)
+            if new != old:
+                changed.append((claim_id, old or "ungraded", new or "ungraded"))
+        for claim_id, new in after.items():
+            if claim_id not in before:
+                changed.append((claim_id, "unlinked", new or "ungraded"))
+        return sorted(changed)
+
+    # ------------------------------------------------------------ widening
     def _retrieval_ladder(self) -> List[str]:
         """Widening order for one sub-question: cheapest and likeliest first.
 
@@ -867,34 +1180,63 @@ class ResearchSession:
         return [dict(r) for r in rows]
 
     # -------------------------------------------------------------- follow-up
-    async def followup(self, session_id: str, user_message: str) -> SessionReport:
-        """Iterate: fold the user's pushback into the tree, re-investigate."""
+    async def followup(
+        self, session_id: str, user_message: str, max_rounds: int = 4
+    ) -> SessionReport:
+        """Macro over `step`: keep advancing until the loop finalises or asks.
+
+        Kept for the existing MCP and web callers, which expect one whole
+        report back. The per-round verb is `step`.
+        """
         session = self.store.get_session(session_id)
         if session is None:
             raise KeyError(f"unknown research session: {session_id}")
         self.reset_budget()
-        self.store.add_turn(session_id, "user", user_message)
-        if self.planner is not None:
-            open_texts = [s.text for s in self.store.open_subquestions(session_id)]
-            try:
-                self.planner_calls += 1
-                delta = await self.planner.revise(session.question, user_message, open_texts)
-            except Exception as exc:
-                logger.warning("revise failed: %s", exc)
-                delta = {}
-            current = {s.text: s for s in self.store.subquestions(session_id)}
-            for text in delta.get("add", []):
-                text = text.strip()
-                if text and text not in current:
-                    self.store.add_subquestion(session_id, text)
-            for text in delta.get("drop", []):
-                sq = current.get(text.strip())
-                if sq is not None and sq.status != "dropped":
-                    # a user's scope cut can retire an answered branch too —
-                    # the drop only hides it from future reports, history stays
-                    self.store.resolve_subquestion(sq.id, status="dropped")
-        report = await self.investigate(session_id)
-        return SessionReport(session_id=session_id, markdown=report)
+        message = user_message
+        result: Optional[TurnResult] = None
+        for _ in range(max(1, max_rounds)):
+            result = await self.step(session_id, message)
+            message = ""
+            if result.pending_request is not None or result.move == "finalize":
+                break
+            # Multi-round autonomy needs a planner that can actually choose.
+            # A legacy planner only speaks `revise`, which is per user message:
+            # looping it would re-deepen the same branches and emit a second
+            # report turn for no new information.
+            if not hasattr(self.planner, "next_move"):
+                break
+            if self._budget_exhausted():
+                break
+            if not result.changed_sections and not result.new_evidence:
+                break
+        draft = self.drafts.latest(session_id)
+        markdown = (result.markdown if result and result.markdown else
+                    (draft.markdown() if draft else self.render_report(session_id)))
+        return SessionReport(session_id=session_id, markdown=markdown)
+
+
+@dataclass
+class TurnResult:
+    """What one round changed — the caller does not have to diff a report."""
+
+    revision: int
+    move: str
+    changed_sections: List[str] = field(default_factory=list)
+    new_evidence: List[str] = field(default_factory=list)
+    verdict_changes: List[tuple] = field(default_factory=list)
+    pending_request: Optional[ResearchRequest] = None
+    markdown: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "revision": self.revision,
+            "move": self.move,
+            "changed_sections": list(self.changed_sections),
+            "new_evidence": list(self.new_evidence),
+            "verdict_changes": [list(v) for v in self.verdict_changes],
+            "pending_request": self.pending_request.to_dict() if self.pending_request else None,
+            "markdown": self.markdown,
+        }
 
 
 @dataclass

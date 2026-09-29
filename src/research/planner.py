@@ -51,6 +51,35 @@ Rewrite it as a SEARCH QUERY that would find the material instead:
   sources are written in, or mix the two most specific terms.
 Return ONLY JSON: {"query": "..."}"""
 
+NEXT_MOVE_SYSTEM = """\
+You are the driver of one round of a long research session. Given the MAIN
+QUESTION, the sub-question tree with its statuses and evidence counts, the
+draft sections, any requests already waiting on the user, and the remaining
+LLM budget, choose exactly one next move:
+
+- "ask"      — you cannot proceed without something only the user has.
+   kind: clarify (the question is ambiguous and the tree forks),
+         confirm_claim (a claim is contested and needs a human ruling),
+         choose_scope (evidence conflicts between two source families),
+         supply_source (the corpus holds nothing relevant; ask for a link
+                        or a file).
+- "rescope"  — fold the user's latest message into the tree: add/drop
+   sub-question texts.
+- "deepen"   — gather more evidence for these sub-question ids (empty list
+   means every open one).
+- "finalize" — nothing further would change the answer; accept the draft.
+
+Prefer deepen/finalize over ask. Asking the user is expensive for them: use
+it when the evidence genuinely cannot settle the point, not when another
+search round would. Respect the budget: if budget_left is 0, answer deepen or
+finalize.
+
+Return ONLY JSON: {"move": "ask"|"rescope"|"deepen"|"finalize",
+                   "kind": "...", "question": "...", "options": ["..."],
+                   "add": ["..."], "drop": ["..."],
+                   "subquestion_ids": ["..."], "reason": "..."}
+Omit keys you do not need."""
+
 
 class LLMPlanner:
     """Turns any AIClient-compatible object (complete(system, user) -> str)."""
@@ -156,3 +185,54 @@ class LLMPlanner:
             "add": [str(x) for x in data.get("add", []) if str(x).strip()],
             "drop": [str(x) for x in data.get("drop", []) if str(x).strip()],
         }
+
+    async def next_move(self, ctx: Any) -> Any:
+        """Choose this round's verb from a snapshot of the session state."""
+        from .moves import AskUser, Deepen, Finalize, Rescope
+
+        payload = {
+            "MAIN QUESTION": ctx.question,
+            "USER MESSAGE": ctx.user_message or None,
+            "SUB-QUESTIONS": [
+                {
+                    "id": s["id"], "text": s["text"], "status": s["status"],
+                    "evidence": len(s.get("evidence_ids") or []),
+                }
+                for s in ctx.subquestions
+            ],
+            "DRAFT_SECTIONS": [
+                {
+                    "id": s["id"], "title": s["title"], "locked": s["locked"],
+                    "stale": s["stale"], "verdicts": s.get("verdicts") or {},
+                }
+                for s in ctx.draft_sections
+            ],
+            "PENDING_REQUESTS": [
+                {"id": r["id"], "kind": r["kind"]} for r in ctx.pending_requests
+            ],
+            "budget_left": ctx.budget_left,
+        }
+        data = await self._json(
+            NEXT_MOVE_SYSTEM,
+            json.dumps(payload, ensure_ascii=False),
+            validate=lambda d: d.get("move") in {"ask", "rescope", "deepen", "finalize"},
+            contract='Return ONLY {"move": "deepen", "subquestion_ids": ["..."]}',
+        )
+        move = data["move"]
+        if move == "ask":
+            kind = data.get("kind") or "clarify"
+            if kind not in {"clarify", "confirm_claim", "choose_scope", "supply_source"}:
+                kind = "clarify"
+            return AskUser(
+                kind=kind,
+                question=str(data.get("question") or "需要你补充一点信息才能继续。"),
+                options=tuple(str(o) for o in data.get("options") or ()),
+            )
+        if move == "rescope":
+            return Rescope(
+                add=tuple(str(x) for x in data.get("add") or [] if str(x).strip()),
+                drop=tuple(str(x) for x in data.get("drop") or [] if str(x).strip()),
+            )
+        if move == "deepen":
+            return Deepen(tuple(str(x) for x in data.get("subquestion_ids") or []))
+        return Finalize(str(data.get("reason") or ""))

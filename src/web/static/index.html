@@ -98,6 +98,26 @@ main{display:grid;grid-template-columns:340px 1fr 360px;gap:16px;
 .askbar input{flex:1;border:2px solid #F0EDE7;border-radius:14px;padding:10px 14px;
   outline:none;background:#FBFAF8;font-size:14px}
 .askbar input:focus{border-color:var(--coral)}
+/* per-round drafting: requests, editable sections, round timeline */
+.reqs{display:grid;gap:8px;margin-top:12px}
+.req{background:var(--lilac-soft);border:1px solid #E6DFF5;border-radius:14px;padding:10px 12px}
+.req b{font-size:13px}
+.req .kind{font-family:var(--mono);font-size:11px;color:#6B5B95;
+  background:#fff;border-radius:8px;padding:1px 7px;margin-right:6px}
+.req input{flex:1;border:2px solid #E6DFF5;border-radius:10px;padding:7px 10px;font-size:13px;outline:none}
+.req .row{display:flex;gap:6px;margin-top:8px}
+.secs{display:grid;gap:10px;margin-top:12px}
+.sec{border:1px solid #F1EEE8;border-radius:14px;padding:10px 12px;background:#FBFAF8}
+.sec.stale{border-color:#F0C9A6;background:#FFF8F1}
+.sec h4{margin:0;font-size:13px;display:flex;gap:8px;align-items:center}
+.sec .tag{font-family:var(--mono);font-size:10.5px;padding:1px 7px;border-radius:8px;background:#F1EEE8;color:#6B6577}
+.sec .tag.lock{background:#EDE7F8;color:#6B5B95}
+.sec .tag.st{background:#FFE9D6;color:#B4671F}
+.sec textarea{width:100%;box-sizing:border-box;margin-top:8px;border:2px solid #F0EDE7;
+  border-radius:10px;padding:8px 10px;font:13px/1.6 var(--mono);outline:none;background:#fff}
+.sec .row{display:flex;gap:6px;margin-top:8px;justify-content:flex-end}
+.rounds{margin-top:12px;font-size:12px;color:var(--muted);font-family:var(--mono)}
+.rounds div{padding:2px 0}
 .tabs{display:flex;gap:6px;flex-wrap:wrap;padding:0 16px 10px}
 .tab{font-size:12px;font-family:var(--mono);border-radius:999px;padding:5px 12px;
   background:#F5F2EC;color:#6B6577;max-width:180px;overflow:hidden;
@@ -172,9 +192,13 @@ main{display:grid;grid-template-columns:340px 1fr 360px;gap:16px;
     <div class="tabs" id="tabs"></div>
     <div class="body">
       <div id="report" class="report"><div class="empty">抛出一个问题，Periscope 会拆解子问题、检索证据库并生成带引用的研究报告；之后的追问会在同一会话上迭代。</div></div>
+      <div id="requests"></div>
+      <div id="sections"></div>
+      <div id="rounds" class="rounds"></div>
       <div class="askbar">
         <input id="ask" placeholder="例如：最近开源大模型领域有哪些发布？各自强调了什么能力？" />
         <button class="btn btn-coral" id="askBtn">开始研究</button>
+        <button class="btn" id="stepBtn" title="只推进一轮：系统可能补证据、改范围、定稿，或反过来问你一个问题">推一轮</button>
       </div>
     </div>
   </section>
@@ -194,8 +218,10 @@ main{display:grid;grid-template-columns:340px 1fr 360px;gap:16px;
 <script>
 const $=s=>document.querySelector(s);
 const esc=t=>String(t??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const api=async(p,body)=>{
-  const r=await fetch(p,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:undefined);
+const api=async(p,body,method)=>{
+  const init=body===undefined?undefined:{
+    method:method||'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
+  const r=await fetch(p,init);
   const d=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(d.detail||r.statusText); return d;
 };
@@ -315,20 +341,84 @@ async function showSession(id,scrollAsk){
   const r=await api('/api/research/'+encodeURIComponent(id));
   $('#report').innerHTML=md2html(r.report||'（空报告）');
   $('#sessMeta').textContent=r.session.id+' · '+r.session.status;
+  renderRounds(r.turns||[]);
+  renderDraft(r.draft);
+  renderRequests(r.pending_requests||[]);
   if(scrollAsk){ $('#ask').focus(); }
 }
-async function loadSessions(){
+const MOVE={askuser:'在等你回答',rescope:'改了范围',deepen:'补了证据',finalize:'已定稿'};
+function renderRounds(turns){
+  const rounds=turns.filter(t=>t.role!=='user');
+  $('#rounds').innerHTML=rounds.length
+    ? rounds.map((t,i)=>`<div>#${i+1} ${esc(t.role)} · ${esc((t.created_at||'').slice(0,19).replace('T',' '))}</div>`).join('')
+    : '';
+}
+function renderDraft(draft){
+  const box=$('#sections');
+  if(!draft||!draft.sections||!draft.sections.length){ box.innerHTML=''; return; }
+  box.innerHTML=`<div class="secs">`+draft.sections.map(s=>`
+    <div class="sec${s.stale?' stale':''}" data-sid="${esc(s.id)}">
+      <h4>${esc(s.title)}
+        ${s.locked?'<span class="tag lock">已锁定</span>':''}
+        ${s.stale?'<span class="tag st">上游已变 · 未覆盖</span>':''}
+        <span class="tag">rev ${draft.revision}</span>
+        <span class="tag">${(s.evidence_ids||[]).length} 条证据</span>
+      </h4>
+      <textarea rows="6">${esc(s.body)}</textarea>
+      <div class="row"><button class="btn btn-coral save">保存为我的版本</button></div>
+    </div>`).join('')+`</div>`;
+  box.querySelectorAll('.sec').forEach(el=>{
+    el.querySelector('.save').onclick=async()=>{
+      const sid=el.dataset.sid, body=el.querySelector('textarea').value;
+      try{
+        await api(`/api/research/${encodeURIComponent(current)}/draft/sections/${encodeURIComponent(sid)}`,
+          {section_id:sid,body},'PATCH');
+        toast('已存为你的修订，并锁定该章节'); showSession(current);
+      }catch(e){ toast(e.message) }
+    };
+  });
+}
+function renderRequests(list){
+  const box=$('#requests');
+  if(!list.length){ box.innerHTML=''; return; }
+  box.innerHTML=`<div class="reqs">`+list.map(q=>`
+    <div class="req" data-rid="${esc(q.id)}">
+      <div><span class="kind">${esc(q.kind)}</span><b>${esc((q.payload||{}).question||'需要你补充信息')}</b></div>
+      <div class="row">
+        <input placeholder="回答后这一轮会继续推进" />
+        <button class="btn btn-coral ans">回答</button>
+        <button class="btn skip">跳过</button>
+      </div>
+    </div>`).join('')+`</div>`;
+  box.querySelectorAll('.req').forEach(el=>{
+    const rid=el.dataset.rid, input=el.querySelector('input');
+    const send=async skip=>{
+      try{
+        await api(`/api/research/${encodeURIComponent(current)}/requests/${encodeURIComponent(rid)}`,
+          {request_id:rid,answer:input.value,skip},'POST');
+        showSession(current);
+      }catch(e){ toast(e.message) }
+    };
+    el.querySelector('.ans').onclick=()=>send(false);
+    el.querySelector('.skip').onclick=()=>send(true);
+  });
+}
+async function stepRound(msg){
+  const btn=$('#stepBtn'), old=btn.textContent;
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span> 推进中';
   try{
-    const r=await api('/api/research?limit=12');
-    const tabs=$('#tabs');
-    tabs.innerHTML=r.sessions.map(s=>
-      `<button class="tab${s.id===current?' act':''}" data-id="${esc(s.id)}" title="${esc(s.question)}">${esc(s.question)}</button>`).join('');
-    tabs.querySelectorAll('.tab').forEach(t=>t.onclick=()=>showSession(t.dataset.id));
-    if(!current&&r.sessions.length){ showSession(r.sessions[0].id); }
-  }catch(e){ /* research disabled */ }
+    const r=await api(`/api/research/${encodeURIComponent(current)}/step`,{message:msg||null});
+    toast(`第 ${r.revision} 版 · ${MOVE[r.move]||r.move}`
+      +` · 改了 ${(r.changed_sections||[]).length} 节`
+      +` · 新增 ${(r.new_evidence||[]).length} 条证据`);
+    $('#ask').value=''; loadSessions(); loadStats();
+  }catch(e){ toast(e.message) }
+  finally{ btn.disabled=false; btn.textContent=old }
 }
 async function ask(kind){
-  const box=$('#ask'), msg=box.value.trim(); if(!msg) return;
+  const box=$('#ask'), msg=box.value.trim();
+  if(kind==='step'){ if(!current){ toast('先选一个会话'); return } await stepRound(msg); return }
+  if(!msg) return;
   const btn=$('#askBtn'); const old=btn.textContent;
   btn.disabled=true; btn.innerHTML='<span class="spin"></span> 思考中';
   try{
@@ -344,6 +434,17 @@ async function ask(kind){
 }
 $('#askBtn').onclick=()=>ask(current?'follow':'start');
 $('#ask').addEventListener('keydown',e=>{if(e.key==='Enter')ask(current?'follow':'start')});
+async function loadSessions(){
+  try{
+    const r=await api('/api/research?limit=12');
+    const tabs=$('#tabs');
+    tabs.innerHTML=r.sessions.map(s=>
+      `<button class="tab${s.id===current?' act':''}" data-id="${esc(s.id)}" title="${esc(s.question)}">${esc(s.question)}</button>`).join('');
+    tabs.querySelectorAll('.tab').forEach(t=>t.onclick=()=>showSession(t.dataset.id));
+    if(!current&&r.sessions.length){ showSession(r.sessions[0].id); }
+  }catch(e){ /* research disabled */ }
+}
+$('#stepBtn').onclick=()=>ask('step');
 
 /* ---------------- boot ---------------- */
 loadStats(); loadItems(); loadClaims(); loadSessions();
