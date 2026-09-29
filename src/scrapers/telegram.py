@@ -63,12 +63,9 @@ class TelegramScraper(BaseScraper):
         for web_base in TELEGRAM_WEB_BASES:
             url = f"{web_base}/{cfg.channel}"
             try:
-                response = await self.client.get(url, headers=headers, follow_redirects=True, timeout=120.0)
-                if response.status_code == 429:
-                    retry_after = int(response.headers.get("Retry-After", 5))
-                    logger.warning("Telegram rate limited for %s, retrying after %ds", cfg.channel, retry_after)
-                    await asyncio.sleep(retry_after)
-                    response = await self.client.get(url, headers=headers, follow_redirects=True, timeout=120.0)
+                response = await self._request(
+                    "GET", url, headers=headers, follow_redirects=True, timeout=120.0
+                )
                 response.raise_for_status()
                 return self._parse_channel_html(response.text, cfg, since)
             except httpx.HTTPError as exc:

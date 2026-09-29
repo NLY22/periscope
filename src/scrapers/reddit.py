@@ -530,22 +530,9 @@ class RedditScraper(BaseScraper):
 
     async def _reddit_get(self, url: str, params: dict) -> Optional[Any]:
         try:
-            response = await self.client.get(
-                url,
-                params=params,
-                headers=REDDIT_HEADERS,
-                follow_redirects=True,
+            response = await self._request(
+                "GET", url, params=params, headers=REDDIT_HEADERS, follow_redirects=True
             )
-            if response.status_code == 429:
-                retry_after = int(response.headers.get("Retry-After", 5))
-                logger.warning("Reddit rate limited, retrying after %ds", retry_after)
-                await asyncio.sleep(retry_after)
-                response = await self.client.get(
-                    url,
-                    params=params,
-                    headers=REDDIT_HEADERS,
-                    follow_redirects=True,
-                )
             if response.status_code == 403 and "/comments/" in url:
                 logger.info(
                     "Reddit blocked comments request for %s; continuing without comments",
