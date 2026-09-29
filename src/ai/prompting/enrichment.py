@@ -166,7 +166,7 @@ def item_context(
     return f"""# Item
 
 Title: {item.title}
-URL: {item.url}
+URL: {item.citation_url}
 Source: {item.source_type.value}
 Published: {item.published_at.isoformat()}
 Author: {item.author or "Unknown"}

@@ -40,6 +40,6 @@ def analysis_user_prompt(
 Title: {item.title}
 Source: {item.source_type.value}
 Author: {item.author or "Unknown"}
-URL: {item.url}
+URL: {item.citation_url}
 {content_section}
 {discussion_section}"""

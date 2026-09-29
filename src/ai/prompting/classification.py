@@ -35,7 +35,7 @@ def classification_user_prompt(
 Title: {item.title}
 Source type: {item.source_type.value}
 Author: {item.author or "Unknown"}
-URL: {item.url}
+URL: {item.citation_url}
 Excerpt: {content or "No excerpt available."}
 
 Return:

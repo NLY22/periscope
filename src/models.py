@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import Enum
 import re
 from typing import Annotated, Literal, Optional, List, Dict, Any, NamedTuple, Union
-from pydantic import BaseModel, ConfigDict, HttpUrl, Field, field_validator
+from pydantic import BaseModel, ConfigDict, HttpUrl, Field, field_validator, model_validator
 
 
 class SourceType(str, Enum):
@@ -108,6 +108,50 @@ class ProcessingResult(BaseModel):
     artifacts: Dict[str, ContentArtifact] = Field(default_factory=dict)
 
 
+TimeBasis = Literal["published", "crawled", "unknown"]
+SectionProvenance = Literal["author", "transcript", "ocr", "vlm", "legacy_marker"]
+
+
+class Section(BaseModel):
+    """One authored block of an item body, tagged with its authorship tier.
+
+    Tiering used to be recovered by scanning `content` for five literal
+    Chinese marker strings. That silently promoted crowd text to
+    author-written whenever a scraper used any other separator, so the tier
+    now travels with the text instead of being inferred from it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tier: Literal["primary", "community"]
+    text: str
+    author: Optional[str] = None
+    provenance: SectionProvenance = "author"
+    asserted: bool = True
+    confidence: Optional[float] = Field(default=None, ge=0, le=1)
+    locator: Optional[str] = None
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+def sections_to_content(sections: List[Section]) -> str:
+    """Flatten sections into the legacy single-string body.
+
+    Community blocks keep an `@author` prefix: `items_fts` indexes this
+    string and the panel renders it, so dropping attribution would make a
+    stranger's reply read like the author's own words.
+    """
+    parts: List[str] = []
+    for section in sections:
+        text = section.text.strip()
+        if not text:
+            continue
+        if section.tier == "community" and section.author:
+            parts.append(f"- @{section.author}: {text}")
+        else:
+            parts.append(text)
+    return "\n\n".join(parts)
+
+
 class ContentItem(BaseModel):
     """Unified content item model from any source."""
 
@@ -116,14 +160,49 @@ class ContentItem(BaseModel):
     id: str  # Format: {source}:{subtype}:{native_id}
     source_type: SourceType
     title: str
-    url: HttpUrl
+    url: Optional[HttpUrl] = None  # display only; `locator` is the identity
+    locator: str = ""  # stable id: a URL, or "tieba:p/123", "xhs:note:abc"
     content: Optional[str] = None
     author: Optional[str] = None
-    published_at: datetime
+    published_at: Optional[datetime] = None
     fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    time_basis: TimeBasis = "published"
+    sections: List[Section] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     profile: ProfileRoute = None
     processing: Optional[ProcessingResult] = None
+
+    @model_validator(mode="after")
+    def _normalise_identity_and_time(self) -> "ContentItem":
+        """Fill the two fields the storage schema cannot make optional.
+
+        `items.url` and `items.published_at` are NOT NULL in SQLite, and
+        `idx_items_published` plus every time-ordered query depends on that.
+        Normalising here means no consumer ever sees None, and a source with
+        no canonical URL or no publish time stops being silently dropped.
+        """
+        if not self.locator:
+            if self.url is None:
+                raise ValueError("ContentItem needs either url or locator")
+            self.locator = str(self.url)
+        if self.published_at is None:
+            self.published_at = self.fetched_at
+            if self.time_basis == "published":
+                # Only the untouched default gets downgraded: a scraper that
+                # deliberately declares "crawled" knows something we do not.
+                self.time_basis = "unknown"
+        self.rebuild_content()
+        return self
+
+    def rebuild_content(self) -> None:
+        """Re-derive `content` after `sections` was mutated in place."""
+        if self.sections:
+            self.content = sections_to_content(self.sections)
+
+    @property
+    def citation_url(self) -> str:
+        """Best available link for prompts, reports and webhook payloads."""
+        return str(self.url) if self.url is not None else self.locator
 
 
 class AIProvider(str, Enum):

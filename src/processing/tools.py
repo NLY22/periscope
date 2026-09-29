@@ -75,7 +75,7 @@ class ToolRegistry:
             results = await implementation.execute(
                 arguments,
                 before=current_item.published_at.astimezone(timezone.utc).date(),
-                exclude_url=str(current_item.url),
+                exclude_url=current_item.citation_url,
             )
         else:
             results = await implementation.execute(arguments)
