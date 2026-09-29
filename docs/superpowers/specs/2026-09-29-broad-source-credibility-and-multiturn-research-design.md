@@ -125,23 +125,30 @@ SQLite 会话状态 + `research_turns` + `research_actions`（`session.py:79-124
 class Section(BaseModel):
     tier: Literal["primary", "community"]
     text: str
+    author: str | None = None    # 楼层/评论的作者；迁移后 content 靠它保留 "@user:" 归属
     provenance: Literal["author", "transcript", "ocr", "vlm", "legacy_marker"] = "author"
     asserted: bool = True      # False = 不是作者的断言（如 VLM 对画面的描述）
     confidence: float | None = None
     locator: str | None = None # 楼层号/评论 id，用于精确引用
 ```
 
+`author` 是 v3 补的字段，理由：今天 `discourse.py:153` 与 `reddit.py:506` 把作者写进拼接字符串（`- @helper: …`、`[alice (42 pts)]: …`），而 `items_fts` 索引 `content`、面板也显示 `content`。若 `Section` 不带 `author`，迁移后归属信息就丢了 —— 这正是"改成类型化字段反而丢数据"的典型。
+
 `ContentItem` 改动（`models.py:111-126`）：
 - 新增 `locator: str`（稳定标识，可以是 URL，也可以是 `tieba:p/123#45`、`xhs:note:abc` 这类非 URL 稳定串）；`url: Optional[HttpUrl]` 降级为展示用。
 - `published_at: Optional[datetime]` + 新增 `time_basis: Literal["published", "crawled", "unknown"]`。`since` 过滤**只对 `time_basis != "unknown"` 生效**。
 - 新增 `sections: List[Section]`；`content` 保留为 sections 的拼接（向后兼容），`claimable` 由 `sections` 中 `tier=="primary" and asserted` 计算，而非 marker 反解。
 
-**⚠ 实现路径：不要动数据库的 NOT NULL 约束。** `items.url TEXT NOT NULL`（`store.py:54`）与 `published_at TEXT NOT NULL`（`:56`）背后有 `idx_items_published`（`:66`）和大量按时间排序的查询；把列改成可空是破坏性迁移，收益为零。改为**写入侧回填**：
-- `url` 为空 → 写 `locator`（`store.py:217` 的 `str(item.url)` 必须同时改，否则 `None` 直接崩）
-- `published_at` 为空 → 写 `fetched_at`，并把 `time_basis` 记为 `unknown`（`store.py:219` 的 `.astimezone()` 同样会崩，必须一起改）
-- 时效语义**只由 `time_basis` 承载**，报告与面板据它显示"时效不明"
+**⚠ 归一化放在模型层，不放写入层。** v2 打算让 `store.py` 在写入时回填 `url`/`published_at`，但那要改 12+ 个消费点。改为在 `ContentItem` 的 `model_validator(mode="after")` 里一次做完：
+- `locator` 缺省 → 取 `str(url)`；两者都没有 → 校验失败（`locator` 是不可让渡的身份）
+- `published_at` 为 `None` → 填 `fetched_at`，并把 `time_basis` 置为 `"unknown"`
+- `sections` 非空 → `content` 由 `sections_to_content(sections)` 重算（单一事实源）
 
-去重：不要新造第三套规范化逻辑。`locator` 是 URL 时复用 `orchestrator._deduplication_url_key:63-89`，不是 URL 时直接用原值；`history.py:_url_key` 同步改为接受 locator（它是文件侧去重，与 DB 侧口径必须一致）。
+**净效果：构造完成后 `item.published_at` 永不为 `None`**，于是 `claims.py:449` 的 `.date()`、`store.py:219` 的 `.astimezone()`、以及所有按时间排序的查询都不用改；时效语义只由 `time_basis` 承载。`url` 仍可能为 `None`，但实测其消费点大多是优雅降级（`summarizer.py:27 _safe_url(None)` 返回 `None` → 标题不带链接），只有 6 处会把字面量 `"None"` 写进 LLM 提示词或 webhook 载荷，统一换成新属性 `ContentItem.citation_url`（`str(url) if url else locator`）：`ai/prompting/analysis.py:43`、`ai/prompting/classification.py:38`、`ai/prompting/enrichment.py:169`、`analysis/claims.py:448`、`processing/tools.py:78`、`services/webhook.py:552`。
+
+**仍然不动数据库的 NOT NULL 约束。** `items.url TEXT NOT NULL`（`store.py:54`）与 `published_at TEXT NOT NULL`（`:56`）背后有 `idx_items_published`（`:66`）和大量按时间排序的查询；把列改成可空是破坏性迁移，收益为零。写入侧：`url` 为空 → 写 `locator`（`store.py:217` 的 `str(item.url)` 必须改，否则写入字符串 `"None"`）；`published_at` 已由模型层保证非空。
+
+去重：不要新造第三套规范化逻辑。`locator` 是 URL 时复用 `orchestrator._deduplication_url_key:63-89`，不是 URL 时退化为 `("locator", 原值)` 二元组（`_deduplication_url_key` 的七元组语义与 `tests/test_cross_source_duplicates.py:36-72` 的既有断言都不动）。`history.py:_url_key`（`urldefrag` + 去尾斜杠）**不需要改**：它只处理日报 markdown 里的链接，输入恒为真实 URL；对非 URL locator 它也已经能安全降级（`urldefrag("tieba:p/123#45")` → `tieba:p/123`，而去掉片段正是文件侧去重想要的）。要改的只是它的调用点 `processing/tools.py:78`，把 `str(current_item.url)` 换成 `current_item.citation_url`。**不声称两套口径已统一** —— 它们服务不同介质（DB 行 vs markdown 文件），统一是假目标；只保证各自对 locator 不崩、不误判。
 
 `time_basis="unknown"` 的条目没有时间门 → 每轮都会被重抓。幂等由 `INSERT OR IGNORE` + `id UNIQUE`（`store.py:229`、`:51`）保证不会重复入库，但**必须在分析/富化阶段跳过已见过的 id**，否则会反复烧 LLM 预算。
 
@@ -174,7 +181,13 @@ class SourceSpec:
     item_fields: tuple[str, ...] = ()          # ("sites",) 之类
 
 # src/sources/registry.py —— 新模块，可以 import 两边
-SCRAPER_BINDINGS: dict[str, type[BaseScraper]] = {"discourse": DiscourseScraper, ...}
+# ⚠ 不能是 dict[str, type[BaseScraper]]：两个源的构造不是"类 + config + client"
+#   · RSS    需要第三个参数 ExtractorRegistry(config.extractors)（orchestrator.py:776-781）
+#   · Twitter 按 cfg.mode 在 TwitterScraper / TwitterPlaywrightScraper 之间二选一，
+#             且 Playwright 版构造时**不接受** client（orchestrator.py:795-800）
+# 所以绑定是工厂函数，不是类：
+ScraperFactory = Callable[[Any, Optional[httpx.AsyncClient], BuildContext], Optional[BaseScraper]]
+SCRAPER_BINDINGS: dict[str, ScraperFactory] = {"discourse": simple(DiscourseScraper), ...}
 ```
 
 派生关系（单向，不得反向依赖）：
@@ -524,6 +537,11 @@ v2 是"对照代码"的审计，v3 是"对照运行时与真实网络"的审计�
 | 21 | §3.4"贴吧是无登录墙的结构化 HTML，楼层天然对应 sections" | **错**：`/f?kw=`、`/mo/q/m`、`/p/{真实 tid}` 全部 `HTTP 403` + `百度安全验证`；客户端 API `error_code 110001`（需 `sign`，属 §11 排除项）；仅 `/f/good?kw=` 可达且**无楼层** | §3.4 载体换成 Discourse（§14.4 实测可达且有 `post_number` 楼层）；贴吧降为 §6.2 的 S2 探针，第 1 步已判"不通过" |
 | 22 | 未检查现有测试是否钉住错误行为 | `tests/test_twitter.py:589` 断言 `"--- Top Comments ---" in item.content`，正是把泄漏当预期 | §9.14 要求随迁移一起改；§3.4 明写 |
 | 23 | §11 写"上游日报管线改造"不做 | 与 §9.13 的 `split_item_content` 表面冲突 | §11 收窄为"输出格式与阶段顺序不改造"，并说明换实现≠改输出 |
+| 24 | v2 的 `Section` 无 `author` 字段 | 今天 `discourse.py:153`/`reddit.py:506` 把作者写进拼接串，而 `items_fts` 与面板都读 `content` → 迁移会丢归属 | §3.1 给 `Section` 补 `author`，并说明 `sections_to_content` 负责保留 `@user:` 前缀 |
+| 25 | v2 让 `store.py` 在写入侧回填 `url`/`published_at` | 消费点有 12+ 处（`claims.py:449 .date()`、`summarizer.py:365`、`webhook.py:552` …），逐个改易漏 | §3.1 改为在 `model_validator(mode="after")` 归一化：构造后 `published_at` 永不为 `None`，`url` 的 6 处字面量 `"None"` 风险统一走新属性 `citation_url` |
+| 26 | v2 的 `SCRAPER_BINDINGS: dict[str, type[BaseScraper]]` | RSS 需要第三个参数 `ExtractorRegistry`（`orchestrator.py:776-781`），Twitter 按 `mode` 二选一且 Playwright 版不接受 client（`:795-800`）→ 装不进"类"这个形状 | §3.2 改为 `dict[str, ScraperFactory]` + `simple(cls)` 适配器 |
+| 27 | v2 要求 `history.py:_url_key` 与 DB 侧"口径必须一致" | 假目标：`_url_key` 只读日报 markdown 里的链接（输入恒为 URL），且 `tests/test_cross_source_duplicates.py:36-72` 已钉住七元组语义 | §3.1 改为只动调用点 `processing/tools.py:78`，并明写"不声称两套口径已统一" |
+| 28 | v2 未考虑跨源合并会破坏 sections | `orchestrator.py:970-972` 合并重复项时把另一源的 `content` 直接拼进 `primary.content`；若 `content` 仍由 sections 派生，拼接就会与 sections 脱钩 | 计划 Task 4 要求合并时**同时**追加 `primary.sections`，让 `content` 始终由 sections 重算 |
 
 ### 14.2 贴吧可达性实测日志
 
