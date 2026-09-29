@@ -195,7 +195,7 @@ def test_independence_count_excludes_crowd_backed_items(corpus: Corpus) -> None:
 def test_extraction_input_is_the_author_layer(corpus: Corpus) -> None:
     analyzer = _analyzer(corpus, claimable_only=True)
     item = make_item("extract", f"{AUTHOR_BODY}\n\n{COMMENT_BLOCK}")
-    author_text = analyzer._author_text(item.content)
+    author_text = analyzer._author_text(item)
     assert "parser rewrite" in author_text
     assert "pineapplepizza" not in author_text
 

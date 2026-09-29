@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import List
+from typing import Iterable, List
+
+from ..models import ContentItem, Section
 
 TIER_PRIMARY = "primary"
 TIER_COMMUNITY = "community"
@@ -45,15 +47,20 @@ _MARKER_LINE = re.compile(
 
 
 @dataclass
-class Section:
-    """One contiguous block of an item body, tagged with its authorship tier."""
+class MarkerSection:
+    """One contiguous block found by scanning for a scraper-inserted marker.
+
+    Legacy path: kept for backfilling databases written before structured
+    sections existed, and for the `--tiering=marker` ablation arm. New writes
+    go through `ContentItem.sections` instead.
+    """
 
     tier: str
     marker: str | None
     text: str
 
 
-def split_sections(content: str | None) -> List[Section]:
+def split_sections(content: str | None) -> List[MarkerSection]:
     """Break an item body into sections at scraper-inserted marker lines.
 
     Text before the first marker is the author's own body (`primary`); a CC
@@ -64,10 +71,10 @@ def split_sections(content: str | None) -> List[Section]:
     if not body:
         return []
 
-    out: List[Section] = []
+    out: List[MarkerSection] = []
     head = body[: _first_marker_pos(body)]
     if head.strip():
-        out.append(Section(TIER_PRIMARY, None, head.strip()))
+        out.append(MarkerSection(TIER_PRIMARY, None, head.strip()))
 
     for match in _MARKER_LINE.finditer(body):
         marker = match.group(1)
@@ -76,7 +83,7 @@ def split_sections(content: str | None) -> List[Section]:
         end = nxt.start() if nxt else len(body)
         text = body[start:end].strip()
         if text:
-            out.append(Section(_MARKERS[marker], marker, text))
+            out.append(MarkerSection(_MARKERS[marker], marker, text))
     return out
 
 
@@ -103,3 +110,43 @@ def community_text(content: str | None) -> str:
 
 def has_community(content: str | None) -> bool:
     return bool(community_text(content))
+
+
+def marker_sections_to_model(content: str | None) -> List[Section]:
+    """Convert the legacy marker split into typed sections.
+
+    Every converted section is stamped `legacy_marker` because its tier was
+    inferred from a string convention rather than declared by the scraper;
+    P1 discounts that provenance when scoring trust.
+    """
+    return [
+        Section(
+            tier=s.tier,
+            text=s.text,
+            provenance="legacy_marker",
+            asserted=True,
+            locator=s.marker,
+        )
+        for s in split_sections(content)
+    ]
+
+
+def claimable_from_sections(sections: Iterable[Section]) -> str:
+    """Author-asserted text only — the sole layer evidence may rest on."""
+    return "\n\n".join(
+        s.text.strip()
+        for s in sections
+        if s.tier == TIER_PRIMARY and s.asserted and s.text.strip()
+    ).strip()
+
+
+def claimable_of(item: ContentItem) -> str:
+    """The claimable layer of an item, whichever path produced its sections.
+
+    Items written by a migrated scraper carry typed sections; items read back
+    from a pre-v3 database, or produced by a scraper still concatenating
+    markers, fall back to the marker scan.
+    """
+    if item.sections:
+        return claimable_from_sections(item.sections)
+    return claimable_text(item.content)
