@@ -143,6 +143,11 @@ def main() -> int:
     parser.add_argument("--sheet", type=Path, default=DEFAULT_SHEET)
     parser.add_argument("--score", type=Path, default=None, metavar="LABELS.json")
     parser.add_argument("--out", type=Path, default=REPO_ROOT / "data" / "eval" / "claims_results.json")
+    parser.add_argument(
+        "--tiering", choices=("sections", "marker"), default="sections",
+        help="这批标注是在哪种分层判据下导出的。人评本身与判据无关，但指标要按档"
+             "分别报，否则消融表的两行会共用一份 ground truth 而看不出差别。",
+    )
     args = parser.parse_args()
 
     if args.export:

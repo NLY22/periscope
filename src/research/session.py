@@ -1144,10 +1144,36 @@ class ResearchSession:
         if verdict_rows:
             lines.append("## 声明核查摘要")
             for v in verdict_rows:
-                tag = {"supported": "✅ 多源支持", "contested": "⚠️ 存在矛盾",
-                       "unsupported": "❓ 证据不足"}.get(v["verdict"], "🔗 已关联证据")
+                if v["verdict"] is None:
+                    # `unsupported` splits in two, and so does "not answered
+                    # yet": conflating them hides whether more searching would
+                    # help or only more trust would.
+                    reason = v.get("ungraded_reason") or "triage"
+                    tag = {
+                        "no_evidence": "🔍 证据不足",
+                        "no_linked_evidence": "🔍 证据不足",
+                        "no_identified_publisher": "🏷️ 无可核验发布者",
+                    }.get(reason, "⏳ 未评级（低于分诊门）")
+                    lines.append(
+                        f"- {tag}（独立信源 {v['independent_sources']}）：{v['text']}"
+                    )
+                    continue
+                if v["verdict"] == "unsupported":
+                    # graded, but the trust aggregate said the evidence does not
+                    # carry it — different finding from "we never found any"
+                    trust = v.get("trust")
+                    tag = (
+                        f"❌ 可信度不足（T={float(trust):.2f}）"
+                        if trust is not None else "❌ 可信度不足"
+                    )
+                else:
+                    tag = {"supported": "✅ 多源支持", "contested": "⚠️ 存在矛盾"}.get(
+                        v["verdict"], "🔗 已关联证据"
+                    )
+                trust = v.get("trust")
+                extra = f"，T={float(trust):.2f}" if trust is not None else ""
                 lines.append(
-                    f"- {tag}（独立信源 {v['independent_sources']}）：{v['text']}"
+                    f"- {tag}（独立信源 {v['independent_sources']}{extra}）：{v['text']}"
                 )
             lines.append("")
 
@@ -1163,16 +1189,26 @@ class ResearchSession:
         return "\n".join(lines).strip()
 
     def _session_claim_verdicts(self, subs: List[SubQuestion]) -> List[Dict[str, Any]]:
+        """Graded claims plus the un-graded ones, with the reason they are ungraded.
+
+        Before P1 a claim below the triage threshold stayed invisible: `verdict
+        IS NULL` and `independent_sources < 2` meant the report's filter dropped
+        it entirely, so a reader could not tell "no evidence exists" from
+        "evidence exists but was not graded". Both facts belong in the report.
+        """
         item_ids = {i for s in subs for i in s.evidence_ids}
         if not item_ids:
             return []
         placeholders = ",".join("?" * len(item_ids))
         try:
             rows = self.corpus._conn.execute(
-                f"""SELECT text, verdict, independent_sources FROM claims
-                    WHERE item_id IN ({placeholders})
-                      AND (status='graded' OR independent_sources >= 2)
-                    ORDER BY independent_sources DESC LIMIT 12""",
+                f"""SELECT text, verdict, independent_sources, trust,
+                          ungraded_reason,
+                          CASE WHEN status='graded' THEN 0 ELSE 1 END AS pending
+                   FROM claims
+                   WHERE item_id IN ({placeholders})
+                   ORDER BY pending, trust DESC NULLS LAST,
+                            independent_sources DESC LIMIT 12""",
                 tuple(item_ids),
             ).fetchall()
         except Exception:

@@ -27,18 +27,26 @@ Design constraints from the Agnes free tier (slow, rate-limited):
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+import uuid
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from ..ai.utils import parse_json_response
 from ..corpus.sections import claimable_of
 from ..corpus.store import Corpus
+from ..corpus.trust import Vote, distinct_publishers, noisy_or
 from ..models import ContentItem
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 VERDICTS = {"supported", "contested", "unsupported"}
 CLAIM_TYPES = {"fact", "prediction"}
@@ -68,6 +76,8 @@ class Claim:
     confidence: Optional[float] = None
     evidence_ids: List[str] = field(default_factory=list)
     independent_sources: int = 0
+    trust: Optional[float] = None
+    ungraded_reason: Optional[str] = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -82,6 +92,8 @@ class Claim:
             "confidence": self.confidence,
             "evidence_ids": list(self.evidence_ids),
             "independent_sources": self.independent_sources,
+            "trust": self.trust,
+            "ungraded_reason": self.ungraded_reason,
             "created_at": self.created_at.isoformat(),
         }
 
@@ -115,6 +127,8 @@ CREATE TABLE IF NOT EXISTS claims (
     verdict TEXT,
     confidence REAL,
     independent_sources INTEGER NOT NULL DEFAULT 0,
+    trust REAL,
+    ungraded_reason TEXT,
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_claims_item ON claims(item_id);
@@ -129,11 +143,44 @@ CREATE TABLE IF NOT EXISTS claim_evidence (
     PRIMARY KEY (claim_id, item_id)
 );
 CREATE INDEX IF NOT EXISTS idx_evidence_claim ON claim_evidence(claim_id);
+
+-- `contested` used to be a bare label with nothing behind it. Recording the
+-- pair and the evidence that put them at odds is what lets a report say
+-- *which* two claims disagree instead of just flashing a colour.
+CREATE TABLE IF NOT EXISTS claim_contradictions (
+    id TEXT PRIMARY KEY,
+    claim_a TEXT NOT NULL,
+    claim_b TEXT NOT NULL,
+    relation TEXT NOT NULL DEFAULT 'contradicts',
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    created_by TEXT NOT NULL DEFAULT 'grader',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_contra_a ON claim_contradictions(claim_a);
+CREATE INDEX IF NOT EXISTS idx_contra_b ON claim_contradictions(claim_b);
 """
 
     def __init__(self, corpus: Corpus):
         self._conn = corpus._conn
+        self._migrate()
         self._conn.executescript(self._SCHEMA)
+        self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Grow the P1 columns on a database written before trust scoring.
+
+        `CREATE TABLE IF NOT EXISTS` is a no-op for an existing table, so the
+        new columns have to be ALTERed in or old rows silently lack them.
+        """
+        if not self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='claims'"
+        ).fetchone():
+            return
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(claims)")}
+        if "trust" not in columns:
+            self._conn.execute("ALTER TABLE claims ADD COLUMN trust REAL")
+        if "ungraded_reason" not in columns:
+            self._conn.execute("ALTER TABLE claims ADD COLUMN ungraded_reason TEXT")
         self._conn.commit()
 
     # ---------------------------------------------------------------- write
@@ -206,30 +253,170 @@ CREATE INDEX IF NOT EXISTS idx_evidence_claim ON claim_evidence(claim_id);
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def recompute_independence(self) -> int:
-        """Set independent_sources = cluster-distinct evidence count."""
+    def evidence_votes(self, claim_id: str) -> List[Vote]:
+        """Linked items as trust votes, carrying the publisher that makes a vote count.
+
+        Kept separate so `independent_sources`, T and the verdict rule all read
+        exactly the same evidence rather than three queries that can drift.
+        """
         rows = self._conn.execute(
-            """SELECT claim_id,
-                      COUNT(DISTINCT COALESCE(cluster_id, item_id)) AS n
-               FROM claim_evidence GROUP BY claim_id"""
+            """SELECT e.source_type, i.publisher, i.trust
+               FROM claim_evidence e JOIN items i ON i.id = e.item_id
+               WHERE e.claim_id=?""",
+            (claim_id,),
         ).fetchall()
-        updated = 0
+        return [
+            Vote(
+                source_type=r["source_type"],
+                publisher=r["publisher"],
+                trust=float(r["trust"]) if r["trust"] is not None else 0.5,
+            )
+            for r in rows
+        ]
+
+    def sibling_claims(self, claim_id: str, limit: int = 8) -> List[Claim]:
+        """Other claims resting on any of the same evidence.
+
+        A contradiction is only observable between two assertions, so the
+        grader needs the neighbours that share evidence with this one.
+        """
+        rows = self._conn.execute(
+            """SELECT DISTINCT c.id, c.item_id, c.text, c.claim_type, c.time_scope,
+                      c.status, c.verdict, c.confidence, c.independent_sources,
+                      c.trust, c.ungraded_reason, c.created_at
+               FROM claim_evidence e
+               JOIN claim_evidence o ON o.item_id = e.item_id
+               JOIN claims c ON c.id = o.claim_id
+               WHERE e.claim_id=? AND c.id!=?
+               LIMIT ?""",
+            (claim_id, claim_id, limit),
+        ).fetchall()
+        return [self._row_to_claim(r) for r in rows]
+
+    def contradictions_for(self, claim_id: str) -> List[str]:
+        rows = self._conn.execute(
+            "SELECT claim_a, claim_b FROM claim_contradictions"
+            " WHERE claim_a=? OR claim_b=?",
+            (claim_id, claim_id),
+        ).fetchall()
+        return sorted({r["claim_a"] if r["claim_b"] == claim_id else r["claim_b"] for r in rows})
+
+    def record_contradiction(
+        self, claim_a: str, claim_b: str, evidence_ids: Iterable[str] = (),
+        *, created_by: str = "grader",
+    ) -> bool:
+        """Store one opposing pair. Returns False when it was already recorded."""
+        if claim_a == claim_b:
+            return False
+        pair = tuple(sorted((claim_a, claim_b)))
+        exists = self._conn.execute(
+            "SELECT 1 FROM claim_contradictions WHERE claim_a=? AND claim_b=?"
+            " AND created_by=?",
+            (pair[0], pair[1], created_by),
+        ).fetchone()
+        if exists:
+            return False
+        self._conn.execute(
+            "INSERT INTO claim_contradictions VALUES (?,?,?,?,?,?,?)",
+            (
+                f"x_{uuid.uuid4().hex[:10]}", pair[0], pair[1], "contradicts",
+                json.dumps(sorted(set(evidence_ids)), ensure_ascii=False),
+                created_by, _utc_now().isoformat(),
+            ),
+        )
+        self._conn.commit()
+        return True
+
+    def recompute_independence(self) -> int:
+        """Set independent_sources, T(claim) and ungraded_reason per claim.
+
+        Two collapses, in this order:
+
+        1. one representative per near-duplicate cluster, so a templated post
+           recycled across one forum is one vote rather than many;
+        2. distinct `(source_type, publisher)` among those representatives, so
+           the same author repeating themselves across two clusters is also one
+           vote — the case the old cluster-only count scored as independent.
+
+        An item with no resolvable publisher casts no vote at all. That is
+        deliberately conservative: folding anonymous posts into one bucket
+        would let a pile of same-source spam read as corroboration.
+        """
+        rows = self._conn.execute(
+            """SELECT e.claim_id, e.cluster_id, e.item_id, e.source_type,
+                      i.publisher, i.trust
+               FROM claim_evidence e JOIN items i ON i.id = e.item_id"""
+        ).fetchall()
+        grouped: Dict[str, List[Vote]] = defaultdict(list)
+        per_claim_clusters: Dict[str, Dict[str, Vote]] = defaultdict(dict)
         for r in rows:
+            vote = Vote(
+                source_type=r["source_type"],
+                publisher=r["publisher"],
+                trust=float(r["trust"]) if r["trust"] is not None else 0.5,
+                cluster=r["cluster_id"] or r["item_id"],
+            )
+            slot = per_claim_clusters[r["claim_id"]]
+            previous = slot.get(vote.cluster)
+            if previous is None or vote.trust > previous.trust:
+                slot[vote.cluster] = vote          # the strongest item represents
+        for claim_id, slot in per_claim_clusters.items():
+            grouped[claim_id] = list(slot.values())
+        updated = 0
+        for claim_id, votes in grouped.items():
+            count = distinct_publishers(votes)
+            T = noisy_or(votes)
+            contradicted = bool(self.contradictions_for(claim_id))
+            reason = None if votes else "no_evidence"
+            if votes and not any(v.publisher for v in votes):
+                reason = "no_identified_publisher"
             cur = self._conn.execute(
-                """UPDATE claims SET independent_sources=?
-                   WHERE id=? AND (independent_sources!=? OR status='extracted')""",
-                (r["n"], r["claim_id"], r["n"]),
+                """UPDATE claims SET independent_sources=?, trust=?, ungraded_reason=?
+                   WHERE id=? AND (independent_sources!=? OR trust IS NULL
+                                   OR trust!=? OR status='extracted')""",
+                (count, T, reason, claim_id, count, T),
             )
             updated += cur.rowcount
+            # A contradiction is a verdict input, not an afterthought: the
+            # grader may not have run yet, but the label must already agree.
+            if contradicted:
+                self._conn.execute(
+                    "UPDATE claims SET verdict='contested' WHERE id=? AND status='graded'"
+                    " AND verdict!='contested'",
+                    (claim_id,),
+                )
+        stale = self._conn.execute(
+            "SELECT id FROM claims WHERE status='linked' AND trust IS NULL"
+        ).fetchall()
+        for row in stale:
+            self._conn.execute(
+                "UPDATE claims SET independent_sources=0, trust=0.0,"
+                " ungraded_reason='no_linked_evidence' WHERE id=?",
+                (row["id"],),
+            )
+            updated += 1
         self._conn.commit()
         return updated
 
-    def pending_grading(self, min_sources: int, limit: int) -> List[Claim]:
+    def pending_grading(self, min_sources: int, limit: int,
+                        min_trust: Optional[float] = None) -> List[Claim]:
+        """Claims worth an LLM grading call.
+
+        `min_trust` is the P1 triage gate: T(claim) >= threshold, with the old
+        count as a floor so a single 0.99-trust item cannot crowd out genuinely
+        corroborated ones. Without `min_trust` this is exactly the pre-P1
+        predicate, which the ablation harness relies on.
+        """
+        if min_trust is None:
+            where, params = "independent_sources>=?", (min_sources,)
+        else:
+            where = "independent_sources>=? AND trust>=?"
+            params = (min_sources, min_trust)
         rows = self._conn.execute(
-            """SELECT * FROM claims
-               WHERE status='linked' AND independent_sources>=?
-               ORDER BY independent_sources DESC, created_at LIMIT ?""",
-            (min_sources, limit),
+            f"""SELECT * FROM claims
+               WHERE status='linked' AND {where}
+               ORDER BY trust DESC NULLS LAST, independent_sources DESC, created_at LIMIT ?""",
+            (*params, limit),
         ).fetchall()
         return [self._row_to_claim(r) for r in rows]
 
@@ -267,6 +454,10 @@ CREATE INDEX IF NOT EXISTS idx_evidence_claim ON claim_evidence(claim_id);
             verdict=row["verdict"],
             confidence=row["confidence"],
             independent_sources=row["independent_sources"],
+            trust=row["trust"] if "trust" in row.keys() else None,
+            ungraded_reason=(
+                row["ungraded_reason"] if "ungraded_reason" in row.keys() else None
+            ),
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 
@@ -394,8 +585,13 @@ Use ONLY the given excerpts — never outside knowledge.
 - "unsupported": excerpts are too vague or off-topic to confirm it.
 If excerpts disagree, prefer "contested" over "supported".
 
+You are also shown SIBLING CLAIMS already extracted from this corpus. Name the
+ones that state the opposite of CLAIM — same subject, incompatible fact. Leave
+the list empty unless a conflict is real; "different topic" is not a conflict.
+
 Return ONLY a JSON object, nothing else:
-{"verdict": "supported", "confidence": 0.8, "reason": "short reason"}"""
+{"verdict": "supported", "confidence": 0.8, "reason": "short reason",
+ "conflicts": [<sibling number>, ...]}"""
 
 
 def claim_id_for(item_id: str, index: int, text: str) -> str:
@@ -416,6 +612,7 @@ class ClaimAnalyzer:
         grade_min_sources: int = 2,
         content_chars: int = 3500,
         claimable_only: bool = True,
+        triage_min_trust: Optional[float] = None,
     ):
         self.store = store
         self.corpus = corpus
@@ -423,6 +620,10 @@ class ClaimAnalyzer:
         self.max_claims_per_item = max_claims_per_item
         self.evidence_per_claim = evidence_per_claim
         self.grade_min_sources = grade_min_sources
+        # P1 triage gate: spend a grading call once the aggregated trust of a
+        # claim's evidence clears this, not merely once N items mention it.
+        # None keeps the pre-P1 count-only predicate (ablation arm A uses it).
+        self.triage_min_trust = triage_min_trust
         self.content_chars = content_chars
         # Ablation knob for the evaluation harness: with False the pipeline
         # behaves like Phase C and treats comment/reply text as evidence.
@@ -568,10 +769,16 @@ class ClaimAnalyzer:
             body = self._excerpt(e["item_id"])
             tag = "origin" if e["item_id"] == claim.item_id else "independent"
             lines.append(f"- [{e['source_type']}|{tag}] {e['title']}: {body}")
+        siblings = self.store.sibling_claims(claim.id)
+        sibling_lines = [
+            f"{n}. {s.text}" for n, s in enumerate(siblings, 1)
+        ]
         user = (
             f"CLAIM: {claim.text}\n"
             f"时间范围: {claim.time_scope or '未知'}\n\n"
-            "证据摘录:\n" + "\n".join(lines)
+            "证据摘录:\n" + ("\n".join(lines) or "（无）")
+            + "\n\nSIBLING CLAIMS:\n"
+            + ("\n".join(sibling_lines) or "（无）")
         )
         self.llm_calls += 1
         try:
@@ -590,12 +797,27 @@ class ClaimAnalyzer:
         self.store.set_status(
             claim.id, "graded", verdict=parsed["verdict"], confidence=confidence
         )
+        # The pair has to be stored, not just coloured: "contested" without a
+        # record of *what* it conflicts with is a label nobody can audit.
+        raw_conflicts = parsed.get("conflicts") or []
+        if isinstance(raw_conflicts, list):
+            for number in raw_conflicts:
+                try:
+                    index = int(number) - 1
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= index < len(siblings):
+                    self.store.record_contradiction(
+                        claim.id, siblings[index].id,
+                        [e["item_id"] for e in evidence],
+                    )
         claim.status = "graded"
         claim.verdict = parsed["verdict"]
         claim.confidence = confidence
         return claim
 
-    async def grade_pending(self, max_calls: int = 10) -> int:
+    async def grade_pending(self, max_calls: int = 10,
+                           min_trust: Optional[float] = None) -> int:
         """Grade well-sourced claims, bounded by max_calls LLM invocations.
 
         Failed grades still consume budget (the API was called) but leave
@@ -608,7 +830,10 @@ class ClaimAnalyzer:
         for _ in range(max_calls):
             pending = [
                 c
-                for c in self.store.pending_grading(self.grade_min_sources, limit=max_calls)
+                for c in self.store.pending_grading(
+                    self.grade_min_sources, limit=max_calls, min_trust=self.triage_min_trust
+                    if min_trust is None else min_trust
+                )
                 if c.id not in skipped
             ]
             if not pending:

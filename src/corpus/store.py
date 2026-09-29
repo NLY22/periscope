@@ -34,8 +34,9 @@ from typing import Any, Dict, Iterable, List, Optional
 from ..models import ContentItem
 from .sections import claimable_of, claimable_text, marker_sections_to_model
 from .simhash import cluster_pairs, fingerprint
+from .trust import compute_features, publisher_of, trust_score
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _MASK64 = (1 << 64) - 1
 
@@ -60,6 +61,9 @@ CREATE TABLE IF NOT EXISTS items (
     locator TEXT NOT NULL DEFAULT '',
     time_basis TEXT NOT NULL DEFAULT 'published',
     sections_json TEXT NOT NULL DEFAULT '[]',
+    publisher TEXT,
+    trust REAL,
+    trust_features_json TEXT NOT NULL DEFAULT '{}',
     metadata_json TEXT NOT NULL DEFAULT '{}',
     fingerprint INTEGER NOT NULL,
     cluster_id TEXT,
@@ -147,6 +151,7 @@ class Corpus:
         # index is built against a missing column and the file corrupts.
         legacy = self._backfill_legacy_layers()
         legacy = self._backfill_v3_identity() or legacy
+        legacy = self._backfill_v4_trust() or legacy
         self._conn.executescript(_SCHEMA)
         if legacy:
             # External-content FTS tables are never auto-populated for rows
@@ -220,6 +225,54 @@ class Corpus:
         self._conn.commit()
         return True
 
+    def _backfill_v4_trust(self) -> bool:
+        """Add publisher/trust/trust_features_json and score the existing rows.
+
+        Rows written before P1 have no declared authorship tier either, so
+        their features are computed from the marker-inferred claimable layer.
+        That is recorded in `provenance` inside the feature blob rather than
+        hidden: a pre-P1 score is a weaker signal, and the reader can see it.
+        """
+        if not self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='items'"
+        ).fetchone():
+            return False
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(items)")}
+        if "trust" in columns:
+            return False
+        self._conn.execute("ALTER TABLE items ADD COLUMN publisher TEXT")
+        self._conn.execute("ALTER TABLE items ADD COLUMN trust REAL")
+        self._conn.execute(
+            "ALTER TABLE items ADD COLUMN trust_features_json TEXT NOT NULL DEFAULT '{}'"
+        )
+        rows = self._conn.execute(
+            "SELECT rowid, source_type, author, claimable, url, locator, published_at,"
+            " time_basis, sections_json FROM items"
+        ).fetchall()
+        updates = []
+        for r in rows:
+            publisher = publisher_of(r["author"], r["locator"] or "", r["url"] or "")
+            features = compute_features(
+                source_type=r["source_type"],
+                text=r["claimable"] or "",
+                author=r["author"],
+                provenance="legacy_marker",
+                published_at=_parse_time(r["published_at"]),
+                time_basis=r["time_basis"] or "published",
+            )
+            updates.append((
+                publisher,
+                trust_score(features),
+                json.dumps(features.to_dict(), ensure_ascii=False),
+                r["rowid"],
+            ))
+        self._conn.executemany(
+            "UPDATE items SET publisher=?, trust=?, trust_features_json=? WHERE rowid=?",
+            updates,
+        )
+        self._conn.commit()
+        return True
+
     # ------------------------------------------------------------------ run
     def begin_run(self, since: datetime) -> int:
         cur = self._conn.execute(
@@ -243,15 +296,31 @@ class Corpus:
         self._conn.commit()
 
     # ---------------------------------------------------------------- write
-    def add_items(self, items: Iterable[ContentItem], run_id: Optional[int] = None) -> int:
+    def add_items(self, items: Iterable[ContentItem], run_id: Optional[int] = None,
+                  tiering: str = "sections") -> int:
         """Insert content items; existing ids are skipped (append-only).
 
-        Returns the number of newly stored rows.
+        Returns the number of newly stored rows. `tiering="marker"` stores the
+        pre-P0 layering so the ablation harness can measure both arms against
+        one corpus (see `claimable_of`).
         """
         rows = []
         for item in items:
             content = item.content or ""
             text_for_fp = f"{item.title}\n{content}"
+            claimable = claimable_of(item, tiering)
+            declared = item.sections[0].provenance if item.sections else "legacy_marker"
+            confidence = item.sections[0].confidence if item.sections else None
+            features = compute_features(
+                source_type=item.source_type.value,
+                text=claimable,
+                author=item.author,
+                provenance=declared,
+                confidence=confidence,
+                published_at=item.published_at,
+                time_basis=item.time_basis,
+                meta=item.metadata if isinstance(item.metadata, dict) else None,
+            )
             rows.append(
                 (
                     item.id,
@@ -262,10 +331,13 @@ class Corpus:
                     item.published_at.astimezone(timezone.utc).isoformat(),
                     item.fetched_at.astimezone(timezone.utc).isoformat(),
                     content,
-                    claimable_of(item),
+                    claimable,
                     item.locator,
                     item.time_basis,
                     json.dumps([s.model_dump() for s in item.sections], ensure_ascii=False),
+                    publisher_of(item.author, item.locator, str(item.url or "")),
+                    trust_score(features),
+                    json.dumps(features.to_dict(), ensure_ascii=False),
                     json.dumps(_jsonable(item.metadata), ensure_ascii=False),
                     _as_signed64(fingerprint(text_for_fp)),
                     run_id,
@@ -276,8 +348,9 @@ class Corpus:
             """INSERT OR IGNORE INTO items
                (id, source_type, title, url, author, published_at, fetched_at,
                 content, claimable, locator, time_basis, sections_json,
+                publisher, trust, trust_features_json,
                 metadata_json, fingerprint, run_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         self._conn.commit()
@@ -524,3 +597,14 @@ def _jsonable(obj: Any) -> Any:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _parse_time(raw: Optional[str]) -> Optional[datetime]:
+    """Read back an ISO timestamp, tolerating the formats older rows used."""
+    if not raw:
+        return None
+    try:
+        moment = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)

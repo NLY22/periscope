@@ -45,6 +45,32 @@ P0 把判据换成了 scraper **声明**的类型化字段 `ContentItem.sections
 
 另有两处与评测口径直接相关的实现变化：`independent_sources` 的计数逻辑**未变**（P1 才改），`claimable_only` 消融开关**未变**；变的是它读的是 sections 而非标记。日报侧的 `processing/content.py:split_content` 保留，新增 `split_item_content` 优先读 sections，以保证日报与取证两条链路对同一条目切出同样的层。
 
+## 可信度与独立性（P1 之后）
+
+`scripts/eval_retrieval.py --tiering=marker|sections` 现在能在**同一份语料**上分别跑两档分层判据：`sections` 读 scraper 声明的层级，`marker` 复现 P0 之前的标记反解（消融 A 档）。两档结果写进 `data/eval/results.json` 的 `tiering` 字段，因此引用任何一个数字都能说清它是在哪档下测的。当前 fixture 的人群文本本来就用中文标记拼接，所以两档数字相同；差异只在**已迁移的源**上出现（它们不再写任何标记），这一点由 `tests/test_trust_p1.py::test_marker_tiering_ignores_declared_sections` 钉住。
+
+P1 换掉了两个门的口径，评测时要注意：
+
+1. **独立信源数不再是簇数。** 先按簇折叠重复内容，再数不同的 `(source_type, publisher)`；**发布者解析不出来的条目不投票**。同一作者换个源重复一次，仍算两个 `(type, publisher)` —— 这是 spec §5.2.2 的规则，也是它已知的软肋（一个人有 newsletter 又有 HN 账号会被数成两族）。防线是第一步的簇折叠，不是发布者匹配。
+2. **`T(claim)` 是 noisy-OR，不是求和**：`T = 1 − Π(1 − trust_i·d_i)`，同族第 2 个发布者按 `d_i=0.5` 折半。求和没有上界，足够多的低质源能把任何结论刷成 supported；noisy-OR 不行，这一点有专门的回归测试。
+3. **报告里 `unsupported` 拆成两种**，并且**未评级的声明现在可见**（附原因）：
+   `⏳ 未评级（低于分诊门）` / `🔍 证据不足` / `🏷️ 无可核验发布者` / `❌ 可信度不足（T=…）`。
+   这与本文早先"`unsupported` 与 FEVER `not_enough_information` 不合并"的说法不冲突：那句话说的是**已评级**的 `unsupported` 语义，这里补的是"根本没走到评级"这一类以前被过滤器藏起来的。
+4. **`contradicted` 现在可查**：`claim_contradictions` 表记录是哪两条声明、靠哪些条目互相冲突，由 `grade_claim` 阶段模型显式给出。
+
+### θ 还没有校准
+
+`triage_min_trust` 默认 `0.0`（等于不启用信任门，保持 P0 行为），`Thresholds(supported=0.55, triage=0.30)` 是**手工先验，不是拟合结果**。`roc_thresholds()` 已经实现（网格搜 F1 最大点，并带折扣），但在 `data/eval/claims_labels.json` 存在之前它没有输入可吃——它在样本不足两个类别时返回 `None` 而不是编一个数。
+
+所以下面这条仍然是本项目**唯一"能力已实现、效果未主张"**的一块，也是 P1 验收里只有你能做的那半步：
+
+```bash
+uv run python scripts/eval_claims.py --export data/corpus.db --tiering=sections
+uv run python scripts/eval_claims.py --score  data/eval/claims_labels.json --tiering=sections
+```
+
+50–100 条人工 verdict 到位后，`roc_thresholds()` 给出 θ_s 与 θ_triage，届时才能主张"信任门在人工判定上一致率是多少"。在此之前任何 θ 数字都是假设。
+
 ## 已知不足
 
 - **样本量**：19 条 / 5 问，够验证机制方向和回归，不够当论文级结论；扩充路径是接真实 `corpus.db` 抽样 + 人工标注。

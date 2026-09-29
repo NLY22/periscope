@@ -694,7 +694,10 @@ class AnalysisConfig(BaseModel):
     enabled: bool = True
     max_claims_per_item: int = 5
     evidence_per_claim: int = 6
-    grade_min_sources: int = 2  # >= N independent clusters before grading
+    grade_min_sources: int = 2  # >= N independent sources before grading
+    # P1 triage gate: T(claim) must clear this before an LLM call is spent on
+    # it. 0 disables the trust gate and reproduces the count-only predicate.
+    triage_min_trust: float = 0.0
     grade_budget_per_run: int = 8  # LLM calls reserved for grading
     extract_top_items: int = 12  # analyse at most this many new items/run
     item_content_chars: int = 3500

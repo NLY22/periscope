@@ -140,13 +140,25 @@ def claimable_from_sections(sections: Iterable[Section]) -> str:
     ).strip()
 
 
-def claimable_of(item: ContentItem) -> str:
+TIERINGS = ("sections", "marker")
+
+
+def claimable_of(item: ContentItem, tiering: str = "sections") -> str:
     """The claimable layer of an item, whichever path produced its sections.
 
     Items written by a migrated scraper carry typed sections; items read back
     from a pre-v3 database, or produced by a scraper still concatenating
     markers, fall back to the marker scan.
+
+    `tiering="marker"` ignores the declared sections and re-derives the split
+    from the marker strings. That exists for one reason: the ablation harness
+    must be able to reproduce pre-P0 behaviour on the *same* corpus, otherwise
+    ablation arm A is unmeasurable once every scraper declares its tier.
     """
+    if tiering not in TIERINGS:
+        raise ValueError(f"tiering must be one of {TIERINGS}, got {tiering!r}")
+    if tiering == "marker":
+        return claimable_text(item.content)
     if item.sections:
         return claimable_from_sections(item.sections)
     return claimable_text(item.content)

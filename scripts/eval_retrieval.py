@@ -121,7 +121,7 @@ def evaluate_metrics(
     return evaluate(runs, {entry["id"]: entry["relevant"] for entry in queries}, ks=ks)
 
 
-def build_corpus(tmp_path: Path) -> Corpus:
+def build_corpus(tmp_path: Path, tiering: str = "sections") -> Corpus:
     payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
     corpus = Corpus(tmp_path / "eval_corpus.db")
     items = []
@@ -138,7 +138,7 @@ def build_corpus(tmp_path: Path) -> Corpus:
                 fetched_at=datetime(2026, 9, 22, tzinfo=timezone.utc),
             )
         )
-    corpus.add_items(items)
+    corpus.add_items(items, tiering=tiering)
     corpus.recompute_clusters(max_distance=3, lookback_rows=500)
     return corpus
 
@@ -190,15 +190,22 @@ async def main() -> int:
     parser.add_argument("--top-k", type=int, default=10, help="rank depth scored")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--json-only", action="store_true")
+    parser.add_argument(
+        "--tiering", choices=("sections", "marker"), default="sections",
+        help="分层判据：sections 用 scraper 声明的层级，marker 复现 P0 之前的"
+             "标记反解（消融 A 档）。同一份语料两种切法，数字才可比。",
+    )
     args = parser.parse_args()
 
     queries = load_queries()
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
-        corpus = build_corpus(Path(tmp))
+        corpus = build_corpus(Path(tmp), args.tiering)
         table = [["配置", "recall@5", f"recall@{args.top_k}", "precision@5", f"nDCG@{args.top_k}", "MRR"]]
-        results: Dict[str, Any] = {"top_k": args.top_k, "configs": []}
+        results: Dict[str, Any] = {
+            "top_k": args.top_k, "tiering": args.tiering, "configs": []
+        }
         for config in CONFIGS:
             runs = await run_config(corpus, config, queries, args.top_k)
             metrics = evaluate_metrics(runs, queries, ks=(5, args.top_k))
