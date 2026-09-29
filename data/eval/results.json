@@ -1,5 +1,6 @@
 {
   "top_k": 10,
+  "tiering": "marker",
   "configs": [
     {
       "name": "A 旧行为(全量文本, 单词条)",
