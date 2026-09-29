@@ -19,6 +19,7 @@ from ..models import (
     RedditConfig,
     RedditSubredditConfig,
     RedditUserConfig,
+    Section,
     SourceType,
 )
 
@@ -457,6 +458,7 @@ class RedditScraper(BaseScraper):
                 continue
             comments.append(
                 {
+                    "id": str(comment_el.get("data-fullname") or ""),
                     "author": str(comment_el.get("data-author") or "anon"),
                     "body": body,
                     "score": self._parse_int(comment_el.get("data-score"), default=0),
@@ -486,35 +488,38 @@ class RedditScraper(BaseScraper):
         author = post.get("author", "unknown")
         created = datetime.fromtimestamp(post.get("created_utc", 0), tz=timezone.utc)
 
-        # Build content
-        parts = []
+        # Typed sections: the post body is the author's, the comments are
+        # everybody else's, and the two must never share a tier.
+        sections: List[Section] = []
         if post.get("selftext"):
             text = post["selftext"]
             if len(text) > 1500:
                 text = text[:1497] + "..."
-            parts.append(text)
+            sections.append(Section(tier="primary", text=text, author=author))
 
-        if comments:
-            parts.append("\n--- Top Comments ---")
-            for c in comments:
-                commenter = c.get("author", "anon")
-                body = c.get("body", "")
-                body = body.strip()
-                if len(body) > 500:
-                    body = body[:497] + "..."
-                score = c.get("score", 0)
-                parts.append(f"[{commenter} ({score} pts)]: {body}")
-
-        content = "\n\n".join(parts)
+        for c in comments:
+            body = (c.get("body") or "").strip()
+            if len(body) > 500:
+                body = body[:497] + "..."
+            if not body:
+                continue
+            native = c.get("id")
+            sections.append(Section(
+                tier="community",
+                text=body,
+                author=c.get("author", "anon"),
+                locator=f"#{native}" if native else None,
+                meta={"score": c.get("score", 0)},
+            ))
 
         return ContentItem(
             id=self._generate_id("reddit", subtype, post_id),
             source_type=SourceType.REDDIT,
             title=title,
             url=cast(Any, url),
-            content=content,
             author=author,
             published_at=created,
+            sections=sections,
             profile=profile,
             metadata={
                 "score": post.get("score", 0),

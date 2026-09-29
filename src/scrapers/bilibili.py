@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from ..models import ContentItem, SourceType
+from ..models import ContentItem, Section, SourceType
 from .base import BaseScraper
 
 API_POPULAR = "https://api.bilibili.com/x/web-interface/popular"
@@ -74,14 +74,20 @@ class BilibiliScraper(BaseScraper):
             return None
 
         owner = rec.get("owner", {})
+        owner_name = owner.get("name")
+        sections: List[Section] = []
+        description = self._clean_desc(rec.get("desc", ""))
+        if description:
+            sections.append(Section(tier="primary", text=description, author=owner_name))
+
         item = ContentItem(
             id=self._generate_id("bilibili", "video", bvid),
             source_type=SourceType.BILIBILI,
             title=rec.get("title", "").strip(),
             url=VIDEO_URL.format(bvid=bvid),
-            content=self._clean_desc(rec.get("desc", "")),
-            author=owner.get("name"),
+            author=owner_name,
             published_at=published_at,
+            sections=sections,
             metadata={
                 "aid": rec.get("aid"),
                 "cid": stat.get("cid") or rec.get("cid"),
@@ -101,20 +107,26 @@ class BilibiliScraper(BaseScraper):
         if self.transcript_chars > 0:
             transcript = await self._fetch_transcript(rec.get("aid"), bvid)
             if transcript:
-                item.content = (item.content or "").strip()
-                item.content = (
-                    item.content + "\n\n【视频字幕节选】\n" + transcript
-                ).strip()
+                # A creator-authored CC track is the author's own words, so it
+                # stays claimable — but `transcript` records that it arrived
+                # through speech recognition, which P1 discounts.
+                item.sections.append(Section(
+                    tier="primary", text=transcript, author=owner_name,
+                    provenance="transcript",
+                ))
                 item.metadata["has_transcript"] = True
 
         if self.fetch_comments > 0:
-            comments = await self._fetch_comments(rec.get("aid"), bvid)
-            if comments:
-                item.content = (item.content or "").strip()
-                block = "\n\n【评论区 Top】\n" + "\n".join(
-                    f"- @{c['user']}: {c['text']}" for c in comments
-                )
-                item.content = (item.content + block).strip()
+            for comment in await self._fetch_comments(rec.get("aid"), bvid):
+                item.sections.append(Section(
+                    tier="community",
+                    text=comment["text"],
+                    author=comment["user"] or None,
+                    locator=f"#{comment['rpid']}" if comment.get("rpid") else None,
+                    meta={"likes": comment.get("likes", 0)},
+                ))
+
+        item.rebuild_content()
         return item
 
     async def _fetch_transcript(self, aid: Any, bvid: str) -> str:
@@ -180,7 +192,12 @@ class BilibiliScraper(BaseScraper):
             content = (reply.get("content", {}) or {}).get("message", "").strip()
             user = (reply.get("member", {}) or {}).get("uname", "")
             if content:
-                out.append({"user": user, "text": self._truncate(content, 300)})
+                out.append({
+                    "rpid": reply.get("rpid"),
+                    "user": user,
+                    "text": self._truncate(content, 300),
+                    "likes": reply.get("like", 0),
+                })
         return out
 
     @staticmethod

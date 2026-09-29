@@ -512,8 +512,8 @@ def test_fetch_replies_disabled_by_default():
     assert cfg.fetch_reply_text is False
 
 
-def test_fetch_replies_appends_top_comments(monkeypatch):
-    """When fetch_reply_text=True, reply lines are appended under Top Comments."""
+def test_fetch_replies_returns_community_sections(monkeypatch):
+    """When fetch_reply_text=True, replies come back as community sections."""
     monkeypatch.setenv("APIFY_TOKEN", "test_token")
 
     replies = [
@@ -559,20 +559,24 @@ def test_fetch_replies_appends_top_comments(monkeypatch):
         metadata={"tweet_id": "42", "conversation_id": "42"},
     )
 
-    reply_lines = asyncio.run(scraper.fetch_replies_for_item(item))
+    reply_sections = asyncio.run(scraper.fetch_replies_for_item(item))
     asyncio.run(client.aclose())
 
     # min_likes=1 filters out dave (0 likes); max 3 returned sorted by score
-    assert len(reply_lines) == 3
+    assert len(reply_sections) == 3
     # alice (20 likes) should be first
-    assert "alice" in reply_lines[0]
-    assert "Interesting take!" in reply_lines[0]
+    assert reply_sections[0].author == "alice"
+    assert "Interesting take!" in reply_sections[0].text
     # dave (0 likes) filtered out
-    assert not any("dave" in l for l in reply_lines)
+    assert all(s.author != "dave" for s in reply_sections)
+    # and none of them are the tweet author's assertions
+    assert all(s.tier == "community" for s in reply_sections)
+    assert all(s.locator for s in reply_sections)
 
 
-def test_append_discussion_content_adds_marker():
-    from src.models import ContentItem, SourceType
+def test_append_discussion_sections_keeps_replies_out_of_claimable():
+    from src.corpus.sections import claimable_of
+    from src.models import ContentItem, Section, SourceType
 
     item = ContentItem(
         id="twitter:tweet:1",
@@ -584,13 +588,37 @@ def test_append_discussion_content_adds_marker():
         published_at=datetime.now(timezone.utc),
         metadata={},
     )
-    changed = TwitterScraper.append_discussion_content(item, ["[@alice | ❤️ 5 | 💬 1] reply text"])
+    changed = TwitterScraper.append_discussion_sections(item, [
+        Section(tier="community", text="reply text", author="alice",
+                locator="@alice/1", meta={"likes": 5}),
+    ])
     assert changed is True
-    assert "--- Top Comments ---" in item.content
-    assert "alice" in item.content
+    assert "--- Top Comments ---" not in item.content
+    assert "reply text" in item.content
+    assert claimable_of(item) == "original text"
 
 
-def test_append_discussion_content_empty_lines_no_change():
+def test_append_discussion_sections_is_idempotent():
+    from src.models import ContentItem, Section, SourceType
+
+    item = ContentItem(
+        id="twitter:tweet:3",
+        source_type=SourceType.TWITTER,
+        title="test",
+        url="https://twitter.com/x/status/3",
+        content="original text",
+        author="x",
+        published_at=datetime.now(timezone.utc),
+        metadata={},
+    )
+    sections = [Section(tier="community", text="r", author="a", locator="@a/1")]
+    assert TwitterScraper.append_discussion_sections(item, sections) is True
+    assert TwitterScraper.append_discussion_sections(item, sections) is False
+    # one adopted primary (the tweet body) + exactly one reply, no duplicate
+    assert [s.tier for s in item.sections] == ["primary", "community"]
+
+
+def test_append_discussion_sections_empty_list_no_change():
     from src.models import ContentItem, SourceType
 
     item = ContentItem(
@@ -603,9 +631,10 @@ def test_append_discussion_content_empty_lines_no_change():
         published_at=datetime.now(timezone.utc),
         metadata={},
     )
-    changed = TwitterScraper.append_discussion_content(item, [])
+    changed = TwitterScraper.append_discussion_sections(item, [])
     assert changed is False
     assert item.content == "original"
+    assert item.sections == []
 
 
 def test_fetch_replies_no_conversation_id_returns_empty(monkeypatch):

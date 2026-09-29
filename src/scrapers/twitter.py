@@ -11,7 +11,7 @@ from dateutil.parser import isoparse
 import httpx
 
 from .base import BaseScraper
-from ..models import ContentItem, SourceType, TwitterConfig
+from ..models import ContentItem, Section, SourceType, TwitterConfig
 
 logger = logging.getLogger(__name__)
 
@@ -165,8 +165,8 @@ class TwitterScraper(BaseScraper):
             logger.error(f"Failed to fetch Apify dataset {dataset_id}: {exc}")
             return []
 
-    async def fetch_replies_for_item(self, item: ContentItem) -> List[str]:
-        """Fetch reply texts for one tweet using scweet search mode."""
+    async def fetch_replies_for_item(self, item: ContentItem) -> List[Section]:
+        """Fetch reply sections for one tweet using scweet search mode."""
         if not self.config.fetch_reply_text:
             return []
 
@@ -198,10 +198,12 @@ class TwitterScraper(BaseScraper):
             return []
 
         rows = await self._fetch_dataset(token, dataset_id)
-        return self._extract_reply_lines(item, rows, max_replies)
+        return self._extract_reply_sections(item, rows, max_replies)
 
-    def _extract_reply_lines(self, item: ContentItem, rows: list, max_replies: int) -> List[str]:
-        """Convert scweet rows into compact reply lines."""
+    def _extract_reply_sections(
+        self, item: ContentItem, rows: list, max_replies: int
+    ) -> List[Section]:
+        """Convert scweet rows into community sections, best-liked first."""
         min_likes = max(self.config.reply_min_likes, 0)
         tweet_id = str(item.metadata.get("tweet_id") or "")
         own_author = (item.author or "").lstrip("@")
@@ -237,32 +239,42 @@ class TwitterScraper(BaseScraper):
                 continue
 
             score = likes * 2 + replies
-            line = f"[@{handle} | ❤️ {likes} | 💬 {replies}] {text[:280]}"
-            candidates.append((score, line))
+            candidates.append((score, Section(
+                tier="community",
+                text=text[:280],
+                author=handle,
+                locator=f"@{handle}/{row_id}" if row_id else f"@{handle}",
+                meta={"likes": likes, "replies": replies},
+            )))
 
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        return [line for _, line in candidates[:max_replies]]
+        candidates.sort(key=lambda pair: pair[0], reverse=True)
+        return [section for _, section in candidates[:max_replies]]
 
     @staticmethod
-    def append_discussion_content(item: ContentItem, reply_lines: List[str]) -> bool:
-        """Append reply lines under Top Comments marker."""
-        if not reply_lines:
+    def append_discussion_sections(item: ContentItem, sections: List[Section]) -> bool:
+        """Attach reply sections to an item, skipping any already present.
+
+        Replies land in `sections`, not in a marker-delimited tail of
+        `content`: the marker the old version wrote was invisible to the claim
+        pipeline's tiering, so strangers' replies were being graded as if the
+        tweet's author had written them.
+        """
+        if not sections:
             return False
-
-        existing = item.content or ""
-        marker = "--- Top Comments ---"
-        block = "\n".join(reply_lines)
-
-        if marker in existing:
-            if block in existing:
-                return False
-            item.content = existing + "\n" + block
-            return True
-
-        if existing:
-            item.content = existing + f"\n\n{marker}\n" + block
-        else:
-            item.content = f"{marker}\n" + block
+        if not item.sections and (item.content or "").strip():
+            # The body arrived as plain text. Without adopting it as a section
+            # first, appending replies would make `claimable` resolve through
+            # the sections path and report the author's own tweet as empty.
+            item.sections.append(Section(
+                tier="primary", text=item.content.strip(), author=item.author,
+                provenance="legacy_marker",
+            ))
+        known = {(s.author, s.locator) for s in item.sections}
+        fresh = [s for s in sections if (s.author, s.locator) not in known]
+        if not fresh:
+            return False
+        item.sections.extend(fresh)
+        item.rebuild_content()
         return True
 
     def _parse_item(self, item: dict, since: datetime) -> Optional[ContentItem]:

@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from bs4 import BeautifulSoup
 
-from ..models import ContentItem, SourceType
+from ..models import ContentItem, Section, SourceType
 from .base import BaseScraper
 
 _ISO_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?Z?$")
@@ -135,33 +135,45 @@ class DiscourseScraper(BaseScraper):
         topic_id = int(topic["id"])
         thread = await self._get_json(f"{base}/t/{topic_id}.json")
         title = (topic.get("fancy_title") or topic.get("title") or "").strip()
+        author = ""
+        sections: List[Section] = []
         if not isinstance(thread, dict):
             excerpt = (topic.get("excerpt") or "").strip()
-            content = _html_to_text(excerpt, self.post_chars)
             author = (topic.get("posters") or [{}])[0].get("description") or ""
+            text = _html_to_text(excerpt, self.post_chars)
+            if text:
+                sections.append(Section(
+                    tier="primary", text=text, author=author or None, locator="#1"
+                ))
         else:
             posts = thread.get("post_stream", {}).get("posts", [])
             first = posts[0] if posts else {}
             author = first.get("username", "")
-            content = _html_to_text(first.get("cooked", ""), self.post_chars)
-            replies = posts[1 : 1 + self.fetch_replies]
-            if replies:
-                lines = []
-                for post in replies:
-                    text = _html_to_text(post.get("cooked", ""), 400)
-                    if text:
-                        lines.append(f"- @{post.get('username', '')}: {text}")
-                if lines:
-                    content = (content + "\n\n【楼层讨论】\n" + "\n".join(lines)).strip()
+            body = _html_to_text(first.get("cooked", ""), self.post_chars)
+            if body:
+                sections.append(Section(
+                    tier="primary", text=body, author=author or None,
+                    locator=f"#{first.get('post_number', 1)}",
+                ))
+            for post in posts[1 : 1 + self.fetch_replies]:
+                text = _html_to_text(post.get("cooked", ""), 400)
+                if not text:
+                    continue
+                sections.append(Section(
+                    tier="community",
+                    text=text,
+                    author=post.get("username") or None,
+                    locator=f"#{post.get('post_number')}",
+                ))
 
         return ContentItem(
             id=self._generate_id("discourse", site_name, str(topic_id)),
             source_type=SourceType.DISCOURSE,
             title=title,
             url=f"{base}/t/{topic_id}",
-            content=content,
             author=author or None,
             published_at=created,
+            sections=sections,
             metadata={
                 "site": site_name,
                 "slug": topic.get("slug"),

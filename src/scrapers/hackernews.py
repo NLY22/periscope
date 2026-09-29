@@ -8,7 +8,7 @@ import asyncio
 import httpx
 
 from .base import BaseScraper
-from ..models import ContentItem, SourceType, HackerNewsConfig
+from ..models import ContentItem, HackerNewsConfig, Section, SourceType
 
 logger = logging.getLogger(__name__)
 
@@ -103,35 +103,32 @@ class HackerNewsScraper(BaseScraper):
         url = story.get("url", f"https://news.ycombinator.com/item?id={story_id}")
         author = story.get("by", "unknown")
         published_at = datetime.fromtimestamp(story["time"], tz=timezone.utc)
-
-        # Build content: original text + top comments
-        parts = []
-        if story.get("text"):
-            parts.append(story["text"])
-
-        if comments:
-            parts.append("\n--- Top Comments ---")
-            for c in comments:
-                commenter = c.get("by", "anon")
-                text = c.get("text", "")
-                # Strip HTML tags roughly
-                text = re.sub(r'<[^>]+>', ' ', text).strip()
-                # Truncate very long comments
-                if len(text) > 500:
-                    text = text[:497] + "..."
-                parts.append(f"[{commenter}]: {text}")
-
-        content = "\n\n".join(parts)
         hn_discussion_url = f"https://news.ycombinator.com/item?id={story_id}"
+
+        sections: List[Section] = []
+        if story.get("text"):
+            sections.append(Section(tier="primary", text=story["text"], author=author))
+        for c in comments:
+            text = re.sub(r"<[^>]+>", " ", c.get("text", "")).strip()
+            if len(text) > 500:
+                text = text[:497] + "..."
+            if not text:
+                continue
+            sections.append(Section(
+                tier="community",
+                text=text,
+                author=c.get("by", "anon"),
+                locator=f"#{c.get('id')}",
+            ))
 
         return ContentItem(
             id=self._generate_id("hackernews", "story", str(story_id)),
             source_type=SourceType.HACKERNEWS,
             title=title,
             url=url,
-            content=content,
             author=author,
             published_at=published_at,
+            sections=sections,
             profile=self.config.get("profile"),
             metadata={
                 "score": story.get("score", 0),

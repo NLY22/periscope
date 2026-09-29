@@ -96,7 +96,7 @@ def test_fetch_skips_banner_and_stale_and_builds_item() -> None:
     assert item.metadata["aid"] == 222
     # desc whitespace collapsed, comments appended
     assert item.content.startswith("简介 多行 空白")
-    assert "【评论区 Top】" in item.content
+    assert [s.tier for s in item.sections].count("community") == 2
     assert "- @甲: 第一条热评" in item.content
     assert "- @丙: 补充观点" in item.content
     assert "@乙" not in item.content  # blank comment dropped
@@ -168,9 +168,10 @@ def test_transcript_inlined_when_available() -> None:
         BilibiliConfig(enabled=True, transcript_chars=200), _transcript_client(subs)
     )
     items = asyncio.run(scraper.fetch(SINCE))
-    content = items[0].content or ""
-    assert "【视频字幕节选】" in content
-    assert "字幕第0句" in content
+    transcripts = [s for s in items[0].sections if s.provenance == "transcript"]
+    assert len(transcripts) == 1
+    assert transcripts[0].tier == "primary"
+    assert "字幕第0句" in transcripts[0].text
     assert items[0].metadata["has_transcript"] is True
     # AI track must not be chosen (needs login): requested url is the human one
     urls = [c.args[0] for c in scraper.client.get.await_args_list]
@@ -195,6 +196,7 @@ def test_transcript_truncated_to_budget() -> None:
         _transcript_client(subs, body_lines=20),
     )
     items = asyncio.run(scraper.fetch(SINCE))
-    block = (items[0].content or "").split("【视频字幕节选】\n", 1)[1]
-    block = block.split("\n\n【评论区", 1)[0]  # exclude comment section appended after
+    block = next(
+        s.text for s in items[0].sections if s.provenance == "transcript"
+    )
     assert len(block) <= 21  # 20 chars + ellipsis

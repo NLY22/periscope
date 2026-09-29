@@ -183,6 +183,11 @@ class HorizonOrchestrator:
 
     icons = get_icons()
 
+    #: Ids stored by the most recent persist_to_corpus. Class-level so that an
+    #: orchestrator built via __new__ — which several tests do — never hits an
+    #: AttributeError before the first run has happened.
+    last_new_item_ids: frozenset = frozenset()
+
     def __init__(
         self,
         config: Config,
@@ -280,17 +285,23 @@ class HorizonOrchestrator:
 
     def persist_to_corpus(
         self, items: List[ContentItem], since: datetime
-    ) -> None:
+    ) -> frozenset:
         """Store fetched items in the evidence corpus (best-effort).
 
         Corpus failures must never break the daily pipeline, so errors are
         reported and swallowed; the run simply behaves like stateless Horizon.
+
+        Returns the ids that were newly stored. `_get_corpus` caches its
+        instance, so this must not close the corpus.
         """
-        corpus = None
+        self.last_new_item_ids = frozenset()
         try:
             corpus = self._get_corpus()
             if corpus is None:
-                return
+                return frozenset()
+            candidate_ids = [item.id for item in items]
+            already = corpus.known_ids(candidate_ids)
+            new_ids = frozenset(i for i in candidate_ids if i not in already)
             run_id = corpus.begin_run(since)
             new_count = corpus.add_items(items, run_id)
             corpus.recompute_clusters(
@@ -302,14 +313,17 @@ class HorizonOrchestrator:
                 items_new=new_count,
                 items_total_seen=len(items),
             )
+            self.last_new_item_ids = new_ids
             self.console.print(
                 f"{self.icons['fetched']} Corpus: +{new_count} new items "
                 f"({corpus.stats()['items']} total)\n"
             )
+            return new_ids
         except Exception as exc:
             self.console.print(
                 f"[yellow]Corpus persistence failed (pipeline continues): {exc}[/yellow]\n"
             )
+            return frozenset()
 
     # ------------------------------------------------------------- analysis
     def _get_claim_analyzer(self):
@@ -513,16 +527,21 @@ class HorizonOrchestrator:
     async def analyze_claims(self, items: List[ContentItem]) -> None:
         """Run the correctness loop over freshly fetched items (best-effort).
 
-        Budgets: extraction touches only the top N new items; grading gets
-        its own call budget and only ever sees claims with enough
-        independent sources. Unfinished claims persist and resume next run.
+        Budgets: extraction touches only the top N items that are new to the
+        corpus; grading gets its own call budget and only ever sees claims with
+        enough independent sources. Unfinished claims persist and resume next
+        run — so linking and grading still run when nothing is new.
         """
         try:
             analyzer = self._get_claim_analyzer()
             if analyzer is None:
                 return
+            # Only extraction costs LLM budget, so only extraction is limited
+            # to items the corpus has not seen. A source with no publish time
+            # re-delivers the same ids every run.
+            fresh = [i for i in items if i.id in self.last_new_item_ids]
             ranked = sorted(
-                items,
+                fresh,
                 key=lambda i: (i.processing.analysis.score or 0.0) if i.processing and i.processing.analysis else 0.0,
                 reverse=True,
             )
@@ -1298,8 +1317,8 @@ class HorizonOrchestrator:
             expanded = []
             for item in twitter_items:
                 try:
-                    reply_lines = await scraper.fetch_replies_for_item(item)
-                    if TwitterScraper.append_discussion_content(item, reply_lines):
+                    reply_sections = await scraper.fetch_replies_for_item(item)
+                    if TwitterScraper.append_discussion_sections(item, reply_sections):
                         expanded.append(item)
                         self.console.print(
                             f"   {self.icons['discussion']} {len(reply_lines)} replies "

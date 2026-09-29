@@ -15,7 +15,7 @@ from .classifier import ContentClassifier
 from .prompting.analysis import analysis_system_prompt, analysis_user_prompt
 from .utils import parse_json_response
 from ..models import ContentAnalysis, ContentItem
-from ..processing.content import select_content, split_content
+from ..processing.content import select_content, split_item_content
 from ..processing.profiles import ProfileRegistry
 
 DEFAULT_THROTTLE_SEC = 0.0
@@ -106,7 +106,7 @@ class ContentAnalyzer:
         if item.processing:
             item.processing.artifacts.clear()
 
-        content_parts = split_content(item.content)
+        content_parts = split_item_content(item)
         selected_content = select_content(
             content_parts.main,
             profile.definition.content.analysis_max_chars,

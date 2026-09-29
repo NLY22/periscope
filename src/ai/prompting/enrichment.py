@@ -1,7 +1,7 @@
 """Prompt construction for profile-driven content enrichment."""
 
 from ...models import ContentItem
-from ...processing.content import select_content, split_content
+from ...processing.content import select_content, split_item_content
 from ...processing.profiles import LoadedProfile, ProfileBlock
 from ...processing.tools import ToolResult
 from .common import EVIDENCE_RULES, UNTRUSTED_INPUT_RULE
@@ -152,7 +152,7 @@ def item_context(
     include_content: bool,
 ) -> str:
     analysis = item.processing.analysis if item.processing else None
-    parts = split_content(item.content)
+    parts = split_item_content(item)
     content = (
         select_content(
             parts.main,

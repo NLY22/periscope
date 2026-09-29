@@ -100,7 +100,7 @@ def test_build_topic_with_floor_discussion() -> None:
     # HTML stripped to plain text, replies appended
     assert "error[E0502]" in item.content
     assert "<p>" not in item.content
-    assert "【楼层讨论】" in item.content
+    assert [s.tier for s in item.sections] == ["primary", "community", "community"]
     assert "- @helper: 借用冲突，试试 clone" in item.content
     assert "- @op: 解决了，谢谢" in item.content
 

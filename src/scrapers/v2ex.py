@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from ..models import ContentItem, SourceType
+from ..models import ContentItem, Section, SourceType
 from .base import BaseScraper
 
 
@@ -83,17 +83,23 @@ class V2EXScraper(BaseScraper):
             return None
         member = topic.get("member") or {}
         node = topic.get("node") or {}
-        content = (topic.get("content") or "").strip()
+        member = topic.get("member") or {}
+        node = topic.get("node") or {}
+        author = member.get("username")
+        body = (topic.get("content") or "").strip()
         # Plain `content` is often empty for API results; fall back to
         # rendered text stripped of tags would need bs4 — keep raw title+node.
+        sections: List[Section] = []
+        if body:
+            sections.append(Section(tier="primary", text=body, author=author))
         item = ContentItem(
             id=self._generate_id("v2ex", "topic", str(tid)),
             source_type=SourceType.V2EX,
             title=(topic.get("title") or "").strip(),
             url=topic.get("url") or f"{self.base_url}/t/{tid}",
-            content=content,
-            author=member.get("username"),
+            author=author,
             published_at=created,
+            sections=sections,
             metadata={
                 "node": node.get("title"),
                 "node_slug": node.get("slug"),
@@ -104,12 +110,14 @@ class V2EXScraper(BaseScraper):
             profile=self.profile,
         )
         if self.fetch_replies > 0:
-            replies = await self._fetch_replies(tid)
-            if replies:
-                block = "\n\n【回复精选】\n" + "\n".join(
-                    f"- @{r['user']}: {r['text']}" for r in replies
-                )
-                item.content = ((item.content or "") + block).strip()
+            for reply in await self._fetch_replies(tid):
+                item.sections.append(Section(
+                    tier="community",
+                    text=reply["text"],
+                    author=reply["user"] or None,
+                    locator=f"#{reply['id']}" if reply.get("id") else None,
+                ))
+            item.rebuild_content()
         return item
 
     async def _fetch_replies(self, topic_id: int) -> List[Dict[str, str]]:
@@ -125,7 +133,11 @@ class V2EXScraper(BaseScraper):
             user = ((reply.get("member") or {}).get("username")) or ""
             if content:
                 out.append(
-                    {"user": user, "text": content if len(content) <= 300 else content[:300] + "…"}
+                    {
+                        "id": reply.get("id"),
+                        "user": user,
+                        "text": content if len(content) <= 300 else content[:300] + "…",
+                    }
                 )
         return out
 

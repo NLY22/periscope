@@ -282,8 +282,10 @@ def test_reddit_comments_use_old_reddit_first():
     ]
     assert len(items) == 1
     content = items[0].content or ""
-    assert "[alice (10 pts)]: first old comment" in content
-    assert "[bob (2 pts)]: second old comment" in content
+    assert "- @alice: first old comment" in content
+    assert "- @bob: second old comment" in content
+    community = [s for s in items[0].sections if s.tier == "community"]
+    assert [s.meta.get("score") for s in community] == [10, 2]
 
 
 def test_reddit_subreddits_are_fetched_sequentially():
