@@ -1,9 +1,9 @@
 # 设计：广源可信取证 + 多轮共创调研文档
 
-- 日期：2026-09-29（v3，含两次修订：v2 对照代码审计，v3 分层泄漏实测 + 贴吧可达性实测，见 §13、§14）
-- 状态：已与维护者对齐，待分期实现（P0 → P2 → P1，S1/S2 探针并行）
+- 日期：2026-09-29（v4。v2 对照代码审计，v3 分层泄漏实测 + 贴吧可达性实测，v4 三期交付记录，见 §13、§14、§15）
+- 状态：P0 / P2 / P1 已实现并推送（§15）。剩余阻塞项只有维护者能做的两件：声明 verdict 的人工标注、S1/S2 探针的后两步
 - 范围：本仓库（`NLY22/periscope`，fork 自 `Thysrael/Horizon`）的两项能力扩展；不改动上游日报管线的行为
-- 本文所有行号于 2026-09-29 对照 `main`（`8be37ed`）核实；测试基线 697 collected（2026-09-29 本机复核 `uv run pytest --collect-only` = `697 tests collected in 1.81s`）
+- 本文所有行号于 2026-09-29 对照 `main`（`8be37ed`）核实；测试基线 697 collected（2026-09-29 本机复核 `uv run pytest --collect-only` = `697 tests collected in 1.81s`），三期完成后 **862 collected 全绿**
 - **v3 的两条实测结论推翻了 v2 的两个前提**，都记在 §14：① 分层污染不是"未来接新源才会发生"，而是**现役 3 个源正在污染** claim 链路；② 贴吧楼层页从本机不可达，**不能**作为 P0 的验证载体。
 
 ---
@@ -494,7 +494,13 @@ P1 的人工标注由维护者完成，可与 P2 的工程并行（导出工具�
 ---
 
 ## 12. 下一步
-P0 的实现计划已单独成文：`docs/superpowers/plans/2026-09-29-p0-structured-sections-and-source-registry.md`。P1 / P2 / S1 / S2 等 P0 落地后各自成计划，避免计划随代码漂移而过期。
+三期的实现计划均已单独成文：
+
+- **P0**（实现**前**写的计划）：`docs/superpowers/plans/2026-09-29-p0-structured-sections-and-source-registry.md`
+- **P2**（实现**后**补写，见 §15）：`docs/superpowers/plans/2026-09-29-p2-multiturn-research-drafts.md`
+- **P1**（实现**后**补写，见 §15）：`docs/superpowers/plans/2026-09-29-p1-trust-independence-and-gates.md`
+
+S1 / S2 不出计划：它们是可达性探针，产出是「通过 / 不通过 + 证据」，不是代码分期。P3 的条件是 S1 通过，届时再写。
 
 ---
 
@@ -600,3 +606,47 @@ $ uv run python -c "from src.corpus.sections import claimable_text; \
 | linux.do | `GET /latest.json` | 连接失败（端口 443 超时） | ❌ 网络不可达 |
 
 选 Discourse 的净理由：**官方 JSON、无登录、无验证码、有 `post_number` 楼层、无 HTML 皮肤与编码方差**，且它已经是多站点族（`DiscourseSiteConfig.base_url`），加一个新的噪声论坛只需改 config —— 正好验证 §3.2 注册表把"加一个源"降到 2 处手工同步的承诺。
+
+---
+
+## 15. 交付记录（v3 → v4，2026-09-29）
+
+P0 / P2 / P1 三期已实现并推送。**本节只记三件事：验收实测值、设计与代码不符之处（含本 spec 自己写错的地方）、还剩什么。**
+
+### 15.1 分期验收实测
+
+| 期 | 分支 / PR | 验收结果 |
+|---|---|---|
+| **P0** | `feat/p0-structured-sections` / PR #4 | §10 的六条全绿。`test_tier_guard.py` 先在 `main` 上跑红（HN 链接帖的 `claimable` 里是 `[stranger_b]: no it isnt`），失败输出留在 commit `20d7ff2`。collected **697 → 817** |
+| **P2** | `feat/p2-multiturn-drafts` / PR #5 | 三条全绿：3 轮且 `moves == [askuser, deepen, finalize]`；锁定节只标 `stale` 不覆盖；`Deepen(一条)` = **2** 次模型调用 vs 全树 **5** 次。collected **817 → 836** |
+| **P1** | `feat/p1-trust-independence` / PR #6 | §10 的 P1 六条里工程五条全绿（第六见人评）。`--tiering marker` 与 `docs/evaluation.md` 表格逐格一致，A 档仍可复现。collected **836 → 859 → 862**（最后 3 条是 §15.3 的 lineage 修正） |
+
+### 15.2 设计在实现中被改写的地方
+
+| # | spec 原设计 | 实际做法 | 原因 |
+|---|---|---|---|
+| 1 | §3.1 老库分层由 store 侧回填 | 改在 `ContentItem` 的 `model_validator(mode="after")` 归一化 | 构造后 `published_at` 永不为 `None`，`claims.py` 的 `.date()`、`store.py` 的 `.astimezone()` 与全部按时间排序的查询一行都不用改 |
+| 2 | §3.3 共享管线用构造参数注入 | 注册表 `_wire()` 事后赋值 | 13 个 scraper 子类各自以不同形状转发 `super().__init__`，逐个改签名风险大且无行为收益 |
+| 3 | §3.1 `time_basis` 缺省一律降级 | 只降级**调用方留了默认值**的 | 显式声明 `crawled` 的源知道一些我们不知道的事，不许覆盖 |
+| 4 | §5.1 trust 模型放 `analysis/` | 放 `src/corpus/trust.py` | `corpus/store.py` 写入时就要它；`import analysis.trust` 会绕回 `corpus.store`，真循环（运行 import 撞出来的） |
+| 5 | §5.2.2 同族折半 + 跨族宽度 | 加了 `deep_single` 分支（同族 ≥3 个发布者且族先验 ≥0.40 也算 supported） | 只要求「两个来源族」会让「只有论坛讨论过」永久不可判定，与本 fork 命题冲突 |
+| 6 | §4.1 `followup()` 内部实现可变 | 保持签名与语义不变，改成 `step()` 的宏 | MCP / Web / scripts 的调用方零改动，P2 之前的研究测试一字未改仍绿 |
+
+### 15.3 本 spec 与 PR 正文写错的句子（已修）
+
+- **PR #5 正文**：「草稿每章节存 `evidence_ids`」—— 字段一直存在，但渲染路径**从未填过**。两个可见缺陷：面板每节显示「0 条证据」（那一节实际引用三条），`MoveContext.contested_claims` 恒为空 → 决定下一个动词的模型从来看不到矛盾。`commit 5f3862c` 补齐（节标题 = 子问题文本，或节内 `###` 小标题 → 证据并集；一节对应多个分支时 `subquestion_id` 留 `None`，指向其中之一是谎报血缘）。
+- **PR #5 正文**：`test_research_p2.py` 写的 20 条实际 19 条。
+- **§1.1**（v2）曾把分层污染写成「接新源之后才会发生」，实测是三个现役源正在泄漏 —— 已在 §14.1 记为 v2 的错误事实，此处不重复。
+
+### 15.4 还剩什么
+
+| 项 | 状态 | 谁能做 |
+|---|---|---|
+| 50–100 条声明 verdict 人评 → θ_s / θ_triage 校准 | 工具就位（`scripts/eval_claims.py --export/--score --tiering`），数据为零；`roc_thresholds()` 在没有标注时返回 `None` | **只有维护者** |
+| S1 小红书探针第 2–3 步 | 第 1 步未做（需要账号 / cookie / Playwright） | 维护者 |
+| S2 贴吧探针第 2–3 步 | 第 1 步已完成，结论：楼层不可达（§14.2）。拿到楼层之前不进 P 序列 | 维护者决定是否投入 |
+| P3 图文 → 文本（OCR / VLM） | 条件执行，卡 S1 | 工程，等条件 |
+| 改名 `veriscope` | 未执行。上游后期也自名 Periscope，「Periscope」分不开。要动包名 + 6 个 `periscope-*` 入口 + Docker 服务名 + 文档全量引用，留一版别名 | 维护者决定 |
+| 仓库 issue 开关 / CI 是否在本平台执行 / `deploy-docs.yml` | 只能网页侧确认；`check_tasks_num: 0` 说明 GitHub 语法的 workflow 不被执行，所以**每个 PR 都需要人工过一遍** | 维护者 |
+
+**因此当前项目里唯一「能力已实现、效果未主张」的一块仍是核查层。** 除它之外的所有主张都有上表的实测数字或先红后绿的测试撑着；引用本 spec 时，这一句限制要跟着走。
