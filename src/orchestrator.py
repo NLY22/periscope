@@ -12,6 +12,7 @@ from rich.console import Console
 
 from .console_icons import get_icons
 from .models import Config, ContentItem
+from .corpus.sections import marker_sections_to_model
 from .storage.manager import StorageManager, safe_output_path
 from .services.email import EmailManager
 from .services.webhook import WebhookNotifier
@@ -86,6 +87,21 @@ def _deduplication_url_key(url: str) -> tuple[str, str, str, str, Optional[int],
         path,
         "&".join(query_parts),
     )
+
+
+def _deduplication_item_key(item: ContentItem) -> tuple:
+    """Identity key for cross-source deduplication.
+
+    URL locators go through the existing seven-field normalisation so that
+    tracking parameters and default ports keep collapsing as before. A
+    non-URL locator (an app-only id, a note id) has no host or query to
+    normalise, so it is compared verbatim under a distinct tag — a shape
+    that can never collide with a URL key.
+    """
+    locator = item.locator or (str(item.url) if item.url else "")
+    if "://" in locator:
+        return _deduplication_url_key(locator)
+    return ("locator", locator)
 
 
 @dataclass
@@ -941,7 +957,7 @@ class HorizonOrchestrator:
                 )
             else:
                 requested_profile = (item.profile or "auto").strip() or "auto"
-            key = (*_deduplication_url_key(str(item.url)), requested_profile)
+            key = (*_deduplication_item_key(item), requested_profile)
             url_groups.setdefault(key, []).append(item)
 
         merged = []
@@ -964,10 +980,24 @@ class HorizonOrchestrator:
                     if mk not in primary.metadata or not primary.metadata[mk]:
                         primary.metadata[mk] = mv
 
-                # Append content (e.g., comments from another source)
+                # Append the other source's material. When either side carries
+                # typed sections, merge those and let `content` be re-derived:
+                # concatenating strings would desync the two, and the
+                # concatenated tail would land in `claimable` untiered.
                 if item is not primary and item.content:
-                    if primary.content and item.content not in primary.content:
-                        primary.content = (primary.content or "") + f"\n\n--- From {item.source_type.value} ---\n" + item.content
+                    if primary.sections or item.sections:
+                        if not primary.sections:
+                            primary.sections.extend(
+                                marker_sections_to_model(primary.content)
+                            )
+                        primary.sections.extend(
+                            list(item.sections) or marker_sections_to_model(item.content)
+                        )
+                        primary.rebuild_content()
+                    elif primary.content and item.content not in primary.content:
+                        primary.content = (primary.content or "") + (
+                            f"\n\n--- From {item.source_type.value} ---\n" + item.content
+                        )
 
             primary.metadata["merged_sources"] = all_sources
             merged.append(primary)
