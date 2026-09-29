@@ -1,9 +1,10 @@
 # 设计：广源可信取证 + 多轮共创调研文档
 
-- 日期：2026-09-29（v2，含一次对照代码的审计修订，见 §13）
-- 状态：已与维护者对齐，待分期实现（P0 → P2 → P1，S1 探针并行）
+- 日期：2026-09-29（v3，含两次修订：v2 对照代码审计，v3 分层泄漏实测 + 贴吧可达性实测，见 §13、§14）
+- 状态：已与维护者对齐，待分期实现（P0 → P2 → P1，S1/S2 探针并行）
 - 范围：本仓库（`NLY22/periscope`，fork 自 `Thysrael/Horizon`）的两项能力扩展；不改动上游日报管线的行为
-- 本文所有行号于 2026-09-29 对照 `main`（`8be37ed`）核实；测试基线 697 collected / 全绿（本机 Windows，同日实测）
+- 本文所有行号于 2026-09-29 对照 `main`（`8be37ed`）核实；测试基线 697 collected（2026-09-29 本机复核 `uv run pytest --collect-only` = `697 tests collected in 1.81s`）
+- **v3 的两条实测结论推翻了 v2 的两个前提**，都记在 §14：① 分层污染不是"未来接新源才会发生"，而是**现役 3 个源正在污染** claim 链路；② 贴吧楼层页从本机不可达，**不能**作为 P0 的验证载体。
 
 ---
 
@@ -18,10 +19,34 @@
 
 ## 1. 决定设计的现状接缝（均已核实到行号）
 
-### 1.1 静默地雷：分层判据是一个闭合的中文标记字典
-`src/corpus/sections.py:33-39` 用 5 个精确字符串（`【评论区 Top】` 等）把 `content` 反解成 primary / community 两层。`split_sections:56-80` 的规则是"**第一个标记之前的文本一律算 primary**"。后果：任何新 scraper 只要不用这几个字符串拼接评论区，它的人群文本就会被判为作者亲写 → 进入 `claimable`（`store.py:59`，写入时由 `claimable_text(content)` 计算，`store.py:222`；`claim_fts` 只索引这一列，`store.py:93-97`）→ 成为 claim 抽取的输入（`claims.py:443`）、被 `link_evidence` 关联、并抬高 `independent_sources`（`claims.py:209-225`）。**没有任何测试会失败。**
+### 1.1 静默地雷：仓库里有**两套互不相交**的分层词表，其中一套正在漏
 
-这决定了 P0 的核心不是"加一个源"，而是**把分层从字符串约定改成类型化字段 + 测试守护**。
+`src/corpus/sections.py:33-39` 用 5 个精确中文字符串（`【评论区 Top】`、`【视频字幕节选】`、`【回复精选】`、`【楼层讨论】`、`【评论区】`）把 `content` 反解成 primary / community 两层。`split_sections:56-80` 的规则是"**第一个标记之前的文本一律算 primary**"。
+
+但仓库里还有**第二套**分层实现：`src/processing/content.py:7` 的 `COMMENTS_MARKER = "--- Top Comments ---"` 与 `split_content:16-23`。两套词表**零交集**，服务的链路也不同：
+
+| 词表 | 实现 | 服务的链路 | 发出该标记的 scraper |
+|---|---|---|---|
+| 英文 `--- Top Comments ---` | `processing/content.py:split_content` | **日报/富化**：`ai/analyzer.py:109`、`ai/prompting/enrichment.py:155` | `reddit.py:498`、`hackernews.py:113`、`twitter.py:253` |
+| 中文 `【…】` × 5 | `corpus/sections.py:claimable_text` | **取证/claim/研究**：`claims.py:443`→`:624-631`、`claims.py:503`、`claims.py:639`、`store.py:222`、`session.py:716` | `bilibili.py:106/114`、`discourse.py:155`、`v2ex.py:109` |
+
+**后果（2026-09-29 本机实测，不是推演）**：Reddit / Hacker News / Twitter 三个源的人群文本，在日报链路里被正确剔除，在 claim 链路里却**整段被判为作者亲写**。复现：
+
+```python
+from src.corpus.sections import claimable_text
+hn_link_post = "\n\n".join(["", "--- Top Comments ---",
+                            "[alice]: the benchmark is rigged",
+                            "[bob]: no it isnt, here is data"])
+claimable_text(hn_link_post)
+# '--- Top Comments ---\n\n[alice]: the benchmark is rigged\n\n[bob]: no it isnt, here is data'
+# community_text(hn_link_post) == ''   ← 空
+```
+
+HN 的**链接帖**（`story.get("text")` 为空，`hackernews.py:109-110`）是最坏情况：`content` 里 100% 是评论，而 100% 都进了 `claimable`。这些文本随后：进 `claim_fts`（`store.py:93-97`）→ 成为 claim 抽取输入（`claims.py:443`）→ 被 `link_evidence` 以 `tier="claimable"` 关联（`claims.py:503`）→ 成为 grader 摘录（`claims.py:639`）→ 抬高 `independent_sources`（`claims.py:209-225`）。
+
+**没有任何测试会失败**：`tests/test_evidence_tiers.py` 只覆盖中文标记，`tests/test_content_selection.py:5` 只覆盖日报侧的英文标记，`tests/test_twitter.py:589` 甚至**断言了** `--- Top Comments ---` 出现在 content 里（即把泄漏当成了预期行为）。
+
+所以 v2 把这条写成"任何新 scraper 只要不用这几个字符串"是**低估**了：不需要等新源，**现役 3 个源已经在污染**，而且 `hackernews` 在默认配置里就是 `enabled=True`（`models.py:245`）。这决定了 P0 的核心不是"加一个源"，而是**把分层从字符串约定改成类型化字段 + 测试守护，并把 6 个 emitter 全部迁过去**。
 
 ### 1.2 `ContentItem` 的两个必填字段挡掉了噪声源
 `src/models.py:119 url: HttpUrl`（必填）、`:122 published_at`（必填），且 `ContentItem` 是 `extra="forbid"`（`:114`）。**10 个 scraper 文件、12 处**写了 `if published_at < since: return None` 这类时间门（bilibili / discourse / github / hackernews / reddit / rss / telegram / twitter / twitter_playwright / youtube；v2ex、openbb、gdelt、google_news 没有）。App-only 内容、无稳定 canonical URL、热榜/推荐流这类非时间序源，条目会**静默消失**，只在日志里显示 "Found 0 items"（`orchestrator.py:857-896`）。
@@ -89,9 +114,9 @@ SQLite 会话状态 + `research_turns` + `research_actions`（`session.py:79-124
 
 ---
 
-## 3. P0：地基（结构化分层 + 源注册表 + 贴吧端到端）
+## 3. P0：地基（结构化分层 + 6 个 emitter 迁移 + 源注册表）
 
-**为什么先做**：不修 §1.1，接任何噪声源都会立刻污染证据层，而且污染是静默的。
+**为什么先做**：不修 §1.1，接任何噪声源都会立刻污染证据层，而且污染是静默的 —— 更要紧的是**污染已经在发生**：HN / Reddit / Twitter 的人群文本此刻就在 `claimable` 列里。
 
 ### 3.1 数据模型
 把 `src/corpus/sections.py:47` 的 `Section` dataclass 提升为 `models.py` 里的 Pydantic 模型并扩字段（`sections.py` 保留 `split_sections` 作为**老库 backfill 与消融 A 档的 legacy 路径**，不再是新写入的判据）：
@@ -107,7 +132,7 @@ class Section(BaseModel):
 ```
 
 `ContentItem` 改动（`models.py:111-126`）：
-- 新增 `locator: str`（稳定标识，可以是 URL，也可以是 `tieba:p/123#45`、`xhs:note:abc`）；`url: Optional[HttpUrl]` 降级为展示用。
+- 新增 `locator: str`（稳定标识，可以是 URL，也可以是 `tieba:p/123#45`、`xhs:note:abc` 这类非 URL 稳定串）；`url: Optional[HttpUrl]` 降级为展示用。
 - `published_at: Optional[datetime]` + 新增 `time_basis: Literal["published", "crawled", "unknown"]`。`since` 过滤**只对 `time_basis != "unknown"` 生效**。
 - 新增 `sections: List[Section]`；`content` 保留为 sections 的拼接（向后兼容），`claimable` 由 `sections` 中 `tier=="primary" and asserted` 计算，而非 marker 反解。
 
@@ -128,17 +153,36 @@ class Section(BaseModel):
 ```python
 # models.py —— 纯元数据，无 scraper 引用
 @dataclass(frozen=True)
+class RateLimit:
+    requests: int = 1
+    per_seconds: float = 2.0
+    jitter: float = 0.3          # ±30% 抖动，避免固定间隔被识别
+
+@dataclass(frozen=True)
 class SourceSpec:
-    key: str                                   # "tieba"
+    key: str                                   # "discourse"
     kind: Literal["official", "forum", "ugc_social", "aggregator", "search_engine"]
     credibility_prior: float                   # 0..1，手工设定，P1 用人评校准
     login_required: bool
     editorial_gate: bool
     time_basis_default: Literal["published", "crawled", "unknown"]
     rate_limit: RateLimit | None
+    # 下面三个是现有 SourceDefinition 的字段，必须一起搬进来，否则
+    # SOURCE_REGISTRY 无法由 SOURCE_SPECS 派生（mcp/horizon_adapter.py:200/218 在消费它们）
+    config_field: str                          # "discourse"
+    config_is_list: bool = False               # github / rss 为 True
+    item_fields: tuple[str, ...] = ()          # ("sites",) 之类
 
 # src/sources/registry.py —— 新模块，可以 import 两边
-SCRAPER_BINDINGS: dict[str, type[BaseScraper]] = {"tieba": TiebaScraper, ...}
+SCRAPER_BINDINGS: dict[str, type[BaseScraper]] = {"discourse": DiscourseScraper, ...}
+```
+
+派生关系（单向，不得反向依赖）：
+
+```python
+SOURCE_SPECS: tuple[SourceSpec, ...] = (...)                  # 唯一手工维护处
+SOURCE_REGISTRY = {s.key: SourceDefinition(s.config_field, s.config_is_list, s.item_fields)
+                   for s in SOURCE_SPECS}                       # 派生，horizon_adapter 不用改
 ```
 
 **⚠ 不改 `data/config.json` 的格式。** `SourcesConfig`（`models.py:614-630`）是每源一个强类型字段的静态 Pydantic 模型；"字段从注册表派生"只有把 config 改成 `Dict[str, ...]` 才做得到，那是对所有现有用户的**破坏性格式变更**，收益不抵成本。所以注册表的职责收窄为：
@@ -161,17 +205,43 @@ SCRAPER_BINDINGS: dict[str, type[BaseScraper]] = {"tieba": TiebaScraper, ...}
 - `src/scrapers/auth.py`：两种 provider —— env token、cookie 文件（含**过期检测与失效重试一次**）。`BaseScraper.__init__`（`base.py:14`）签名扩为可选注入 `throttle`/`auth`，**保持现有 14 个 scraper 不改也能跑**（默认值 = 现行为）。签名类鉴权（x-s/x-t）留到 S1 有结论再说，现在不预留空壳。
 - 共享 client 统一 `follow_redirects=True`（修 `orchestrator.py:763` 与 `:458` 不一致）。
 
-### 3.4 第一个新源：百度贴吧
-选它而不是小红书，因为它是**无登录墙的结构化 HTML，楼层天然对应 sections**，能在最短路径上端到端验证 §3.1 的分层改造：
-- 主帖 → `Section(tier="primary", provenance="author")`
-- 每个楼层 → `Section(tier="community", locator=f"#{floor}")`，**不再拼成一个字符串**
-- `locator = https://tieba.baidu.com/p/{tid}#{floor}`；`time_basis="published"`（楼层有时间）
-- `SourceSpec(kind="forum", credibility_prior=0.35, login_required=False, editorial_gate=False, rate_limit=1req/2s)`
+### 3.4 P0 的验证载体：迁移全部 6 个 emitter（贴吧降级为 S2，理由见 §14.2）
 
-**P0 的验收测试（关键，直接对应 §1.1 的地雷）**：一条含 20 个楼层的贴吧条目，其楼层文本**不得**出现在 `claimable` 列、不得被 `claim_fts` 检索命中、不得使 `independent_sources` 增加。
+v2 打算用"接百度贴吧"当 P0 的端到端验证载体，理由是"无登录墙的结构化 HTML，楼层天然对应 sections"。**这个前提在 2026-09-29 实测中被推翻**（完整证据见 §14.2）：贴吧的楼层页 `/p/{tid}` 与列表页 `/f?kw=` 从本机全部返回 `HTTP 403` + `百度安全验证`（BIOC 验证码），唯一可达的 `/f/good?kw=` 只有主题列表（tid + 标题 + 作者 + 摘要），**没有楼层**；官方客户端 API `c.tieba.baidu.com/c/f/frs/page` 返回 `error_code 110001`，即需要 `sign`，而那属于 §11 明确排除的签名逆向。没有楼层就没有 community 层，贴吧无法验证分层改造。
+
+改为用**已实测可达的 Discourse** 作载体，并且 P0 的验收对象从"一个新源"改成"**6 个 emitter 全部迁移**"：
+
+| 为什么 Discourse 能替代 | 实测依据（2026-09-29） |
+|---|---|
+| 官方 key-less JSON，无登录、无验证码 | `GET https://users.rust-lang.org/latest.json?order=created` → `HTTP 200`，42 KB |
+| 楼层天然对应 sections | `GET /t/{id}.json` → `post_stream.posts[]`，每条带 `post_number`（楼层号）、`username`、`created_at`、`cooked` |
+| 无 HTML 皮肤/编码方差 | 对比 Discuz 系：`52pojie.cn` 需要"阅读权限高于 10"（登录墙）、GBK 编码、按皮肤变模板 |
+| 已是**多站点族**（`DiscourseSiteConfig.base_url`） | 加一个新的噪声论坛 = 改 config，正好验证 §3.2 注册表"加一个源只需 2 处手工同步" |
+
+**P0 迁移清单（6 个 emitter，一个都不能漏）**：
+
+| 文件 | 现状 | 迁移后 |
+|---|---|---|
+| `scrapers/hackernews.py:113` | `--- Top Comments ---` + `[by]: text` | 主帖 → `Section(primary)`；每条评论 → `Section(community, locator="#<comment_id>")` |
+| `scrapers/reddit.py:498` | `--- Top Comments ---` + `[author (N pts)]: body` | 同上，`locator` 取评论 `id`，`metadata` 保留 score |
+| `scrapers/twitter.py:247-266` | `append_discussion_content` 拼 `--- Top Comments ---` | 每条 reply → `Section(community, locator="@handle/status_id")`；函数签名保留但改为写 `sections` |
+| `scrapers/discourse.py:147-155` | `【楼层讨论】` | `posts[0]` → `Section(primary)`；`posts[1:]` → `Section(community, locator="#<post_number>")` |
+| `scrapers/bilibili.py:101-117` | `【视频字幕节选】` + `【评论区 Top】` | 字幕 → `Section(primary, provenance="transcript")`；评论 → `Section(community, locator="#<rpid>")` |
+| `scrapers/v2ex.py:105-112` | `【回复精选】` | 每条回复 → `Section(community, locator="#<reply_id>")` |
+
+`【评论区】` 这个标记在 `src/` 里**没有任何 emitter**（只有 `sections.py:36` 的字典条目），迁移后随 legacy 路径一起保留即可，不必为它写代码。
+
+**第 7 处必改点（不是 scraper，但漏了会改坏上游日报）**：`processing/content.py:split_content` 靠英文标记剔除评论，服务 `ai/analyzer.py:109` 与 `ai/prompting/enrichment.py:155`。emitter 迁移后 `content` 里不再有标记，`split_content` 会把评论并进 `main`，日报摘要因此**开始引用陌生人评论**。所以同批必须加 `split_item_content(item: ContentItem) -> ContentParts`：有 `sections` 时按 tier 切，无 `sections` 时回落到现有标记路径；两个调用点改传 `item`。`split_content` 本身保留（legacy 与消融 A 档要用）。详见 §9.13。
+
+**P0 的验收测试（关键，直接对应 §1.1 的现役泄漏）**：
+1. 一条 HN 链接帖（`story.text` 为空、3 条 `kids`）：`claimable` **必须为空**，评论文本不得被 `claim_fts` 命中，不得使 `independent_sources` 增加。这是**先写失败的测试**——它在当前 `main` 上就是红的。
+2. 一条含 5 个楼层的 Discourse 主题：楼层文本不得进 `claimable`，且每个楼层 section 的 `locator` 等于 `#<post_number>`。
+3. 迁移后 `src/scrapers/` 里不得再出现任何分层标记字面量（用一条 `grep` 型守护测试钉住，防止第 7 个 emitter 悄悄长出来）。
+
+`tests/test_twitter.py:589` 现在断言 `"--- Top Comments ---" in item.content` —— 它钉的是泄漏行为，**必须随迁移一起改**，改成断言 reply 落在 `tier="community"` 的 section 里。
 
 ### 3.5 P0 不做
-不做 OCR/VLM（P3）、不做 trust 打分（P1 只做源先验这一维，作为常量进库）、不动上游日报管线、不改名、不改 config 格式。
+不做 OCR/VLM（P3）、不做 trust 打分（P1 只做源先验这一维，作为常量进库）、不动上游日报管线的**输出语义**（`processing/content.py:split_content` 保留为 legacy 路径，日报侧改走 §3.4 的 `split_item_content`；`main` = 作者层、`comments` = 人群层的语义不变，唯一差别是 `comments` 里不再含 `--- Top Comments ---` 这行标记本身，而它本来就不该进摘要）、不改名、不改 config 格式、**不接任何需要登录/验证码/签名才能取到内容的源**（贴吧见 S2、小红书见 S1）。
 
 ---
 
@@ -281,7 +351,7 @@ P1 两处都要改：
    T(claim) = 1 − Π_i (1 − trust_i · d_i)
    d_i = 1.0 若该条来自尚未出现的 source_type；0.5 若同 source_type 内的第 2+ 个 publisher
    ```
-   `d_i` 的折扣是必要的：`source_families()`（`store.py:323-329`）就是 source_type 分组，若坚持"跨 source_type ≥2 才算 supported"，那么**只有贴吧证据的结论永远无法 supported** —— 这与"广源取证"的目标直接冲突。论坛内多作者印证是弱证据，但不是零证据。
+   `d_i` 的折扣是必要的：`source_families()`（`store.py:323-329`）就是 source_type 分组，若坚持"跨 source_type ≥2 才算 supported"，那么**只有单一论坛源（例如只有一个 Discourse 站点，或将来的贴吧）证据的结论永远无法 supported** —— 这与"广源取证"的目标直接冲突。论坛内多作者印证是弱证据，但不是零证据。
 4. **verdict 规则**：
    - `supported`：`T ≥ θ_s` 且（跨 source_type ≥ 2 **或** 同 source_type 内 ≥3 个不同 publisher 且该源 `credibility_prior ≥ 0.4`）
    - `contested`：存在矛盾对
@@ -308,7 +378,7 @@ P1 两处都要改：
 
 **⚠ A 档必须可复现，否则这张表就是"声称测但测不了"。** P0 合并后新写入走 sections 路径，A 档要求的是 marker 路径。所以 `scripts/eval_claims.py` 与 `eval_retrieval.py` 要加 `--tiering=marker|sections` 开关，`marker` 档复用保留下来的 `split_sections`（这也是 §3.1 不删它的原因）。
 
-检索侧沿用 `docs/evaluation.md:15` 的 Recall@5/@10、P@5、nDCG@10、MRR（实现在 `corpus/metrics.py:21-63`），但 fixture 必须扩容：现在只有 19 条语料 / 5 个问题（`data/eval/corpus_fixture.json`），加了贴吧后要新建一份含噪声源的 fixture 与分级标注。**语义腿继续用 stub 就必须继续标注为 stub**（`eval_retrieval.py:57-79`、`evaluation.md:32,39`），不能混进真实结果。
+检索侧沿用 `docs/evaluation.md:15` 的 Recall@5/@10、P@5、nDCG@10、MRR（实现在 `corpus/metrics.py:21-63`），但 fixture 必须扩容：现在只有 19 条语料 / 5 个问题（`data/eval/corpus_fixture.json`），接入新的噪声论坛站点后要新建一份含噪声源的 fixture 与分级标注。**语义腿继续用 stub 就必须继续标注为 stub**（`eval_retrieval.py:57-79`、`evaluation.md:32,39`），不能混进真实结果。
 
 ### 5.5 多轮交互侧的评测（不能用 IR 指标）
 - 人评：文档有用性（Likert 1-5）、任务完成率、"系统问的问题是否问在点上"
@@ -317,9 +387,12 @@ P1 两处都要改：
 
 ---
 
-## 6. S1：小红书可行性探针（spike，独立于 P0/P1/P2）
+## 6. S1 / S2：源可达性探针（spike，独立于 P0/P1/P2）
 
-**在写任何小红书代码之前**做判别实验。三步，每步有明确通过判据，用维护者自己的账号、只抓其可见的内容：
+两个中文 UGC 源都**先做判别实验、后写代码**。共同的合规红线：单账号、仅用户可见内容、限速、**不做多账号池、不做验证码打码、不做签名逆向分发**。
+
+### 6.1 S1 小红书
+三步，每步有明确通过判据，用维护者自己的账号、只抓其可见的内容：
 
 1. 未登录 HTTP 取笔记详情页 → 判据：能否解析出正文（预期不通过，但要记录**实际**返回，不猜）
 2. 登录态 cookie → 判据：同上 + 是否存在 x-s/x-t 类签名校验（观察 406/461/验证码）
@@ -327,7 +400,24 @@ P1 两处都要改：
 
 **只有第 3 步通过才排 P3（图文通路）。** 不通过则走降级路径：用户侧导出（浏览器扩展或手动 JSON），配一个 `hz_corpus_import` 入口，不硬啃反爬。
 
-合规红线：单账号、仅用户可见内容、限速、**不做多账号池、不做验证码打码、不做签名逆向分发**。
+### 6.2 S2 百度贴吧（第 1 步已于 2026-09-29 做完，结论：不通过）
+
+| 通路 | 实测结果 | 结论 |
+|---|---|---|
+| `GET https://tieba.baidu.com/f?kw=python&pn=0`（PC UA） | `HTTP 403`，2499 B，`<title>百度安全验证</title>`，含 `BIOC_OPTIONS` + `seccaptcha.baidu.com` | 不可达 |
+| 同上，带首页预热 cookie + `Referer` | 预热请求**未下发任何 cookie**；仍 `HTTP 403` 安全验证 | 不可达 |
+| 同上，Googlebot UA | `HTTP 403` 安全验证 | 不可达 |
+| `GET https://tieba.baidu.com/mo/q/m?kw=python&lp=5024`（移动 UA） | `HTTP 403`，2508 B，安全验证 | 不可达 |
+| `GET http://c.tieba.baidu.com/c/f/frs/page?kw=python&pn=1&rn=10` | `HTTP 200`，但 body = `{"error_msg":"未知错误","error_code":110001}` | 缺 `sign`；POST 表单、加 `_client_version` 同样 110001 → 属签名逆向，§11 排除 |
+| `GET https://tieba.baidu.com/p/{tid}`（3 个从列表页取到的**真实** tid） | 三个全部 `HTTP 403` 安全验证 | **楼层不可达** |
+| `GET https://tieba.baidu.com/f/good?kw=python` | `HTTP 200`，301 KB，无验证码 | **唯一可达通路** |
+
+`/f/good` 能拿到什么（实测）：`data-field='{"id":10037465698,"author_name":"ashi876","author_nickname":"…","author_portrait":"tb.1.…"}'` 形式的结构化属性，108 个标题块、105 个作者、72 条摘要、36 个回复数；`&pn=50` 翻页可用（140 KB），中文吧名可用（`kw=机器学习` → 200，169 KB）。
+
+**结论**：贴吧在无登录、不做签名逆向、不用浏览器自动化的前提下，只能取到**主题列表级**信息（tid / 标题 / 作者 / 摘要 / 回复数），**取不到楼层正文**。没有楼层就没有 community 层，因此：
+- 贴吧**不能**作为 P0 分层改造的验证载体（已改用 Discourse，§3.4）；
+- 贴吧作为"广源"仍有价值 —— 主题标题 + 作者 + 摘要本身就是 primary 层证据，且 `/f/good` 可达；
+- S2 剩余两步（登录态 BDUSS cookie / Playwright 过安全验证）由维护者决定是否投入；**只有拿到楼层才排贴吧进 P 序列**，否则最多做一个"仅列表层"的降级源，且必须标 `time_basis` 与 `provenance`，不得声称覆盖贴吧讨论。
 
 ---
 
@@ -364,6 +454,9 @@ P1 两处都要改：
 10. **单平台研究会不会永远无法 supported**：noisy-OR + 同 source_type 内多 publisher 的折扣路径解决（§5.2 第 3-4 点）。
 11. **`time_basis=unknown` 会不会反复烧预算**：`id` 幂等入库 + 分析阶段跳过已见 id（§3.1）。
 12. **消融 A 档在 P0 之后还能不能测**：`--tiering=marker|sections` 开关（§5.4）。
+13. **迁移会不会改变上游日报的输出**：不会，而且必须测。`processing/content.py:split_content` 保留，`ContentItem.content` 仍由 sections 拼接而成（拼接产物里**不再**含标记字面量），所以 `split_content` 对迁移后的条目会走 `COMMENTS_MARKER not in content` 分支、把全文当 `main`。这正是日报侧想要的效果吗？—— 不是：日报侧原本靠标记剔除评论。所以 **`split_content` 必须同步改为读 `item.sections`**，否则日报会开始把评论当正文摘要。这是 §3.5"不动日报行为"的真正含义：行为不变，实现换轨。守护测试要覆盖两侧（claim 侧与日报侧）对同一条 Reddit 条目的一致性。
+14. **现有测试是否钉住了错误行为**：`tests/test_twitter.py:589` 断言 `"--- Top Comments ---" in item.content`，钉的正是 §1.1 的泄漏。迁移必须**同时改这条断言**，否则 P0 会在"测试全绿"的假象下把泄漏固化。
+15. **贴吧/小红书在探针通过前不写抓取代码**：S1/S2 的结论是"能不能取到"，不是"要不要做"。在拿到可达通路之前，任何贴吧/小红书 scraper 代码都是猜的（§14）。
 
 ---
 
@@ -371,10 +464,11 @@ P1 两处都要改：
 
 | 期 | 内容 | 验收（可执行判据） |
 |---|---|---|
-| **P0** | 结构化 sections + 两层注册表 + throttle/auth + 贴吧 | 贴吧入库；楼层文本不进 `claimable`/`claim_fts`/`independent_sources`（专门测试）；手工同步点 5 → 2（守护测试）；老库迁移不丢数据且 `locator`/`time_basis` 回填正确；`uv run pytest -q` 全绿（基线 697 collected / 全通过，2026-09-29 本机实测） |
+| **P0** | 结构化 sections + **6 个 emitter 全量迁移** + 两层注册表 + throttle/auth | ① HN 链接帖（`story.text` 空、3 条 `kids`）的 `claimable` 为空，评论不被 `claim_fts` 命中、不抬高 `independent_sources` —— **这条测试在当前 `main` 上必须先红后绿**；② Discourse 楼层落 `tier="community"`，`locator == "#<post_number>"`；③ `src/scrapers/` 内不再出现任何分层标记字面量（`【…】` 与 `--- Top Comments ---` 都不许），守护测试钉住；④ 手工同步点 5 → 2（守护测试）；⑤ 老库迁移不丢数据且 `locator`/`time_basis`/`sections_json` 回填正确；⑥ `uv run pytest -q` 全绿（基线 697 collected，2026-09-29 实测；P0 会新增测试，数字只增不减） |
 | **P2** | 状态机 + 草稿工件 + `next_move` + 局部重算 + Web 逐轮 UI | 一次调研 ≥3 轮且至少一轮系统主动 `AskUser`；用户改过的章节在后续重算中不被覆盖（`stale` 标记）；每轮 LLM 调用数明显低于全树重跑（给实测数字） |
 | **P1** | trust 模型 + noisy-OR 独立性 + 矛盾对 + 人评 80 条 + 消融 A–E | `data/eval/claims_labels.json` 有 ≥80 条真实标注；报出 macro-F1 / κ（若有第二标注者）/ ROC 与 θ_s、θ_triage；消融表 A–E 有数字且 A 档可复现 |
 | **S1** | 小红书探针 | 三步判据的实测结论（通过/不通过 + 证据），决定 P3 是否启动 |
+| **S2** | 贴吧探针 | 第 1 步已完成（§6.2，结论：楼层不可达）；剩余两步（登录态 cookie / Playwright）由维护者决定是否投入，**拿到楼层之前贴吧不进 P 序列** |
 | **P3** | 图文通路（条件执行） | OCR 错误率实测 + `asserted` 过滤生效的测试 |
 
 P1 的人工标注由维护者完成，可与 P2 的工程并行（导出工具已就位，这是唯一的人工阻塞项）。
@@ -382,12 +476,12 @@ P1 的人工标注由维护者完成，可与 P2 的工程并行（导出工具�
 ---
 
 ## 11. 明确不做（YAGNI）
-多账号池 / 反爬对抗 / 验证码打码 / 签名逆向；SSE 或 WebSocket 流式；向量检索默认开启（保持 optional，`models.py:601`）；改名 `veriscope`（独立决定，不塞进这三期）；上游日报管线改造；`data/config.json` 格式变更；把 `items.url`/`published_at` 改成可空列；仓库 issue 开关与 CI 是否在本平台执行（只能网页侧确认，与本设计无关）。
+多账号池 / 反爬对抗 / 验证码打码 / 签名逆向（含贴吧客户端 API 的 `sign`）；SSE 或 WebSocket 流式；向量检索默认开启（保持 optional，`models.py:601`）；改名 `veriscope`（独立决定，不塞进这三期）；上游日报管线的**输出格式与阶段顺序**改造（§9.13 的 `split_item_content` 只是把同一行为换到 sections 上实现，输出不变）；`data/config.json` 格式变更；把 `items.url`/`published_at` 改成可空列；在 S1/S2 探针通过之前写任何小红书/贴吧抓取代码；仓库 issue 开关与 CI 是否在本平台执行（只能网页侧确认，与本设计无关）。
 
 ---
 
 ## 12. 下一步
-本 spec 合并后，只为 **P0** 写实现计划（P1/P2 等 P0 落地后各自成计划，避免计划随代码漂移而过期）。
+P0 的实现计划已单独成文：`docs/superpowers/plans/2026-09-29-p0-structured-sections-and-source-registry.md`。P1 / P2 / S1 / S2 等 P0 落地后各自成计划，避免计划随代码漂移而过期。
 
 ---
 
@@ -414,3 +508,77 @@ P1 的人工标注由维护者完成，可与 P2 的工程并行（导出工具�
 | 16 | trust 特征未含 provenance | P3 的 OCR 转写会拿到与作者原文同等信任 | §5.1 加 `provenance_factor`（author 1.0 / transcript 0.95 / ocr=confidence / legacy_marker 0.8） |
 | 17 | "reddit 是全仓唯一的 429 处理" | `telegram.py:67-68` 也有一份，`ai/client.py:630` 另有 LLM 侧的 | §1.7 改为"两处重复实现"，§3.3 收拢两份 |
 | 18 | 基线"697 通过"来自 3 天前的记忆 | 2026-09-29 本机复核：collect 697、全量跑 exit 0 | §10 标注实测日期 |
+
+---
+
+## 14. v2 → v3 修订记录与实测日志（2026-09-29）
+
+v2 是"对照代码"的审计，v3 是"对照运行时与真实网络"的审计。两条 v2 的前提被实测推翻。
+
+### 14.1 修订表
+
+| # | v2 的说法 | 核实结果 | v3 的处理 |
+|---|---|---|---|
+| 19 | §1.1 把分层污染写成**未来风险**："任何新 scraper 只要不用这几个字符串…" | **现役 bug**：`reddit.py:498`、`hackernews.py:113`、`twitter.py:253` 都用英文 `--- Top Comments ---`，不在那 5 个中文标记里 → 三个源的评论此刻就在 `claimable` 列（§14.3 有可复现输出）。HN 默认 `enabled=True`（`models.py:245`） | §1.1 重写为"两套互不相交的词表"+ 泄漏链路逐跳；§3.4 改为 6 个 emitter 全量迁移；§10 验收①要求"先红后绿" |
+| 20 | §1.1 隐含"只有一套分层实现" | 有两套：`corpus/sections.py`（中文标记，服务 claim/取证/研究）与 `processing/content.py:7,16-23`（英文标记，服务日报/富化，`ai/analyzer.py:109`、`ai/prompting/enrichment.py:155`） | §1.1 加对照表；§3.4 补第 7 处必改点 `split_item_content`；§9.13 说明为什么漏改会改坏日报 |
+| 21 | §3.4"贴吧是无登录墙的结构化 HTML，楼层天然对应 sections" | **错**：`/f?kw=`、`/mo/q/m`、`/p/{真实 tid}` 全部 `HTTP 403` + `百度安全验证`；客户端 API `error_code 110001`（需 `sign`，属 §11 排除项）；仅 `/f/good?kw=` 可达且**无楼层** | §3.4 载体换成 Discourse（§14.4 实测可达且有 `post_number` 楼层）；贴吧降为 §6.2 的 S2 探针，第 1 步已判"不通过" |
+| 22 | 未检查现有测试是否钉住错误行为 | `tests/test_twitter.py:589` 断言 `"--- Top Comments ---" in item.content`，正是把泄漏当预期 | §9.14 要求随迁移一起改；§3.4 明写 |
+| 23 | §11 写"上游日报管线改造"不做 | 与 §9.13 的 `split_item_content` 表面冲突 | §11 收窄为"输出格式与阶段顺序不改造"，并说明换实现≠改输出 |
+
+### 14.2 贴吧可达性实测日志
+
+探测机：本机（Windows，中国大陆网络出口），2026-09-29，`curl` + 真实 UA，全部 `-L` 跟随重定向。
+
+```
+[pc-forum-list]   https://tieba.baidu.com/f?kw=python&pn=0        HTTP=403 SIZE=2499  <title>百度安全验证</title>  BIOC/seccaptcha=1
+[mobile-forum]    https://tieba.baidu.com/mo/q/m?kw=python&lp=5024 HTTP=403 SIZE=2508  <title>百度安全验证</title>  BIOC/seccaptcha=1
+[client-api-frs]  http://c.tieba.baidu.com/c/f/frs/page?kw=python&pn=1&rn=10  HTTP=200 SIZE=115
+                  body: {"error_msg":"未知错误","error_code":110001,"logid":"0453335642",...}
+[pc-thread]       https://tieba.baidu.com/p/9000000000            HTTP=403 SIZE=2494  安全验证
+[googlebot-ua]    https://tieba.baidu.com/f?kw=python             HTTP=403 SIZE=2494  安全验证
+[cookie-warmup]   先 GET https://tieba.baidu.com/ 取 cookie（未下发任何 cookie），再带 -b/-e 请求 /f?kw=  HTTP=403 SIZE=2494  安全验证
+[good-list]       https://tieba.baidu.com/f/good?kw=python        HTTP=200 SIZE=301741 无验证码
+[good-list-pn]    https://tieba.baidu.com/f/good?kw=python&pn=50  HTTP=200 SIZE=140457
+[good-list-cjk]   https://tieba.baidu.com/f/good?kw=机器学习       HTTP=200 SIZE=169569
+[thread-from-good] /p/10717972520、/p/1250852756、/p/117245460（三个从 /f/good 取到的真实 tid）  全部 HTTP=403 安全验证
+```
+
+`/f/good` 页内可解析到的字段（实测计数）：`j_th_tit` 标题块 108、作者 105、`threadlist_abs` 摘要 72、`threadlist_rep_num` 回复数 36；结构化属性形如
+`data-field='{"id":10037465698,"author_name":"ashi876","author_nickname":"…","author_portrait":"tb.1.e553a59d.WHqgsVcVMW…"}'`。
+→ 有主题级元数据，**没有楼层正文**。
+
+### 14.3 分层泄漏复现日志
+
+```console
+$ uv run python -c "from src.corpus.sections import claimable_text, community_text; \
+  b='Post author writes: the migration broke prod.\n\n--- Top Comments ---\n\
+[ stranger1 (42 pts)]: totally fake, never happened'; \
+  print(repr(claimable_text(b))); print(repr(community_text(b)))"
+'Post author writes: the migration broke prod.\n\n--- Top Comments ---\n[ stranger1 (42 pts)]: totally fake, never happened'
+''
+```
+
+HN 链接帖（`story.text` 为空 → `hackernews.py:109-110` 不 append 作者段）：
+
+```console
+$ uv run python -c "from src.corpus.sections import claimable_text; \
+  s='\n\n'.join(['','--- Top Comments ---','[alice]: the benchmark is rigged','[bob]: no it isnt']); \
+  print(repr(claimable_text(s)))"
+'--- Top Comments ---\n\n[alice]: the benchmark is rigged\n\n[bob]: no it isnt'
+```
+
+即：`content` 的 100% 是评论，`claimable` 的 100% 也是评论。
+
+### 14.4 替代载体对比实测
+
+| 候选 | 探测 | 结果 | 判定 |
+|---|---|---|---|
+| Discourse（users.rust-lang.org） | `GET /latest.json?order=created` | `HTTP 200`，42 KB，含 `topic_list.topics[]` | ✅ |
+| Discourse 楼层 | `GET /t/52690.json` | `HTTP 200`，`post_stream.posts[]` 带 `post_number`、`username`、`created_at`、`cooked`、`posts_count:7` | ✅ 楼层结构完整 |
+| V2EX 镜像 | `GET https://global.v2ex.co/api/topics/hot.json` | `HTTP 200`，55 KB | ✅（仓库已接入） |
+| V2EX 主站 | `GET https://www.v2ex.com/api/topics/hot.json` | 连接超时 | ⚠ 主站不稳，镜像可用 |
+| Discuz（52pojie） | `GET /thread-2126541-1-1.html`（1027 回复的帖子） | `HTTP 200` 但 body 是"提示信息"页：`抱歉，您需要【阅读权限】高于 10 才能阅读`；GBK 编码 | ❌ 登录+权限墙 |
+| Discuz（pediy / chiphell / zol / autohome） | 列表页 | 均 `HTTP 200` | 未深入（52pojie 已证明 Discuz 系有登录墙与皮肤方差，P0 不引入） |
+| linux.do | `GET /latest.json` | 连接失败（端口 443 超时） | ❌ 网络不可达 |
+
+选 Discourse 的净理由：**官方 JSON、无登录、无验证码、有 `post_number` 楼层、无 HTML 皮肤与编码方差**，且它已经是多站点族（`DiscourseSiteConfig.base_url`），加一个新的噪声论坛只需改 config —— 正好验证 §3.2 注册表把"加一个源"降到 2 处手工同步的承诺。
