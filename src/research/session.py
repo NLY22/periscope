@@ -472,6 +472,7 @@ class ResearchSession:
 
     # ----------------------------------------------------------------- draft
     _HEADING = re.compile(r"^## +(.+?)\s*$", re.MULTILINE)
+    _SUBHEADING = re.compile(r"^### +(.+?)\s*$", re.MULTILINE)
 
     @staticmethod
     def section_id(title: str) -> str:
@@ -529,7 +530,69 @@ class ResearchSession:
                 carried = DraftSection.from_dict(section.to_dict())
                 carried.stale = True
                 fresh.append(carried)
+        self._attach_lineage(session_id, fresh)
         return self.drafts.save(session_id, fresh, origin="render")
+
+    def _attach_lineage(self, session_id: str, sections: List[DraftSection]) -> None:
+        """Point each section at the branches it was rendered from.
+
+        Without this the draft is prose only: the panel's per-section evidence
+        count reads zero for a section that cites three items, and
+        `MoveContext.contested_claims` can never fire, so a contradiction stays
+        invisible to the very step that decides whether to ask about it.
+        """
+        branches = [
+            sq for sq in self.store.subquestions(session_id) if sq.status != "dropped"
+        ]
+        by_text: Dict[str, Any] = {}
+        for sq in branches:
+            by_text.setdefault(sq.text.strip(), sq)
+
+        cited = {item_id for sq in branches for item_id in sq.evidence_ids}
+        verdicts_by_item = self._verdicts_by_item(cited)
+
+        for section in sections:
+            members: List[Any] = []
+            direct = by_text.get(section.title.strip())
+            if direct is not None:
+                members.append(direct)
+            for match in self._SUBHEADING.finditer(section.body):
+                sq = by_text.get(match.group(1).strip())
+                if sq is not None and sq not in members:
+                    members.append(sq)
+            if not members:
+                continue
+            evidence: List[str] = []
+            for sq in members:
+                for item_id in sq.evidence_ids:
+                    if item_id not in evidence:
+                        evidence.append(item_id)
+            section.evidence_ids = evidence
+            section.subquestion_id = members[0].id if len(members) == 1 else None
+            section.verdicts = {
+                text: verdict
+                for item_id in evidence
+                for text, verdict in verdicts_by_item.get(item_id, {}).items()
+            }
+
+    def _verdicts_by_item(self, item_ids) -> Dict[str, Dict[str, str]]:
+        """Graded verdicts per item, for the sections that cite them."""
+        ids = list(item_ids)
+        if not ids:
+            return {}
+        placeholders = ",".join("?" * len(ids))
+        try:
+            rows = self.corpus._conn.execute(
+                f"SELECT item_id, text, verdict FROM claims "
+                f"WHERE item_id IN ({placeholders}) AND verdict IS NOT NULL",
+                tuple(ids),
+            ).fetchall()
+        except Exception:
+            return {}  # a corpus without the claim tables has no verdicts
+        out: Dict[str, Dict[str, str]] = {}
+        for row in rows:
+            out.setdefault(row["item_id"], {})[row["text"]] = row["verdict"]
+        return out
 
     def edit_section(self, session_id: str, section_id: str, body: str) -> Draft:
         """Record a user edit as its own revision and lock that section."""

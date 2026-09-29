@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from src.analysis.claims import Claim, ClaimStore
 from src.corpus.store import Corpus
 from src.models import ContentItem, SourceType
 from src.research.drafts import DraftSection, DraftStore, body_hash
@@ -433,3 +434,73 @@ def test_a_parked_session_can_still_be_listed_and_resumed(corpus) -> None:
     resumed = asyncio.run(rs.answer_request(started.session_id, pending[0].id, "没有"))
     assert resumed.pending_request is None
     assert rs.store.get_session(started.session_id).status != "awaiting_user"
+
+
+# -------------------------------------------------------------------- lineage
+def test_a_section_carries_the_evidence_of_the_branch_it_came_from(corpus) -> None:
+    """`section -> subquestion -> evidence` has to be filled, not merely declared.
+
+    The panel renders a per-section evidence count and the planner is shown the
+    disagreements; both read these fields, so an empty one is a silent UI bug.
+    """
+    rs = build_session(corpus, planner=None)
+    started = asyncio.run(rs.start("DeepSeek 研究"))
+    draft = rs.drafts.latest(started.session_id)
+    by_text = {s.text: s for s in rs.store.subquestions(started.session_id)}
+
+    matched = [s for s in draft.sections if s.title in by_text]
+    assert matched, "the default report renders one section per sub-question"
+    for section in matched:
+        sq = by_text[section.title]
+        assert sq.evidence_ids, "the fixture must reach the corpus at all"
+        assert section.subquestion_id == sq.id
+        assert section.evidence_ids == list(sq.evidence_ids)
+
+
+def test_a_template_section_gathers_every_subheading_under_it(corpus) -> None:
+    """A template section holds several `###` branches; its evidence is the union.
+
+    The single `subquestion_id` pointer is left empty rather than pointed at the
+    first member — one branch out of two would claim a lineage that is not there.
+    """
+    rs = build_session(corpus, ScriptedPlanner([]))
+    started = asyncio.run(rs.start("DeepSeek 研究"))
+    subs = rs.store.subquestions(started.session_id)
+    assert len(subs) >= 2
+    markdown = "\n".join([
+        "## 市场调研",
+        f"### {subs[0].text}",
+        "正文一。",
+        "",
+        f"### {subs[1].text}",
+        "正文二。",
+    ])
+
+    draft = rs.commit_draft(started.session_id, markdown)
+    section = draft.section(ResearchSession.section_id("市场调研"))
+    assert section is not None
+    assert set(section.evidence_ids) == set(subs[0].evidence_ids) | set(subs[1].evidence_ids)
+    assert section.subquestion_id is None
+
+
+def test_a_contested_claim_becomes_visible_to_the_next_move(corpus) -> None:
+    """spec §4.2: AskUser/Deepen should be able to see a disagreement exists."""
+    rs = build_session(corpus, planner=None)
+    started = asyncio.run(rs.start("DeepSeek 研究"))
+    draft = rs.drafts.latest(started.session_id)
+    cited = [s for s in draft.sections if s.evidence_ids]
+    assert cited, "fixture must produce at least one section with evidence"
+
+    ClaimStore(corpus).upsert_claims([
+        Claim(
+            id="cl_contested", item_id=cited[0].evidence_ids[0],
+            text="V4 的定价有两种说法", status="graded", verdict="contested",
+        )
+    ])
+    rs.commit_draft(started.session_id, rs.render_report(started.session_id))
+
+    ctx = rs.move_context(started.session_id)
+    assert ctx.contested_claims, (
+        "the planner cannot ask about a contradiction it is never shown"
+    )
+    assert ctx.contested_claims[0]["id"] == cited[0].id
