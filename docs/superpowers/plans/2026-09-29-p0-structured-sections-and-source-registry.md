@@ -4204,3 +4204,30 @@ git commit -m "Feat: analyse only newly stored items, so re-fetches stop buying 
 - **Task 9 删 14 行 import 前必须 grep**：`orchestrator.py` 在 `:1349` 附近仍直接用 `TwitterScraper`，漏了会 `NameError`，而且只有跑到 Twitter 回复展开那条路径才炸。
 - **Task 11 的 reddit fixture 依赖 `_fetch_comments_html` 先失败**：测试里让 `old.reddit.com` 返回 500，才会走 JSON 路径。若将来 reddit 的抓取顺序变了，这条 fixture 要跟着变，否则测的是另一条路径。
 
+
+---
+
+## 执行记录（P0 已实现，见 PR #4 / 分支 `feat/p0-structured-sections`）
+
+实现结果：`817 collected`、全量绿（基线 697），spec §10 的 P0 六条验收逐条通过，`scripts/eval_retrieval.py` 的消融表与 `docs/evaluation.md` 逐格一致。
+
+下面是**本计划写错或被实现纠正的四处**。它们不是执行者的失误，是计划对代码现状的假设不成立；留在文档里，是因为下一个计划（P1/P2）会复用同样的假设。
+
+1. **Task 4 的方法名不存在。** 计划写 `orchestrator.deduplicate_items(...)`，实际叫 **`merge_cross_source_duplicates`**（`orchestrator.py:938`）。`tests/test_cross_source_duplicates.py:32` 用的是 `object.__new__(HorizonOrchestrator)`，可参考。
+
+2. **`time_basis` 的默认值降级要条件化。** 计划里 `published_at is None → time_basis = "unknown"` 会**覆盖调用方显式声明的 `"crawled"`**。实现改成只在仍等于默认 `"published"` 时才降级。凡是"模型层归一化"都必须区分"没填"与"填了默认值以外的东西"。
+
+3. **共享管线不能靠构造参数注入。** 计划让 `simple(cls)` 传 `throttle=`/`auth=`，但 13 个 scraper 子类各自以**不同形状**转发 `super().__init__`（有的传 `config.model_dump()`，有的传 `{"enabled": ...}`，有的传 dict 化的 config），全部改签名风险大且无行为收益。实现改为工厂事后赋值（`registry._wire()`），`BaseScraper.__init__` 的可选参数保留给未来的新 scraper。
+
+4. **`append_discussion_sections` 必须先收养已有的纯文本正文。** 这条是测试逼出来的**真 bug**，不是测试写错：一个只带 `content=`（无 sections）的推文在追加回复 section 后，`claimable_of` 会改走 sections 分支，于是**作者本人的正文变成不可 claim**。修法是先把它收成一个 `provenance="legacy_marker"` 的 primary section。凡是"给已有 item 原地追加 sections"的代码路径都要做这一步 —— `merge_cross_source_duplicates` 里同理。
+
+另外两处小差异：
+
+- Task 12 的无标记守护测试实际扫到 4 个中文标记点 + 3 个英文标记点，与计划列的 6 个 emitter 一致（`【评论区】` 确实无 emitter，保留在 legacy 路径里）。
+- Task 14 Step 1 的计划版测试自带 helper，实际复用了 `tests/test_orchestrator_claims.py:23` 已有的 `make_orchestrator`；`last_new_item_ids` 做成**类属性**而非实例属性，因为有两条测试用 `__new__` 构造 orchestrator。
+
+## 计划之外的一处修复
+
+`tests/test_llm_cache.py::test_throttle_spaces_upstream_calls` 在全量跑时随机红。commit `c79cfcf` 把断言从"实测睡眠时长"换成"请求的延迟"，但那个延迟是 `time.monotonic()` 算出来的，Windows ~15ms 时钟粒度下第二次请求得到 0.035 而非 0.05。已给 `CachingAIClient` 加注入 clock 并收紧容差到 `rel=1e-9`（只剩二进制浮点误差，不再有挂钟依赖）。
+
+**给下一个计划的提醒**：本仓库"已经消灭挂钟断言"这句话不完全成立。凡是断言"某次调用等了多久"，链路上任何一个 `time.monotonic()` 都会把 flakiness 从后门带回来 —— 要注入的是**时钟**，不只是 `sleep`。
