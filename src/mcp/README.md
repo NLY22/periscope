@@ -71,6 +71,8 @@ Rules that matter:
 - **`locator` (or `url`) is the identity**; without one the item is rejected, since re-importing the same export would otherwise create a second copy. Ids are derived from the locator, so importing the same file twice reports `items_new: 0`.
 - Each item is validated independently: one bad item is returned in `rejected` with every problem it has, the rest still land.
 
+The same file ships as [`data/export.example.json`](../../data/export.example.json), and the test suite parses it, so the example cannot drift from the implementation.
+
 Same payload on the CLI (`uv run python scripts/import_corpus.py --file export.json --data-dir data`) and the panel API (`POST /api/import`, which answers 400 only when nothing at all could be imported).
 
 ## Resources

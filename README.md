@@ -223,7 +223,8 @@ uv run periscope-web --data-dir data
 uv run periscope-mcp
 
 # 取不到的源：用户自己导出，按声明的层级入库（不联网、不碰验证码与签名）
-uv run python scripts/import_corpus.py --file export.json --data-dir data --dry-run
+#   样例负载见 data/export.example.json（把内容换成你账号本来就能看见的东西）
+uv run python scripts/import_corpus.py --file data/export.example.json --data-dir data --dry-run
 uv run python scripts/import_corpus.py --file export.json --data-dir data
 ```
 

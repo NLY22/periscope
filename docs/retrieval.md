@@ -23,7 +23,7 @@
 
 - `items` 有 `claimable` 列，另有只索引 `(title, claimable)` 的 FTS5 镜像 `claim_fts`；`items_fts` 保持全量，供面板做全文检索（要的是召回）。
 - 唯一分派入口是 `corpus.sections.claimable_of(item, tiering)`：`tiering="sections"` 读声明的层级；`tiering="marker"` 复现 P0 之前的标记反解，**只为消融 A 档与老库回填保留**，生产路径不走它。
-- **取不到的源走导入，不走抓取。** 设计排除验证码打码、签名逆向与多账号池，所以小红书 / 贴吧 / 登录墙论坛的正当通路是**用户自己导出、本仓库按声明的层级入库**：`hz_corpus_import`（MCP）、`POST /api/import`（面板）、`scripts/import_corpus.py`（CLI）。导入的分层同样是声明式的：`community` 文字照样只能当线索；没有分层信息的整段导出会落成 `legacy_marker` 并被信任分打折；来源方式记为 `manual_export`（0.85），因为 Periscope 没有亲眼取到那一页。`source_type` 必须从已注册的 14 个族里选，因为它决定源先验与独立性计数里的那个"族"，人不许在导入里给自己发明先验。
+- **取不到的源走导入，不走抓取。** 设计排除验证码打码、签名逆向与多账号池，所以小红书 / 贴吧 / 登录墙论坛的正当通路是**用户自己导出、本仓库按声明的层级入库**：`hz_corpus_import`（MCP）、`POST /api/import`（面板）、`scripts/import_corpus.py`（CLI）。导入的分层同样是声明式的：`community` 文字照样只能当线索；没有分层信息的整段导出会落成 `legacy_marker` 并被信任分打折；来源方式记为 `manual_export`（0.85），因为 Periscope 没有亲眼取到那一页。`source_type` 必须从已注册的 14 个族里选，因为它决定源先验与独立性计数里的那个"族"，人不许在导入里给自己发明先验。样例负载见 `data/export.example.json` —— `tests/test_corpus_import.py` 直接解析这个随仓库发布的文件（含 lead-only、`asserted=false`、OCR 带置信度三种情形），所以文档里的样例不会跟实现脱节。
 - 旧库自动升级（schema v2→v3→v4）：`ALTER` 加列 → 回填 `locator` / `time_basis` / `sections_json` / `publisher` / `trust` → 重建两个 FTS 镜像。回填出来的层标 `provenance="legacy_marker"`，信任分按 0.8 折扣（见下节）。**不回填会让分层前已存在的声明突然查不到任何证据**，静默变成 `unsupported`。
 - 消费侧：声明只从 `claimable` 蒸馏（`ClaimAnalyzer._author_text`）、证据只关联 `claimable`（`search(tier="claimable")`）、评级摘录只取 `claimable`、研究取证的 snippet 同样只用 `claimable`；`processing/content.split_item_content` 让日报链路和取证链路对同一条目切出同样的层。
 - 开关：`analysis.claimable_only`、`research.claimable_only`（默认 `true`）。关掉即回到分层前的行为，这是消融表里 A 与 B 两列的区别。

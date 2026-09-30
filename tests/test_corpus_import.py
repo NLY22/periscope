@@ -238,6 +238,77 @@ def test_the_web_endpoint_imports_and_the_panel_can_find_it(tmp_path: Path) -> N
         assert bad.status_code == 400 and "locator" in bad.text
 
 
+# ------------------------------------------------------------------- examples
+EXAMPLE = REPO_ROOT / "data" / "export.example.json"
+
+
+def test_the_shipped_example_parses_and_covers_the_interesting_cases() -> None:
+    items = parse_import_payload(json.loads(EXAMPLE.read_text(encoding="utf-8")))
+    assert len(items) == 4
+    tiers = {tuple(s.tier for s in item.sections) for item in items}
+    assert ("community",) in tiers, "one example should be a lead-only import"
+    assert any("primary" in t and "community" in t for t in tiers)
+    provenances = {s.provenance for item in items for s in item.sections}
+    assert {"manual_export", "transcript", "ocr"} <= provenances
+
+
+def test_the_shipped_example_never_lets_crowd_text_become_claimable() -> None:
+    crowd_phrases = [
+        "我觉得明明是 5 元",
+        "而且缓存命中好像不分级",
+        "batch=8 直接掉一半",
+        "这期剪得太急了",
+        "有人说 V4 马上要涨价",
+    ]
+    for item in parse_import_payload(json.loads(EXAMPLE.read_text(encoding="utf-8"))):
+        claimable = claimable_of(item)
+        for phrase in crowd_phrases:
+            assert phrase not in claimable
+
+
+def test_an_unasserted_primary_block_is_excluded_from_claimable() -> None:
+    """The example marks a caveat `asserted: false`: still author text, still not a claim."""
+    items = parse_import_payload(json.loads(EXAMPLE.read_text(encoding="utf-8")))
+    forum = next(i for i in items if i.locator == "forum:t/9911")
+    assert "INT4" in claimable_of(forum)
+    assert "fp16 KV cache" not in claimable_of(forum)
+
+
+def test_an_ocr_block_is_claimable_but_discounted_by_its_confidence() -> None:
+    from src.corpus.trust import provenance_factor
+
+    items = parse_import_payload(json.loads(EXAMPLE.read_text(encoding="utf-8")))
+    video = next(i for i in items if i.locator == "bili:BVexample002")
+    ocr = next(s for s in video.sections if s.provenance == "ocr")
+    assert ocr.text in claimable_of(video)
+    assert provenance_factor(ocr.provenance, ocr.confidence) == 0.62
+    assert provenance_factor("author") > 0.62
+
+
+def test_the_example_imports_once_and_adds_nothing_on_the_second_run(
+    tmp_path: Path,
+) -> None:
+    corpus = Corpus(tmp_path / "c.db")
+    payload = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+    first = import_payload(corpus, payload, now=NOW)
+    second = import_payload(corpus, payload, now=NOW)
+    assert first["rejected"] == [] and first["items_new"] == 4
+    assert second["items_new"] == 0 and second["items_total_seen"] == 4
+    corpus.close()
+
+
+def test_the_cli_can_dry_run_the_shipped_example(tmp_path: Path, capsys) -> None:
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import import_corpus
+
+    code = import_corpus.main([
+        "--file", str(EXAMPLE), "--data-dir", str(tmp_path), "--dry-run", "--json",
+    ])
+    assert code == 0
+    assert json.loads(capsys.readouterr().out)["items_parsed"] == 4
+    assert not list(tmp_path.glob("corpus.db")), "a dry run must not create the database"
+
+
 def test_the_cli_script_reports_counts_and_rejects_per_item(tmp_path: Path, capsys) -> None:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
     import import_corpus
