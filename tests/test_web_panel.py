@@ -191,3 +191,49 @@ def test_import_panel_reads_only_fields_the_endpoint_returns(client) -> None:
     assert response.status_code == 200, response.text
     returned = set(response.json())
     assert used <= returned, f"panel reads fields the endpoint does not return: {sorted(used - returned)}"
+
+
+# Route -> why the panel is allowed not to call it.
+API_ONLY_ROUTES = {
+    "/api/docs": "FastAPI's own Swagger page, not a data source for this panel",
+    "/api/collect/status": "the same state /api/stats already returns; kept for API clients",
+}
+
+
+def test_every_api_route_is_reachable_from_the_panel_or_declared_api_only(client) -> None:
+    """`POST /api/import` existed for weeks with no line of UI calling it.
+
+    A route nobody can reach is an affordance the docs promise and the panel
+    does not have, so reachability is checked against the served route table
+    rather than against a hand-kept list. The match is deliberately loose
+    (every literal chunk of the path must appear in the script, because
+    `${id}` template literals make exact matching impossible without parsing
+    JS): it can be fooled by a coincidental string, but it did catch the
+    missing import call, which is the failure this guards.
+    """
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    routes = sorted(
+        {
+            route.path
+            for route in client.app.routes
+            if getattr(route, "methods", None) and route.path.startswith("/api")
+        }
+    )
+    assert len(routes) >= 10, "the route table came back nearly empty"
+
+    unreachable = []
+    for path in routes:
+        if path in API_ONLY_ROUTES:
+            continue
+        chunks = [chunk for chunk in re.split(r"\{[a-z_]+\}", path) if chunk]
+        if not all(chunk in html for chunk in chunks):
+            unreachable.append(path)
+    assert not unreachable, f"routes no panel code calls and none declared API-only: {unreachable}"
+
+
+def test_api_only_exemptions_are_not_free_slots() -> None:
+    """An exemption list rots into a hiding place unless it has to stay small."""
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    for path, reason in API_ONLY_ROUTES.items():
+        assert len(reason) > 25, f"{path} is exempted without a real reason"
+        assert path not in html, f"{path} is declared API-only but the panel does call it"
