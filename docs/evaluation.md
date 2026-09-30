@@ -77,7 +77,9 @@ IR 指标量不了"多轮"这件事，而人评还没开始。所以 spec §5.5 
 
 ```bash
 uv run python scripts/eval_multiturn.py                    # 打印三张表并写 data/eval/multiturn_results.json
-uv run pytest tests/test_eval_multiturn.py                 # 这些数字的护栏
+uv run python scripts/render_eval_charts.py                # 从那份 JSON 重画 §8 的 6、7 号图（纯标准库，不引绘图依赖）
+uv run python scripts/render_eval_charts.py --check        # 图与数据不一致就退出非零
+uv run pytest tests/test_eval_multiturn.py tests/test_eval_charts.py   # 这些数字与这两张图的护栏
 ```
 
 **成本单位是 LLM 调用数，不是毫秒。** 本仓库禁止挂钟断言（P0 为此返工过一次），所以这里没有延迟数据；引用时说"调用数"，别说"快了多少毫秒"。
@@ -93,6 +95,8 @@ uv run pytest tests/test_eval_multiturn.py                 # 这些数字的护�
 | 8 | 2 | 9 | 4.5 |
 
 深一条恒等于 **2**（一次 `next_move` + 一次 `answer`），全树是 `1 + 分支数`。**比值随树宽线性增长** —— 这正是"逐轮交互"在长报告上还能负担的原因；反过来说，分支很少时逐轮几乎没有节省，别把这个数字当成普适结论。
+
+![§8 图 7：分支数 2/4/8 时，只深一条恒为 2 次 LLM 调用，深全部为 3/5/9 次，比值 1.5/2.5/4.5；没有延迟轴](assets/recompute-cost.svg)
 
 ### 轮次到定稿（含一轮系统主动提问）
 
@@ -115,6 +119,8 @@ uv run pytest tests/test_eval_multiturn.py                 # 这些数字的护�
 | 4 | 3 | 3 | 1 | 0.7998 | unsupported |
 | 6 | 4 | **4** | **1** | 0.7998 | unsupported |
 | 8 | 5 | 5 | 1 | 0.7998 | unsupported |
+
+![§8 图 6：同文匿名转发从 0 到 8 条，旧口径的 independent_sources 从 1 涨到 5，P1 新口径恒为 1；T=0.7998 全程不变](assets/flood-independence.svg)
 
 旧口径（`COUNT(DISTINCT COALESCE(cluster_id, item_id))`）在脚本里**显式重放**，不在生产代码里 —— 和 `--tiering=marker` 保留 A 档是同一个理由：比较必须继续可查。三点读法：
 

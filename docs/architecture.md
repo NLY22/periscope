@@ -1,10 +1,10 @@
 # 架构图（spec §8 的 1、2、3 号）
 
-这三张图是 spec §8 图表清单里的结构性图，不是数据图：数据图（消融柱状图、ROC、`independent_sources` 分布、调用数折线）由 harness 现算，见 [evaluation.md](evaluation.md)。
+这三张图是 spec §8 图表清单里的**结构性图**，不是数据图。数据图那边：6、7 号已经画成 SVG（`docs/assets/flood-independence.svg`、`docs/assets/recompute-cost.svg`，由 `scripts/render_eval_charts.py` 从 `data/eval/multiturn_results.json` 纯标准库渲染，见 [evaluation.md](evaluation.md)）；4、5 号还画不出来 —— 它们要 50–100 条人评声明标注，数据为零。
 
 每张图下面都写清**它的说法在代码里落在哪**，并由 `tests/test_docs_match_code.py` 里的图元护栏钉住：图里出现的状态名、动词名、表名必须在代码里存在，改了代码不画图就会红。
 
-> 渲染说明：这些是 mermaid 代码块，GitCode / GitHub 的 Markdown 视图会直接画出来。**本机没有可用的 mermaid CLI，所以"渲染长什么样"没有被验证过**，被验证的是内容与代码一致（见上）。
+> 渲染说明：上面三张是 mermaid 代码块，GitCode / GitHub 的 Markdown 视图会直接画出来。**本机没有可用的 mermaid CLI，所以"mermaid 渲染长什么样"没有被验证过**，被验证的是内容与代码一致（见上）。两张 SVG 数据图的验证更强一层：`tests/test_eval_charts.py` 用 XML 解析器确认它们是格式正确的独立图片、几何落在画布内、且**每个画出来的数字都来自那份 JSON**；Chromium 也能把它当 `<img>` 载入（无障碍树里读到了标题），但**像素层面仍未看过的** —— 会话的浏览器没有可见 surface，截不了图。谁引用这两张图，就带上这句。
 
 ---
 

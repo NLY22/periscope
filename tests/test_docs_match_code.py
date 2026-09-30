@@ -506,3 +506,24 @@ def test_site_index_links_the_same_pages_in_both_languages() -> None:
     zh, en = links_after("## 文档"), links_after("## Documentation")
     assert zh == en, f"zh-only={sorted(zh - en)} en-only={sorted(en - zh)}"
     assert "architecture" in zh, "the diagram page has to be reachable from the site home"
+
+
+def test_every_image_referenced_in_docs_exists() -> None:
+    """A missing asset is the quietest documentation bug: the page still renders.
+
+    Both spellings are checked because the README uses `<img>` for its sized
+    pictures while the guides use Markdown image syntax.
+    """
+    targets = [README, *sorted((REPO_ROOT / "docs").glob("*.md"))]
+    broken = []
+    for path in targets:
+        text = _read(path)
+        refs = re.findall(r"!\[[^\]]*\]\(([^)\s]+)\)", text)
+        refs += re.findall(r'<img src="([^"]+)"', text)
+        for ref in refs:
+            if ref.startswith(("http://", "https://", "data:", "#")):
+                continue
+            base = REPO_ROOT if ref.startswith("/") else path.parent
+            if not (base / ref.lstrip("/")).exists():
+                broken.append(f"{path.name} -> {ref}")
+    assert not broken, f"embedded images that are not in the repository: {broken}"
