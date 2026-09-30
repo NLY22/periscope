@@ -75,9 +75,11 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 **变更（口径）**
 - `independent_sources` 不再是簇数；`T(claim)` 用 noisy-OR；`unsupported` 拆成"没找到"与"找到了但可信度不够"；MCP 工具数 22 → **27**。
 - 文档与贡献者侧：`docs/configuration.md` 补上本 fork 的四个配置块（逐字段对 `model_fields`）、`retrieval.md` 改讲类型化分层、MCP 指南补 6 个工具并删掉一个不存在的 `hz_claims`、README「六项增强」→ 八项、`CONTRIBUTING.md` / `SECURITY.md` / `CODE_OF_CONDUCT.md` 不再把本 fork 的报告路由给上游邮箱。
-- **README 里那句"CI 见 workflows/tests.yml"被删**：本平台不执行 GitHub 语法的 workflow（`check_tasks_num: 0`），同一份文档另一处已经承认这点 —— 两处不能都对。
+- **README 里那句"CI 见 workflows/tests.yml"被删**：本平台不执行 GitHub 语法的 workflow（`check_tasks_num: 0`），同一份文档另一处已经承认这点 —— 两处不能都对。**同一类矛盾的其余两处也一起修了**：README 的"自动化"一节与 `docs/configuration.md` 的 Static Site 一节原先都教读者"把 `daily-summary.yml.disabled` 重命名即可启用定时发布"，而在这里重命名不会有任何效果；现在写的是能跑 shell 的调度器（`cron` / `systemd timer` / `docker compose run`），并把 GitHub-only 的事实放在**同一个段落里**（新护栏按段落判，跨段落的免责声明不算数）。
+- `docs/configuration.md` 的 MCP 一节原先只列 7 个工具名（"available tools include…"），现在列全 **27** 个并分组；Dockerfile 补 `COPY scripts`，否则文档里让读者跑的 harness 在镜像里根本不存在（该命令的形状沿用仓库已有的 `--entrypoint uv` 用法，**未在本机跑过 docker build**，`docs/evaluation.md` 里带着这句限制一起写）。
+- 新增护栏：文档必须提到 `[project.scripts]` 里的全部 6 个命令；workflow 提及必须与"不生效/不执行"同段；Dockerfile 必须 `COPY scripts`；变更记必须与 `SCHEMA_VERSION`、MCP 工具数、开放 PR 列表一致且不得宣布发布。对改动前的 `HEAD` 跑过：这些都会红（HEAD 上测出 4 处未标注的 workflow 提及）。
 
-**数据**：collected **836 → 925**；灌水抵抗实测 `independent_sources` 旧口径 4 → 新口径 1（旧口径下它本可进判级），`T=0.7998` 越过 `supported=0.55` 仍判 `unsupported`（缺跨族宽度，**设计意图，但未经人评检验**）；已知软肋量化：同一作者跨两个 `source_type` → 数成 2 个发布者对。
+**数据**：collected **836 → 931**；灌水抵抗实测 `independent_sources` 旧口径 4 → 新口径 1（旧口径下它本可进判级），`T=0.7998` 越过 `supported=0.55` 仍判 `unsupported`（缺跨族宽度，**设计意图，但未经人评检验**）；已知软肋量化：同一作者跨两个 `source_type` → 数成 2 个发布者对。
 
 ### #3 · 文档（spec v4 + 三期实现计划 + 交付记录）
 

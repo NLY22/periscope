@@ -1109,18 +1109,16 @@ docker compose run --rm --entrypoint uv periscope-collect run periscope-wechat t
 
 ## Static Site
 
-Horizon writes generated summaries to `data/summaries/` (or `<data-dir>/summaries/` when `--data-dir` is set) and copies publishable Markdown into `docs/` for the GitHub Pages site. The repository includes a disabled daily workflow template at [`.github/workflows/daily-summary.yml.disabled`](../.github/workflows/daily-summary.yml.disabled). Configure it for your deployment and rename it to `daily-summary.yml` to enable scheduled generation.
+Horizon writes generated summaries to `data/summaries/` (or `<data-dir>/summaries/` when `--data-dir` is set) and copies publishable Markdown into `docs/`. The repo also carries upstream's GitHub automation — `.github/workflows/daily-summary.yml.disabled` (daily schedule template), `tests.yml`, and `deploy-docs.yml` (GitHub Pages publish) — and **none of it runs on this platform: AtomGit executes no GitHub-syntax workflows** (`check_tasks_num` is 0 on every pull request, checked). So do **not** rename `daily-summary.yml.disabled` and do not expect `docs/` to become a site; here `docs/` is plain Markdown in the repository.
 
-To use GitHub Pages, enable Pages for the repository and run the scheduled workflow or trigger it manually. The generated site is built from the `docs/` directory.
+What works instead on `NLY22/periscope`: schedule whatever can run a shell — `cron` / `systemd timer` around `uv run periscope --hours 24`, or `docker compose run --rm periscope-collect --hours 24` — and read the results from `data/summaries/`. The workflow files are kept because they would work if this repo were mirrored to GitHub (`deploy-docs.yml` publishes nothing here, since it never runs on AtomGit); replacing it with the platform's static hosting, or deleting it, is an open decision listed in the project status.
 
 ## MCP Server
 
-Horizon includes an MCP server for AI assistants and MCP-compatible clients.
+Periscope ships an MCP server for AI assistants and MCP-compatible clients: **27 tools**, covering the staged pipeline (`hz_validate_config`, `hz_fetch_items`, `hz_score_items`, `hz_filter_items`, `hz_enrich_items`, `hz_generate_summary`, `hz_run_pipeline`), the per-run artifacts (`hz_list_runs`, `hz_get_run_*`), the evidence layer (`hz_corpus_stats`, `hz_corpus_search`, `hz_corpus_recent`, `hz_corpus_import`, `hz_list_claims`, `hz_get_claim`) and the research loop (`hz_research_start`, `hz_research_followup`, `hz_research_step`, `hz_research_draft`, `hz_research_edit`, `hz_research_answer`, `hz_research_status`, `hz_research_list`).
 
 ```bash
 uv run periscope-mcp
 ```
-
-Available tools include `hz_validate_config`, `hz_fetch_items`, `hz_score_items`, `hz_filter_items`, `hz_enrich_items`, `hz_generate_summary`, and `hz_run_pipeline`.
 
 See [`src/mcp/README.md`](../src/mcp/README.md) for the full tool reference and [`src/mcp/integration.md`](../src/mcp/integration.md) for client setup.

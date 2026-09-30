@@ -404,7 +404,9 @@ docker compose up -d periscope-web
 
 ### 4. 自动化（可选）
 
-Periscope 适合用系统定时器调度，例如 `cron` 或 `systemd timer`；Docker Compose 也可直接配合定时任务使用。若将其托管在 GitHub，仓库内提供了[每日工作流模板](.github/workflows/daily-summary.yml.disabled)（本仓库中处于禁用状态），配置好后重命名为 `daily-summary.yml` 即可启用。
+Periscope 适合用系统定时器调度，例如 `cron` 或 `systemd timer`；Docker Compose 也可直接配合定时任务使用（`docker compose run --rm periscope-collect --hours 24` 配 cron 即可）。
+
+仓库里另有**上游留下的 GitHub workflow**（`.github/workflows/daily-summary.yml.disabled` 每日模板、`tests.yml`、`deploy-docs.yml`）。**它们只在 GitHub 上有效，本平台不执行任何 GitHub 语法的 workflow**（已实测：PR 的 `check_tasks_num` 为 0）。在这个平台上要定时跑，就用能执行 shell 的任何调度器；`daily-summary.yml.disabled` 也请保持 `.disabled` 后缀，重命名它在这里不会有任何效果。
 
 ## 支持的 AI 提供商
 
@@ -450,7 +452,7 @@ Periscope 可以通过多种方式发布或投递生成的简报：
 
 | 渠道 | 作用 |
 |------|------|
-| **GitHub Pages 每日站点** | 把生成的 Markdown 复制到 `docs/`，由 GitHub Pages 发布每日更新的简报站点 |
+| **GitHub Pages 每日站点**（上游机制，**本平台不生效**） | 把生成的 Markdown 复制到 `docs/`，由 GitHub Pages 发布每日更新的简报站点；在 AtomGit 上 `docs/` 只是仓库内的 Markdown |
 | **邮件订阅** | 向订阅者发送每日简报，并通过 SMTP/IMAP 处理订阅/退订请求 |
 | **Webhook 通知** | 把成功或失败结果推送到飞书/Lark、钉钉、Slack、Discord 或任意自定义 Webhook 端点 |
 | **微信通知** | 通过 iLink Bot 在扫码登录并收到你的消息后发送简报；受微信回复条数限制 |

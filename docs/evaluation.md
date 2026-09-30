@@ -142,3 +142,11 @@ uv run pytest tests/test_eval_multiturn.py                 # 这些数字的护�
   口径是普通的 per-class precision / recall / F1 + macro-F1（`src/analysis/agreement.py`，含手算用例），另按 `independent_sources` 分 1 / 2 / 3+ 桶看人工一致率随源数怎么变 —— 这一条会同时证伪或证实"论坛回帖是否抬高独立源计数"。下一步需要的是 50–100 条人工标注，人评是主证据。
 - `unsupported` 与 FEVER 式 `not_enough_information` **不合并**：本流水线的 `unsupported` 指"存储的摘录无法确认"，更接近证据不足而非反驳，合并会悄悄改变数字的含义。
 - **报告骨架与引用核验不在这张表里**：`docs/retrieval.md` 描述的模板（背景调查 / 市场调研 / 方法探索）和 `src/corpus/citations.py` 的引用反解是结构性保证，不是排序指标，由测试验证而非消融表。
+- **这些 harness 不需要模型，也不需要额度**：三个脚本（`eval_retrieval` / `eval_claims` / `eval_multiturn`）都用替身规划器或词形替身，只有 `--expander llm` / `--embedder provider` 那条路才真花钱。镜像是 `--no-dev` 构建的但已包含 `scripts/`，所以容器里可直接跑：
+
+  ```bash
+  docker compose run --rm --entrypoint uv periscope-collect \
+    run python scripts/eval_retrieval.py --tiering marker
+  ```
+
+  这条命令的形状沿用 `docs/configuration.md` 里既有的 `--entrypoint uv` 用法；**它没在本机跑过 docker build 验证**（这台机器上没有可用的 docker），引用时请连着这句限制。

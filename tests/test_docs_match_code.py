@@ -152,6 +152,53 @@ def test_contributing_guide_is_not_the_upstream_one() -> None:
     )
 
 
+# ------------------------------------------------------- entry points and CI
+def test_every_console_script_is_documented() -> None:
+    """Six commands are the whole user-facing surface; an undocumented one is invisible."""
+    scripts = dict(
+        re.findall(r"^([a-z][a-z-]+)\s*=\s*\"([\w.]+:[\w]+)\"",
+                   (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"), re.M)
+    )
+    assert scripts, "no [project.scripts] found — the guard would pass vacuously"
+    readme = README.read_text(encoding="utf-8")
+    missing = [name for name in scripts if name not in readme]
+    assert not missing, f"README never mentions the commands: {missing}"
+
+
+def test_github_workflow_mentions_say_they_do_not_run_here() -> None:
+    """AtomGit executes no GitHub-syntax workflows, so a doc must not imply otherwise.
+
+    The unit of judgement is the paragraph, not a character window: a mention is
+    fine when *its own* paragraph says it is GitHub-only. "disabled" is not an
+    acceptable caveat either — it is part of the filename, and telling someone to
+    rename a file that will never run here is exactly the advice this catches.
+    """
+    mentions = ("daily-summary.yml", "deploy-docs.yml", "workflows/tests.yml",
+                ".github/workflows")
+    caveat = re.compile(
+        r"不生效|不执行|不跑|check_tasks_num|GitHub[ -]syntax|no GitHub|does not run"
+        r"|never runs|only on GitHub|GitHub 语法",
+        re.IGNORECASE,
+    )
+    offenders = []
+    for path in (README, CONFIG_DOC, REPO_ROOT / "docs" / "retrieval.md"):
+        text = path.read_text(encoding="utf-8")
+        paragraphs = text.split("\n\n")
+        for mention in mentions:
+            for number, paragraph in enumerate(paragraphs):
+                if mention in paragraph and not caveat.search(paragraph):
+                    offenders.append((path.name, mention, number))
+    assert not offenders, f"workflow mentions whose own paragraph lacks the caveat: {offenders}"
+
+
+def test_the_image_ships_the_harnesses_the_docs_tell_people_to_run() -> None:
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY scripts" in dockerfile, (
+        "docs/evaluation.md shows a container command for the eval harnesses; "
+        "without scripts/ in the image that command cannot work"
+    )
+
+
 # ------------------------------------------------------------------- changelog
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
 
