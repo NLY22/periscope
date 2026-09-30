@@ -260,3 +260,231 @@ def test_no_doc_teaches_the_deleted_marker_protocol() -> None:
                     f"{path.name} names the deleted marker without calling it legacy: "
                     f"{line.strip()[:90]}"
                 )
+
+
+# ------------------------------------------------------------- architecture.md
+# docs/architecture.md is spec §8's structural diagrams. A picture is easier to
+# admire and easier to let rot than a table of config keys, so the guard is
+# bidirectional: everything the code calls a status / verb / table has to be
+# drawn, and nothing may be drawn that the code does not have a name for.
+ARCH_DOC = REPO_ROOT / "docs" / "architecture.md"
+SESSION_SRC = REPO_ROOT / "src" / "research" / "session.py"
+
+
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def _code_vocab() -> set[str]:
+    """Every identifier-shaped token that appears in shipped source.
+
+    Broad on purpose: it cannot tell a live symbol from one that only survives
+    in a docstring, but it does reject a name that was never in the code at all
+    — which is the mistake this guard was written for.
+    """
+    files = (
+        list((REPO_ROOT / "src").rglob("*.py"))
+        + list((REPO_ROOT / "scripts").rglob("*.py"))
+        + [REPO_ROOT / "src" / "web" / "static" / "index.html"]
+    )
+    vocab: set[str] = set()
+    for path in files:
+        vocab.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", _read(path)))
+    return vocab
+
+
+def _doc_backticked(text: str) -> list[str]:
+    return [t.strip() for t in re.findall(r"`([^`\n]+)`", text)]
+
+
+def _doc_identifiers(text: str) -> list[str]:
+    return [
+        t for t in _doc_backticked(text)
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", t)
+    ]
+
+
+def _dataclass_field_values(class_name: str, field_name: str) -> list[str]:
+    """Read the `# a | b | c` comment that documents a status-like string field.
+
+    Scoped to one dataclass body because three of them carry a `status` field
+    with a different vocabulary each.
+    """
+    text = _read(SESSION_SRC)
+    marker = f"class {class_name}:"
+    assert marker in text, f"{marker} is gone from session.py"
+    body = text.split(marker, 1)[1].split("@dataclass", 1)[0]
+    match = re.search(rf'{field_name}: str(?: = "[\w]*")?\s*#\s*([\w |]+)', body)
+    assert match, f"{class_name}.{field_name} lost the comment that enumerates it"
+    return [v.strip() for v in match.group(1).split("|") if v.strip()]
+
+
+def _session_status_values() -> list[str]:
+    return _dataclass_field_values("Session", "status")
+
+
+def _subquestion_status_values() -> list[str]:
+    return _dataclass_field_values("SubQuestion", "status")
+
+
+def _turn_roles() -> list[str]:
+    return _dataclass_field_values("Turn", "role")
+
+
+def _corpus_tables() -> tuple[set[str], set[str]]:
+    """(plain tables, fts5 virtual tables) created anywhere under src/.
+
+    `llm_cache` is dropped: ResponseCache opens its own file, so it is not part
+    of the corpus database the diagram describes.
+    """
+    plain: set[str] = set()
+    virtual: set[str] = set()
+    for path in (REPO_ROOT / "src").rglob("*.py"):
+        text = _read(path)
+        plain.update(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", text))
+        virtual.update(re.findall(r"CREATE VIRTUAL TABLE IF NOT EXISTS (\w+)", text))
+    return plain - {"llm_cache"}, virtual
+
+
+def _ladder_actions() -> list[str]:
+    """The widening steps, read off the lines that build the ladder list."""
+    found: list[str] = []
+    for line in _read(SESSION_SRC).splitlines():
+        if "ladder" in line:
+            found += re.findall(r'"([a-z_]+)"', line)
+    deduped = list(dict.fromkeys(found))
+    assert deduped, "the widen ladder moved out of the lines this guard reads"
+    return deduped
+
+
+def test_architecture_doc_exists_and_declares_its_three_diagrams() -> None:
+    text = _read(ARCH_DOC)
+    assert text.count("```mermaid") == 3, "spec §8 charts 1-3 are one diagram each"
+    for kind in ("flowchart", "stateDiagram-v2", "sequenceDiagram"):
+        assert kind in text, f"{kind} is missing from the architecture doc"
+
+
+def test_architecture_doc_draws_every_session_status() -> None:
+    text = _read(ARCH_DOC)
+    statuses = _session_status_values()
+    assert "awaiting_user" in statuses, "the parked state is load-bearing"
+    for status in statuses:
+        assert status in text, f"session status {status!r} is not drawn"
+    for role in _turn_roles():
+        assert role in text, f"turn role {role!r} is not named"
+    for status in _subquestion_status_values():
+        assert status in text, f"sub-question status {status!r} is not named"
+    from src.research.drafts import REQUEST_STATUSES
+
+    for status in REQUEST_STATUSES:
+        assert status in text, f"request status {status!r} is not named"
+
+
+def test_architecture_doc_draws_every_research_verb() -> None:
+    from typing import get_args
+
+    from src.research.moves import Move
+
+    text = _read(ARCH_DOC)
+    for verb in get_args(Move):
+        assert verb.__name__ in text, f"move {verb.__name__} is not drawn"
+
+
+def test_architecture_doc_table_list_matches_the_schema_exactly() -> None:
+    text = _read(ARCH_DOC)
+    plain, virtual = _corpus_tables()
+    rows = re.findall(r"^\| `(\w+)` \| (普通|FTS5 虚表) \|", text, re.M)
+    named = {name for name, _ in rows}
+    assert named == plain | virtual, (
+        f"doc lists {sorted(named)} but the schema creates {sorted(plain | virtual)}"
+    )
+    for table in plain | virtual:
+        assert table in text, f"table {table} never appears in the doc"
+    assert len([k for _, k in rows if k == "普通"]) == len(plain) == 12
+    assert len([k for _, k in rows if k == "FTS5 虚表"]) == len(virtual) == 2
+
+
+def test_architecture_doc_names_the_probe_verdicts_and_the_widen_ladder() -> None:
+    from src.sources.reachability import VERDICTS
+
+    text = _read(ARCH_DOC)
+    for verdict in VERDICTS:
+        assert verdict in text, f"reachability verdict {verdict!r} is missing"
+    for action in _ladder_actions():
+        assert action in text, f"widen-ladder step {action!r} is missing"
+
+
+def test_architecture_doc_cites_a_real_source_family_count() -> None:
+    from src.models import SOURCE_SPECS
+
+    text = _read(ARCH_DOC)
+    assert f"{len(SOURCE_SPECS)} 个已注册源族" in text, (
+        "SOURCE_SPECS changed size; the diagram's family count is stale"
+    )
+
+
+def _unknown_doc_tokens(text: str, vocab: set[str]) -> list[str]:
+    """Code-shaped backticked tokens the shipped source has no name for.
+
+    A dotted token passes only when every part exists, so `Corpus.add_items` is
+    checked as a pair while `Session.statusq` would be reported.
+    """
+    unknown = []
+    for token in _doc_identifiers(text):
+        if token in vocab or all(part in vocab for part in token.split(".")):
+            continue
+        unknown.append(token)
+    return unknown
+
+
+def test_architecture_doc_backticks_only_names_that_exist_in_code() -> None:
+    unknown = _unknown_doc_tokens(_read(ARCH_DOC), _code_vocab())
+    assert not unknown, f"docs/architecture.md names symbols the code does not have: {unknown}"
+
+
+def test_the_architecture_guard_rejects_a_made_up_symbol() -> None:
+    """The vocabulary check has to bite, not just pass.
+
+    It was written because a diagram cited `SOURCE_REGISTRY` as if it were a
+    guess; that name is real (src/models.py derives it from SOURCE_SPECS), so
+    the check is pinned here against names that are genuinely absent.
+    """
+    vocab = _code_vocab()
+    for real in ("SOURCE_SPECS", "SOURCE_REGISTRY", "SCRAPER_BINDINGS"):
+        assert real in vocab, f"{real} should be found in the shipped source"
+    probe = (
+        "the panel reads `ResearchPanel` from `Corpus.not_a_column` "
+        "and `SOURCE_REGISTRY_V2`"
+    )
+    assert _unknown_doc_tokens(probe, vocab) == [
+        "ResearchPanel",
+        "Corpus.not_a_column",
+        "SOURCE_REGISTRY_V2",
+    ]
+
+
+def test_architecture_doc_paths_point_at_real_files_and_tests() -> None:
+    text = _read(ARCH_DOC)
+    for token in _doc_backticked(text):
+        for path_part in re.findall(r"[A-Za-z0-9_./-]+\.py", token):
+            target = REPO_ROOT / path_part
+            assert target.exists(), f"{path_part} referenced by the doc does not exist"
+        if "::" in token:
+            file_part, _, test_name = token.partition("::")
+            target = REPO_ROOT / file_part
+            assert target.exists(), f"{file_part} does not exist"
+            assert f"def {test_name}" in _read(target), f"{test_name} is not in {file_part}"
+
+
+def test_readme_links_every_top_level_doc() -> None:
+    """A guide nobody can reach from the front page is not documentation.
+
+    `docs/index.md` is exempt: it is the GitHub Pages site home, and this
+    platform never builds it (see the workflow guards above).
+    """
+    readme = _read(README)
+    unlinked = [
+        path.name for path in sorted((REPO_ROOT / "docs").glob("*.md"))
+        if path.name != "index.md" and path.name not in readme
+    ]
+    assert not unlinked, f"docs not linked from the README: {unlinked}"

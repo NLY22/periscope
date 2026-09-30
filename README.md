@@ -574,6 +574,8 @@ uv run python scripts/eval_multiturn.py    # 多轮调用数比值 / 轮次 / �
 | [检索与取证评测](docs/evaluation.md) | 消融表、标注口径、多轮成本与灌水曲线、已知不足 |
 | [变更记录](CHANGELOG.md) | 已合入 main 的阶段与四个待合并 PR 各自做了什么、修了什么、有多少实测数字；也写明尚未发布任何版本 |
 | [取证检索与证据分层](docs/retrieval.md) | 噪声从哪来、类型化分层怎么声明、可信度与独立性怎么重算、找不到时怎么加宽、多轮草稿怎么保住了用户的字、怎么复现 |
+| [架构图](docs/architecture.md) | 三张结构性图（spec §8 的 1–3 号）：广源→可用证据的通路、研究会话状态机（`awaiting_user` 是一等状态）、一轮交互的时序；每张图带代码落点，图元由护栏测试与代码对齐 |
+| [Twitter / X Cookie 配置](docs/twitter-cookies.md) | 免费方案：Playwright + 自己账号的 cookie 抓推文（Apify 订阅的替代路径） |
 | [MCP 工具](src/mcp/README.md) | 面向 MCP 兼容客户端的 27 个工具参考 |
 | [设计 spec 与三期实现计划](docs/superpowers/specs/2026-09-29-broad-source-credibility-and-multiturn-research-design.md) | 为什么这么改（spec v4，§15 是交付记录）、`docs/superpowers/plans/` 下逐 Task 的计划与「执行记录」里写错的句子 |
 | [架构与生态设计](docs/horizon-hub-design.md) | HorizonHub 数据源市场与推荐的产品设计 |
