@@ -3,7 +3,7 @@
 - 日期：2026-09-29（v4。v2 对照代码审计，v3 分层泄漏实测 + 贴吧可达性实测，v4 三期交付记录，见 §13、§14、§15）
 - 状态：P0 / P2 / P1 已实现并推送（§15）。剩余阻塞项只有维护者能做的两件：声明 verdict 的人工标注、S1/S2 探针的后两步
 - 范围：本仓库（`NLY22/periscope`，fork 自 `Thysrael/Horizon`）的两项能力扩展；不改动上游日报管线的行为
-- 本文所有行号于 2026-09-29 对照 `main`（`8be37ed`）核实；测试基线 697 collected（2026-09-29 本机复核 `uv run pytest --collect-only` = `697 tests collected in 1.81s`），三期 + 文档/UI/贡献者侧护栏 + §6.1 的导出入库通路（含 `data/export.example.json`）完成后 **911 collected 全绿**
+- 本文所有行号于 2026-09-29 对照 `main`（`8be37ed`）核实；测试基线 697 collected（2026-09-29 本机复核 `uv run pytest --collect-only` = `697 tests collected in 1.81s`），三期 + 文档/UI/贡献者侧护栏 + §6.1 的导出入库通路 + §6 的可达性判别工具完成后 **925 collected 全绿**
 - **v3 的两条实测结论推翻了 v2 的两个前提**，都记在 §14：① 分层污染不是"未来接新源才会发生"，而是**现役 3 个源正在污染** claim 链路；② 贴吧楼层页从本机不可达，**不能**作为 P0 的验证载体。
 
 ---
@@ -404,6 +404,8 @@ P1 两处都要改：
 
 两个中文 UGC 源都**先做判别实验、后写代码**。共同的合规红线：单账号、仅用户可见内容、限速、**不做多账号池、不做验证码打码、不做签名逆向分发**。
 
+> **判别逻辑已做成可复跑的工具**（`src/sources/reachability.py` + `scripts/spike_sources.py`）：六种判定 `pass / list_only / blocked_captcha / signed_required / blocked_auth / error`，客户端注入所以离线可测（`tests/test_reachability_probe.py` 用的响应体就是从 §14.2 / §14.4 抄下来的）。**不加 `--online` 不发任何请求** —— 可达性是会被平台改动推翻的事实，必须能被重新检查，而不是停留在某次下午的手工 curl 记录里。
+
 ### 6.1 S1 小红书
 三步，每步有明确通过判据，用维护者自己的账号、只抓其可见的内容：
 
@@ -665,8 +667,8 @@ P0 / P2 / P1 三期已实现并推送。**本节只记三件事：验收实测�
 | 项 | 状态 | 谁能做 |
 |---|---|---|
 | 50–100 条声明 verdict 人评 → θ_s / θ_triage 校准 | 工具就位（`scripts/eval_claims.py --export/--score --tiering`），数据为零；`roc_thresholds()` 在没有标注时返回 `None` | **只有维护者** |
-| S1 小红书探针 | **第 1 步未执行**（它按定义就是未登录 HTTP 判别，不需要账号；本轮尝试时被会话的权限层拦在出站请求之外，因此仍未记录实际返回，不许用推测代替）；第 2–3 步才需要登录态 cookie / Playwright | 第 1 步任何人都能跑；第 2–3 步只有维护者 |
-| S2 贴吧探针第 2–3 步 | 第 1 步已完成，结论：楼层不可达（§14.2）。拿到楼层之前不进 P 序列 | 维护者决定是否投入 |
+| S1 小红书探针 | 判别逻辑已做成工具（`scripts/spike_sources.py --source xiaohongshu --url … --online`，不加 `--online` 不发请求）。**第 1 步按定义不需要账号**，一条命令即可跑并落 `data/eval/reachability_results.json`；本轮我试着跑时出站请求被会话的权限层拦下，所以实际响应仍未记录（不许拿推测当结果）。第 2–3 步才需要登录态 cookie / Playwright | 第 1 步任何人（包括你）能跑；第 2–3 步只有维护者 |
+| S2 贴吧探针第 2–3 步 | 第 1 步的结论现在**可断言**：`tests/test_reachability_probe.py::test_the_tieba_probe_reproduces_the_recorded_conclusion` 用 §14.2 抄下来的响应体跑出 `list_only` + 楼层不可达（平台改版时这条测试会先红）。拿到楼层之前不进 P 序列 | 维护者决定是否投入 |
 | P3 图文 → 文本（OCR / VLM） | 条件执行，卡 S1 | 工程，等条件 |
 | 改名 `veriscope` | 未执行。上游后期也自名 Periscope，「Periscope」分不开。要动包名 + 6 个 `periscope-*` 入口 + Docker 服务名 + 文档全量引用，留一版别名 | 维护者决定 |
 | 仓库 issue 开关 / CI 是否在本平台执行 / `deploy-docs.yml` | 只能网页侧确认；`check_tasks_num: 0` 说明 GitHub 语法的 workflow 不被执行，所以**每个 PR 都需要人工过一遍** | 维护者 |
@@ -726,6 +728,25 @@ spec 写下「用户侧导出 + 配一个 `hz_corpus_import` 入口」时，那�
 
 新增 20 条测试。文档护栏在加工具的那一刻就抓住了计数漂移 —— 它要求 README 与 `src/mcp/README.md` 同步写成 27 并列出新动词，这正是它被写出来的目的。
 
-`3847c04` 又把负载样例做成**仓库文件** `data/export.example.json`（而不是文档里的一段代码），四条 item 分别覆盖：作者文本 + 两条陌生人回帖、`asserted=false` 的作者补充说明、transcript/OCR（OCR 自带 0.62 置信度，`provenance_factor` 就返回 0.62）、以及一条完全没有 primary 层的"只是线索"。**测试直接解析这个发布文件** —— 样例与实现脱节会立刻变红，这也是 `--dry-run` 不建库被断言的原因（检查格式不该冒着写入的风险）。全量 **911 passed**。
+`3847c04` 又把负载样例做成**仓库文件** `data/export.example.json`（而不是文档里的一段代码），四条 item 分别覆盖：作者文本 + 两条陌生人回帖、`asserted=false` 的作者补充说明、transcript/OCR（OCR 自带 0.62 置信度，`provenance_factor` 就返回 0.62）、以及一条完全没有 primary 层的"只是线索"。**测试直接解析这个发布文件** —— 样例与实现脱节会立刻变红，这也是 `--dry-run` 不建库被断言的原因（检查格式不该冒着写入的风险）。
+
+### 15.10 可达性判别从"一段散文"变成"可复跑的判定"（`e940330`，PR #6）
+
+§14.2 / §14.4 的贴吧与 Discuz 结论是某个下午手工 curl 的记录。**可达性是会被平台改版推翻的事实**，用散文记录等于把它冻在昨天；真正需要它时（比如有人问"贴吧现在能抓了吗"）没人能复现。
+
+`src/sources/reachability.py` 把这个判断做成一个接受注入客户端的纯函数，六种判定各有不同后果：
+
+| 判定 | 含义 | 本项目的后果 |
+|---|---|---|
+| `pass` | 能解析出作者正文 | 可以进第 2 步（登录态） |
+| `list_only` | 列表/标题可达、正文或楼层不可达 | **不能用来验证分层**（贴吧正是这条，所以 P0 换成 Discourse） |
+| `blocked_captcha` | 回来的是验证中间页 | §11 排除打码，停 |
+| `signed_required` | 端点应答但要求请求签名 | §11 排除签名逆向，停 —— 是停止标志，不是待解的谜题 |
+| `blocked_auth` | 登录/权限墙（注意：**HTTP 200 也可能**是权限提示页，Discuz 就是这样） | 与验证码分开判，因为两者处置不同 |
+| `error` | 传输失败或非预期状态 | 也是结果，不是异常 |
+
+`scripts/spike_sources.py` **不加 `--online` 就拒绝发请求**（探针静默打第三方站点是没人要的副作用）。14 条测试全部走 `httpx.MockTransport`，响应体从 §14.2/§14.4 抄来，其中一条直接断言"贴吧 = `list_only` 且楼层不可达" —— 手工结论变成了回归。
+
+至此全量 **925 passed**（… → 905 → 911 → 925）。
 
 **一处自己的失误要记在这里**：`7e08b24` 的 commit message 只有一个标题行 —— 我把 `git push` 接在同一行的 heredoc 之后，正文被 shell 吃掉了。已推送的提交不做 `force-push` 改写，所以完整理由写在本节与 PR #6 的评论里。教训与本项目其他地方同源：**能复现的记录比事后修饰更值钱**。
