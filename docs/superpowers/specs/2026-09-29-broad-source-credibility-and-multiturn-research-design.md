@@ -3,7 +3,7 @@
 - 日期：2026-09-29（v4。v2 对照代码审计，v3 分层泄漏实测 + 贴吧可达性实测，v4 三期交付记录，见 §13、§14、§15）
 - 状态：P0 / P2 / P1 已实现并推送（§15）。剩余阻塞项只有维护者能做的两件：声明 verdict 的人工标注、S1/S2 探针的后两步
 - 范围：本仓库（`NLY22/periscope`，fork 自 `Thysrael/Horizon`）的两项能力扩展；不改动上游日报管线的行为
-- 本文所有行号于 2026-09-29 对照 `main`（`8be37ed`）核实；测试基线 697 collected（2026-09-29 本机复核 `uv run pytest --collect-only` = `697 tests collected in 1.81s`），三期 + 文档/UI/贡献者侧护栏 + §6.1 的导出入库通路 + §6 的可达性判别工具、以及 §8 的三张结构性图与它们的图元护栏完成后 **945 collected 全绿**（逐轮增量见 §15 与 `CHANGELOG.md`）
+- 本文所有行号于 2026-09-29 对照 `main`（`8be37ed`）核实；测试基线 697 collected（2026-09-29 本机复核 `uv run pytest --collect-only` = `697 tests collected in 1.81s`），三期 + 文档/UI/贡献者侧护栏 + §6.1 的导出入库通路 + §6 的可达性判别工具、以及 §8 的三张结构性图与图元护栏 + 6/7 号数据图与图像护栏完成后 **955 collected 全绿**（逐轮增量见 §15 与 `CHANGELOG.md`）
 - **v3 的两条实测结论推翻了 v2 的两个前提**，都记在 §14：① 分层污染不是"未来接新源才会发生"，而是**现役 3 个源正在污染** claim 链路；② 贴吧楼层页从本机不可达，**不能**作为 P0 的验证载体。
 
 ---
@@ -451,7 +451,7 @@ P1 两处都要改：
 
 ## 8. 图表清单（汇报与论文都要用）
 
-**状态（2026-09-30）**：1、2、3 号是结构性图，已经画在 [`docs/architecture.md`](../../architecture.md)（PR #6），图里的每个状态名 / 动词名 / 表名 / 判定名 / 阶梯步都由 `tests/test_docs_match_code.py` 与代码双向对齐 —— 改了代码不画图会红，图里写了代码没有的名字也会红。**渲染未验证**：本机没有可用的 mermaid CLI，被验证的只有"内容与代码一致"。6、7 号**有数字但还没画成图**（数据在 §15.4 与 `docs/evaluation.md`，可复跑）。4、5 号没有人评标注就是画不出来；7 号的延迟那一列至今没有数据（本仓库禁止挂钟断言，见 §15.4），能画的只有调用数那半。
+**状态（2026-09-30）**：1、2、3 号是结构性图，已经画在 [`docs/architecture.md`](../../architecture.md)（PR #6），图里的每个状态名 / 动词名 / 表名 / 判定名 / 阶梯步都由 `tests/test_docs_match_code.py` 与代码双向对齐 —— 改了代码不画图会红，图里写了代码没有的名字也会红。**渲染未验证**：本机没有可用的 mermaid CLI，被验证的只有"内容与代码一致"。6、7 号也已画成 SVG 并嵌进 `docs/evaluation.md`（`docs/assets/flood-independence.svg`、`docs/assets/recompute-cost.svg`，由 `scripts/render_eval_charts.py` 从 `data/eval/multiturn_results.json` 用**标准库**渲染 —— 见 §15.13）。4、5 号没有人评标注就是画不出来；7 号的延迟那一列至今没有数据（本仓库禁止挂钟断言，见 §15.4），所以图上只有调用数那半。
 
 1. 架构图：源接入 → sections → corpus → trust → claims → 会话 → 草稿（§2 那张的正式版）✅ 已画
 2. 会话状态机图，突出 `awaiting_user` 与四种 `AskUser` ✅ 已画
@@ -628,7 +628,7 @@ P0 / P2 / P1 三期已实现并推送。**本节只记三件事：验收实测�
 |---|---|---|
 | **P0** | `feat/p0-structured-sections` / PR #4 | §10 的六条全绿。`test_tier_guard.py` 先在 `main` 上跑红（HN 链接帖的 `claimable` 里是 `[stranger_b]: no it isnt`），失败输出留在 commit `20d7ff2`。collected **697 → 817** |
 | **P2** | `feat/p2-multiturn-drafts` / PR #5 | 三条全绿：3 轮且 `moves == [askuser, deepen, finalize]`；锁定节只标 `stale` 不覆盖；`Deepen(一条)` = **2** 次模型调用 vs 全树 **5** 次。collected **817 → 836** |
-| **P1** | `feat/p1-trust-independence` / PR #6 | §10 的 P1 六条里工程五条全绿（第六见人评）。`--tiering marker` 与 `docs/evaluation.md` 表格逐格一致，A 档仍可复现。§5.5 的客观量与 §8 的图表 6/7 由 `scripts/eval_multiturn.py` 产出（见 §15.4）。P2 的三条验收另有 UI 级证据（§15.6）。collected **836 → 859 → 862 → 871 → 882**（后两轮是文档一致性与面板重绘的护栏）；本分支后续几轮（§15.7–§15.12）把数字推到 **945** |
+| **P1** | `feat/p1-trust-independence` / PR #6 | §10 的 P1 六条里工程五条全绿（第六见人评）。`--tiering marker` 与 `docs/evaluation.md` 表格逐格一致，A 档仍可复现。§5.5 的客观量与 §8 的图表 6/7 由 `scripts/eval_multiturn.py` 产出（见 §15.4）。P2 的三条验收另有 UI 级证据（§15.6）。collected **836 → 859 → 862 → 871 → 882**（后两轮是文档一致性与面板重绘的护栏）；本分支后续几轮（§15.7–§15.13）把数字推到 **955** |
 
 ### 15.2 设计在实现中被改写的地方
 
@@ -775,4 +775,24 @@ spec 写下「用户侧导出 + 配一个 `hz_corpus_import` 入口」时，那�
 
 顺带发现 README 的文档表没有链 `docs/twitter-cookies.md`（从首屏根本走不到那篇），已补行并加一条"顶层 `docs/*.md` 必须被 README 链接"的护栏（`docs/index.md` 例外：它是 GitHub Pages 站点首页，本平台不构建）。
 
-**这一节没有做的事**：mermaid 的**渲染效果**未验证（本机没有可用的 mermaid CLI，`npx` 也起不来），被验证的只有内容与代码一致；§8 的 4、5 号仍没有人评标注就画不出来，7 号的延迟轴仍无数据；6、7 号**有数字但还没画成图**，因为 `pyproject.toml` 与 `uv.lock` 里没有任何绘图依赖（matplotlib / plotly 都没有），加不加是维护者的决定 —— 现在的载体是 `docs/evaluation.md` 的表格与 `data/eval/multiturn_results.json`。图文件本身随 **PR #6** 进来，所以只合 #3 而不合 #6 时本节与 §8 的链接会悬空到 #6 落地为止。另有一条**给贡献者的** consequence 落在 `CONTRIBUTING.md` 第 9 条：改 `Session.status` / `Move` 动词 / corpus 表 / 六种判定 / 五步阶梯 / 源族数量就得同步改图，且那条规则明写"预期它会红"。全量 **945 passed**（934 之后 +11：9 条图元护栏、1 条 README 链接护栏、1 条站点首页中英两份清单的对称护栏）。
+**这一节没有做的事**：mermaid 的**渲染效果**未验证（本机没有可用的 mermaid CLI，`npx` 也起不来），被验证的只有内容与代码一致；§8 的 4、5 号仍没有人评标注就画不出来，7 号的延迟轴仍无数据；6、7 号当时**还没画成图**，被记成的理由是 `pyproject.toml` 与 `uv.lock` 里没有绘图依赖；那个理由在 §15.13 被拆掉了（标准库就能写这两条折线），但「不顺手加依赖」这条约束仍然成立。图文件本身随 **PR #6** 进来，所以只合 #3 而不合 #6 时本节与 §8 的链接会悬空到 #6 落地为止。另有一条**给贡献者的** consequence 落在 `CONTRIBUTING.md` 第 9 条：改 `Session.status` / `Move` 动词 / corpus 表 / 六种判定 / 五步阶梯 / 源族数量就得同步改图，且那条规则明写"预期它会红"。全量 **955 passed**（934 之后 +21，见 §15.12 与 §15.13）。
+
+### 15.13 6、7 号数据图：一句我自己写下的借口（`7f93d16`，PR #6）
+
+§15.12 刚记完「6、7 号有数字但还没画成图，因为没有绘图依赖」。那句话的**结论对，理由是错的**：`pyproject.toml` / `uv.lock` 里没有 matplotlib / plotly 是真的，而"不加依赖"这条约束也该守（那是维护者的决定，不是我写文档时能顺手做的）—— 但两条折线不需要绘图库，标准库就能写出 SVG。把"我不想加依赖"写成"画不出来"，是同一类错误的第三个版本：给一个没做的事找一个看起来像客观限制的理由。所以这一节做的是把借口拆掉，而不是补一句解释。
+
+**做了什么。** `scripts/render_eval_charts.py` 从 `data/eval/multiturn_results.json` 渲染两张图，嵌在 `docs/evaluation.md` 对应小节：`docs/assets/flood-independence.svg`（旧口径 1→5 涨、新口径恒为 1，`T` 全程不变）与 `docs/assets/recompute-cost.svg`（深一条恒 2、深全部 `1+分支数`，比值 1.5/2.5/4.5）。**提交进仓库的字节就是交付物**，所以护栏必须是可复算的：
+
+| 护栏 | 断言 |
+|---|---|
+| 图与数据同源 | `--check` 与 `tests/test_eval_charts.py` 要求重渲染**逐字节相同**；数据变了而图没重画就红 |
+| 数字不是手写进图的 | 图上每个点的数值标签逐个回查，必须等于 JSON 里的对应序列 |
+| **说明句也是算出来的** | 「旧口径自 2 条转发起就够进判级门」= `min(reposts where grade_min_sources_would_have_admitted_it)`；比值串取自 `ratio` 字段；「没有延迟轴」写进副标题 —— 引用图的人不可能读出没有的东西 |
+| 几何不能跑到画布外 | 折线点全部落在绘图框内；任何文字基线越出画布就红；轴落点与下边距一致 |
+| 图是真图片 | `xml.etree` 解析通过、根节点带 `xmlns`、有 `<title>` 供 `<img>` 的无障碍名 |
+
+**验证到了哪一层，说清楚。** 上面五条是**结构与可复算性**。像素层面只做到：Chromium 把它作为独立图片文档载入（无障碍树里读到了标题）—— 但**没有看过渲染出来的样子**，会话的浏览器没有可见 surface，截屏调用直接以 `viewport=0x0 / visibilityState=hidden` 失败。三张 mermaid 图仍是**渲染完全未验证**。引用这两张图时，"数字来自那份 JSON、几何在画布内"是可主张的，"排版好看"不是。
+
+**4、5 号仍然没有图**，而且这不是同一个问题：它们要 50–100 条人评声明标注，数据为零。画一张空图比不画更坏 —— 空图的视觉语义是"测过了，平的"。
+
+全量 **955 passed**（本轮 +10：9 条图像护栏 + 1 条「文档里嵌的图片文件必须存在」）。
