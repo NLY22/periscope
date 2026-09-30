@@ -584,7 +584,7 @@ uv run python scripts/eval_multiturn.py    # 多轮调用数比值 / 轮次 / �
 后续计划（与 `docs/superpowers/specs/` 里设计 spec 的 §15.5「还剩什么」一致）：
 
 - **声明 verdict 的人工标注 50–100 条** → 报 macro-F1 与按独立信源数分桶的一致率，再用 `roc_thresholds()` 校准 θ_s / θ_triage。这是本项目唯一"能力已实现、效果未主张"的一块：工具已就位（`scripts/eval_claims.py --export/--score`），缺的是标注本身，在此之前阈值是手工先验、分诊门默认关闭
-- **源可达性探针**：小红书 S1 三步、贴吧 S2 的第 2–3 步（第 1 步已判不通过：楼层不可达）。S1 的第 1 步本身不需要账号，只是一次未登录 HTTP 判别；第 2–3 步才需要登录态或浏览器。**S1 不通过时的降级路径已经实现**（用户导出 → `scripts/import_corpus.py` / `hz_corpus_import` / `POST /api/import`，分层靠声明），所以"取不到的源"不再是死路，只是不自动。
+- **源可达性探针**：判别逻辑已经做成可复跑的工具 —— `src/sources/reachability.py` + `scripts/spike_sources.py`（判定分为 `pass / list_only / blocked_captcha / signed_required / blocked_auth / error`，离线用 `httpx.MockTransport` 测，**不加 `--online` 不发任何请求**）。贴吧 S2 的第 1 步结论（列表可达、楼层不可达）现在是测试里可复现的判定而不是散文；小红书 S1 的第 1 步同样不需要账号，一条命令即可跑并落 `data/eval/reachability_results.json`，第 2–3 步才需要登录态或浏览器。**S1 不通过时的降级路径已经实现**（用户导出 → `scripts/import_corpus.py` / `hz_corpus_import` / `POST /api/import`，分层靠声明），所以"取不到的源"不再是死路，只是不自动。
 - **P3 图文 → 文本通路**（OCR / VLM）：条件执行，卡在 S1 结论；VLM 描述只能当线索，不进声明蒸馏
 - 支持更多数据源类型，例如 Discord
 - 平台侧未决：CI 是否在本平台执行（GitHub 语法的 workflow 不被执行，`deploy-docs.yml` 待替换或删除）、仓库 issue 开关只能在网页打开
