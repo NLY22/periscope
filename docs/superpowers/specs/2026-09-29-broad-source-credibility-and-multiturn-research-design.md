@@ -3,7 +3,7 @@
 - 日期：2026-09-29（v4。v2 对照代码审计，v3 分层泄漏实测 + 贴吧可达性实测，v4 三期交付记录，见 §13、§14、§15）
 - 状态：P0 / P2 / P1 已实现并推送（§15）。剩余阻塞项只有维护者能做的两件：声明 verdict 的人工标注、S1/S2 探针的后两步
 - 范围：本仓库（`NLY22/periscope`，fork 自 `Thysrael/Horizon`）的两项能力扩展；不改动上游日报管线的行为
-- 本文所有行号于 2026-09-29 对照 `main`（`8be37ed`）核实；测试基线 697 collected（2026-09-29 本机复核 `uv run pytest --collect-only` = `697 tests collected in 1.81s`），三期 + 文档/UI/贡献者侧护栏 + §6.1 的导出入库通路 + §6 的可达性判别工具完成后 **925 collected 全绿**
+- 本文所有行号于 2026-09-29 对照 `main`（`8be37ed`）核实；测试基线 697 collected（2026-09-29 本机复核 `uv run pytest --collect-only` = `697 tests collected in 1.81s`），三期 + 文档/UI/贡献者侧护栏 + §6.1 的导出入库通路 + §6 的可达性判别工具、以及 §8 的三张结构性图与它们的图元护栏完成后 **945 collected 全绿**（逐轮增量见 §15 与 `CHANGELOG.md`）
 - **v3 的两条实测结论推翻了 v2 的两个前提**，都记在 §14：① 分层污染不是"未来接新源才会发生"，而是**现役 3 个源正在污染** claim 链路；② 贴吧楼层页从本机不可达，**不能**作为 P0 的验证载体。
 
 ---
@@ -628,7 +628,7 @@ P0 / P2 / P1 三期已实现并推送。**本节只记三件事：验收实测�
 |---|---|---|
 | **P0** | `feat/p0-structured-sections` / PR #4 | §10 的六条全绿。`test_tier_guard.py` 先在 `main` 上跑红（HN 链接帖的 `claimable` 里是 `[stranger_b]: no it isnt`），失败输出留在 commit `20d7ff2`。collected **697 → 817** |
 | **P2** | `feat/p2-multiturn-drafts` / PR #5 | 三条全绿：3 轮且 `moves == [askuser, deepen, finalize]`；锁定节只标 `stale` 不覆盖；`Deepen(一条)` = **2** 次模型调用 vs 全树 **5** 次。collected **817 → 836** |
-| **P1** | `feat/p1-trust-independence` / PR #6 | §10 的 P1 六条里工程五条全绿（第六见人评）。`--tiering marker` 与 `docs/evaluation.md` 表格逐格一致，A 档仍可复现。§5.5 的客观量与 §8 的图表 6/7 由 `scripts/eval_multiturn.py` 产出（见 §15.4）。P2 的三条验收另有 UI 级证据（§15.6）。collected **836 → 859 → 862 → 871 → 882**（后两轮是文档一致性与面板重绘的护栏） |
+| **P1** | `feat/p1-trust-independence` / PR #6 | §10 的 P1 六条里工程五条全绿（第六见人评）。`--tiering marker` 与 `docs/evaluation.md` 表格逐格一致，A 档仍可复现。§5.5 的客观量与 §8 的图表 6/7 由 `scripts/eval_multiturn.py` 产出（见 §15.4）。P2 的三条验收另有 UI 级证据（§15.6）。collected **836 → 859 → 862 → 871 → 882**（后两轮是文档一致性与面板重绘的护栏）；本分支后续几轮（§15.7–§15.12）把数字推到 **945** |
 
 ### 15.2 设计在实现中被改写的地方
 
