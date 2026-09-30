@@ -64,6 +64,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 - `scripts/eval_multiturn.py`：spec §5.5 里**不需要人评**的那组系统客观量（调用数比值、轮次到定稿、灌水曲线）。
 - `src/corpus/ingest.py` + `scripts/import_corpus.py` + `hz_corpus_import` + `POST /api/import`：§6.1 的降级通路 —— 取不到的源由**用户导出、按声明层级入库**，新增来源方式 `manual_export`（折扣 0.85）。样例负载 `data/export.example.json` 由测试直接解析。
 - **导入通路补上面板那一段**：`POST /api/import` 早就存在，但面板里**没有任何地方用到它** —— 而会去导出小红书 / 贴吧内容的人是用户，不是维护者，所以这个缺失正好落在最不该缺的入口上。面板新增「导入你导出的内容」一节：贴 JSON 或选文件 → **只校验** → **入库**，逐条报「第几条为什么不收」，入库后刷新证据列表与统计。同时把预览的语义修正为**与写入同一段校验**（`prepare_import` / `preview_payload`）：CLI 原先的 `--dry-run` 用严格解析器，会把「30 条里 1 个错字」报成整体失败，而真导入会收 29 条 —— 预览与结果不一致的预览比没有预览更坏。面板的 `<script>` 现在过 `node --check`，并且有一条测试把界面读取的字段与端点**实际返回**的字段对比 —— 这两处都是本轮为「UI 只能靠人点」找的替代证据；**浏览器里长什么样仍未验证**（会话浏览器没有可见 surface）。
+- 新增一条**会咬人的路由可达性护栏**（`tests/test_web_panel.py`）：拿服务真实注册的路由表逐条问"面板里有没有代码调它"，只有两条能豁免（`/api/docs` 是 FastAPI 自带的 Swagger 页；`/api/collect/status` 与 `/api/stats` 是同一份状态，留给 API 客户端），而且豁免必须**写出理由**且"面板确实没调它"，否则免单独自变成藏东西的地方。**这条护栏是对着 git 验过的，不是嘴上说的**：拿改动前的 `index.html`（`1cd1deb`）跑，它精确报出 `/api/import` 一条；拿现在的 HEAD 跑，报 0 条。匹配故意宽松 —— 路径的每个字面片段都要在脚本里出现，因为 `${id}` 模板串让精确匹配做不到（除非去解析 JS）；它可能被巧合的字符串骗过去，这句也写在测试注释里而不是藏起来。
 - `src/sources/reachability.py` + `scripts/spike_sources.py`：可达性判别做成六种判定的纯函数（`pass` / `list_only` / `blocked_captcha` / `signed_required` / `blocked_auth` / `error`），**不加 `--online` 不发任何请求**；§14.2 的手工结论现在是断言。
 - **P3 的前置不变式**（不必等 S1 通过就能立）：`Section` 的校验器把 `provenance="vlm"` 的块强制 `asserted=False`，于是"VLM 画面描述只能当线索、不得进声明抽取"（spec §7）成为类型规则而不是各 scraper 要记得写的参数；`provenance="ocr"` 保留 `asserted`，只按 `confidence` 打折 —— 图上写的字往往就是作者本人的主张。
 - `tests/test_docs_match_code.py`：把文档里的可检查断言钉住（配置字段与默认值、MCP 工具名与数量、README 计数、已删标记不得被教成机制）。
@@ -89,7 +90,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 - 消融表护栏：`docs/evaluation.md` 那张 A–F 六行的表与 `data/eval/results.json` **逐格**对齐（`recall@5` / `recall@10` / `precision@5` / `nDCG@10` / `MRR`，按四舍五入到三位小数比），行首字母还要对得上配置名；另断言文档里写的复现命令含 `results.json` 记录的那个 `tiering` 档位。这张表此前只被眼睛核过，而它是全项目被引用最多的数字 —— **最后一位偏移也要红**，所以带一条 tamper 用例证明它真的会红（改两个格子 → 恰好两条定位到行列的报告）。
 - 架构图护栏（`docs/architecture.md` 的三张图）：会话的 7 个状态、子问题的 3 个状态、turn 的 3 个角色、`Move` 的 4 个动词、corpus.db 的 12 张普通表 + 2 张 FTS5 虚表、6 种可达性判定、5 步加宽阶梯、源族数量**必须逐条出现在图里**，反向也必须成立（图里画不出代码没有的名字）；回读方式是 `typing.get_args(Move)` 与对 `CREATE TABLE` 的扫描，而不是把清单再抄一遍到测试里。护栏自带一条自检：用一个真不存在的名（`SOURCE_REGISTRY_V2`）验证它真的会红 —— 因为写图时我把 `SOURCE_REGISTRY` 当成臆造的旧名"修"过一次，它是真的（`src/models.py` 由 `SOURCE_SPECS` 派生）。
 
-**数据**：collected **836 → 967**（934 之后追加的 33 条是文档、架构图、两张数据图、消融表、采集边界、符号网与导入面板的护栏）；灌水抵抗实测 `independent_sources` 旧口径 4 → 新口径 1（旧口径下它本可进判级），`T=0.7998` 越过 `supported=0.55` 仍判 `unsupported`（缺跨族宽度，**设计意图，但未经人评检验**）；已知软肋量化：同一作者跨两个 `source_type` → 数成 2 个发布者对。
+**数据**：collected **836 → 969**（934 之后追加的 35 条是文档、架构图、两张数据图、消融表、采集边界、符号网、导入面板与路由可达性的护栏）；灌水抵抗实测 `independent_sources` 旧口径 4 → 新口径 1（旧口径下它本可进判级），`T=0.7998` 越过 `supported=0.55` 仍判 `unsupported`（缺跨族宽度，**设计意图，但未经人评检验**）；已知软肋量化：同一作者跨两个 `source_type` → 数成 2 个发布者对。
 
 ### #3 · 文档（spec v4 + 三期实现计划 + 交付记录）
 
