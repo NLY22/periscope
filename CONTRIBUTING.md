@@ -22,7 +22,8 @@
 4. **不许写挂钟断言。** 凡涉及时间的代码都要接受可注入的 `clock` / `now` / `sleeper` / `rng`，测试里传固定值。理由很实际：Windows 时钟粒度约 15ms，挂钟断言会在跑全量时随机变红；而且文档里引用到小数点后四位的数字会随日历过期（`Corpus.add_items(..., now=)` 就是这么加上的）。
 5. **`src/models.py` 只准 import stdlib + pydantic。** 它会反向被 `corpus/store.py` import，破这条就是死循环。共享逻辑放 `src/corpus/`，别放 `src/analysis/`（`analysis/__init__` 会拉起 `claims` → `corpus.store`）。
 6. **新增能力要么进消融表，要么别说它有用。** 每个新特性都要么在 `scripts/eval_*.py` 里有一列可复现的数字，要么在 `docs/evaluation.md` 的"已知不足"里写清"能力已实现、效果未主张"。后者是本项目的诚实底线。
-7. **文档要说真话，而且要有测试说真话。** 配置项、MCP 工具名与数量、README 的计数都由 `tests/test_docs_match_code.py` 钉住；改了模型字段或加工具而没改文档，那条测试会红。
+7. **改了面向用户的行为，就在 `CHANGELOG.md` 对应的 PR 小节里加一条。** 本仓库还没有任何 tag，`pyproject.toml` 仍是 `0.1.0`，所以变更记录按 PR 组织、不按版本号编造发布；版本号与打 tag 由维护者决定。
+8. **文档要说真话，而且要有测试说真话。** 配置项、MCP 工具名与数量、README 的计数都由 `tests/test_docs_match_code.py` 钉住；改了模型字段或加工具而没改文档，那条测试会红。
 
 ## 环境
 

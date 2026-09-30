@@ -570,6 +570,7 @@ uv run python scripts/eval_multiturn.py    # 多轮调用数比值 / 轮次 / �
 | [抓取器](docs/scrapers.md) | 各数据源抓取器细节与扩展说明 |
 | [正文抽取](docs/extractors.md) | RSS 源的全文抽取 |
 | [检索与取证评测](docs/evaluation.md) | 消融表、标注口径、多轮成本与灌水曲线、已知不足 |
+| [变更记录](CHANGELOG.md) | 已合入 main 的阶段与四个待合并 PR 各自做了什么、修了什么、有多少实测数字；也写明尚未发布任何版本 |
 | [取证检索与证据分层](docs/retrieval.md) | 噪声从哪来、类型化分层怎么声明、可信度与独立性怎么重算、找不到时怎么加宽、多轮草稿怎么保住了用户的字、怎么复现 |
 | [MCP 工具](src/mcp/README.md) | 面向 MCP 兼容客户端的 27 个工具参考 |
 | [设计 spec 与三期实现计划](docs/superpowers/specs/2026-09-29-broad-source-credibility-and-multiturn-research-design.md) | 为什么这么改（spec v4，§15 是交付记录）、`docs/superpowers/plans/` 下逐 Task 的计划与「执行记录」里写错的句子 |

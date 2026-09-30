@@ -152,6 +152,45 @@ def test_contributing_guide_is_not_the_upstream_one() -> None:
     )
 
 
+# ------------------------------------------------------------------- changelog
+CHANGELOG = REPO_ROOT / "CHANGELOG.md"
+
+
+def test_changelog_does_not_invent_releases() -> None:
+    """No tag exists and pyproject still says 0.1.0, so nothing may be 'released'."""
+    text = CHANGELOG.read_text(encoding="utf-8")
+    version = re.search(r'^version = "([^"]+)"', (REPO_ROOT / "pyproject.toml")
+                        .read_text(encoding="utf-8"), re.M).group(1)
+    assert version in text, f"CHANGELOG never mentions the current version {version}"
+    assert "git tag" in text, "it must state that no tag exists yet"
+    for forbidden in ("## 1.0.0", "Released", "已发布 1.", "Stable release"):
+        assert forbidden not in text, f"CHANGELOG claims a release: {forbidden}"
+
+
+def test_changelog_facts_match_the_code() -> None:
+    """The numbers a reader would quote from it are checked against their sources."""
+    from src.corpus.store import SCHEMA_VERSION
+
+    text = CHANGELOG.read_text(encoding="utf-8")
+    assert f"schema v{SCHEMA_VERSION}" in text, (
+        f"corpus schema is v{SCHEMA_VERSION}; the changelog must not lag behind"
+    )
+    assert f"{len(_server_tools())}" in text, "the MCP tool count in the changelog is stale"
+    for pull in ("#3", "#4", "#5", "#6"):
+        assert pull in text, f"open merge request {pull} is missing from the changelog"
+
+
+def test_changelog_keeps_the_uncalibrated_threshold_caveat() -> None:
+    """The one 'capability built, effect not claimed' block must stay labelled.
+
+    A changelog is the document people quote in a README or a slide; if the
+    caveat lives only in docs/evaluation.md it gets lost on the way there.
+    """
+    text = CHANGELOG.read_text(encoding="utf-8")
+    assert "50–100" in text and "默认" in text and "关闭" in text
+    assert "triage_min_trust" in text
+
+
 # ------------------------------------------------------------------- stale text
 _HISTORICAL_CONTEXT = (
     "banned", "deleted", "legacy", "not a text marker", "反解", "早期", "不再", "P0 之前", "复现",
