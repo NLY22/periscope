@@ -300,7 +300,8 @@ def _doc_backticked(text: str) -> list[str]:
 def _doc_identifiers(text: str) -> list[str]:
     return [
         t for t in _doc_backticked(text)
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", t)
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", t) and "..." not in t
+        # `UC...` / `past_...` are elisions readers are meant to complete, not symbols.
     ]
 
 
@@ -640,3 +641,120 @@ def test_unimplemented_upstream_proposal_is_labelled_everywhere_it_is_linked() -
     assert "not implemented" in banner.lower(), "HorizonHub must be labelled a proposal up top"
     row = next(line for line in _read(README).splitlines() if "horizon-hub-design.md" in line)
     assert "未实现" in row and "没有对应代码" in row, f"README row: {row}"
+
+
+# ------------------------------------------------- repo-wide symbol existence net
+# The same check that caught a symbol in docs/architecture.md is worth applying to
+# every guide. It needs two honest extensions, because the docs legitimately name
+# things that do not live in `src/`:
+#   - configuration files and repository files (env var names, compose keys, .md paths)
+#   - **external** identifiers -- Twitter cookie keys, OpenBB provider names, pydantic
+#     API, git refs, cron. Those go in a stated list, each with its reason, so the day
+#     someone removes `ct0` from the code the doc stops being excused for it.
+# Suffix shorthands (`hz_research_step` / `_draft` / `_edit`) are accepted only when
+# some real identifier ends with them, which is a rule rather than an allowance.
+_EXTERNAL_IDENTIFIERS = {
+    "auth_token", "ct0", "twid",   # Twitter cookie names the user exports
+    "benzinga", "yfinance",        # OpenBB provider names, chosen by the user
+    "model_fields", "model_validator",  # pydantic API
+    "HEAD", "HEAD~1", "main",      # git refs quoted in contribution docs
+    "cron",                        # the scheduler this platform can actually offer
+    "check_tasks_num",             # an AtomGit API response field we quote
+    "MyExtractor", "MyExtractorConfig",  # placeholder class in the extractor how-to
+    "F12",                         # a keyboard key, not code
+    "periscope1123.top",           # the demo domain mentioned in the README
+    "llama3.1",                    # a model name a user would type
+    "past_7_days",                 # an OSSInsight period value the guide calls out as broken
+    "x_cookies_stale.json",        # hypothetical stale export in the cookie guide
+    "hz_claims",                   # named in the changelog precisely because it never existed
+    "SOURCE_REGISTRY_V2",          # named in the changelog as the invented token a guard rejects
+}
+
+# Scoped on purpose: the guides and the contributor-facing files describe the
+# repository as it is, so every symbol they quote must exist. `docs/superpowers/`
+# is excluded -- the plans name interfaces before they are written (that is what a
+# plan is), and the spec quotes planned thresholds and ablation arms. Checking
+# those would either fail by design or need an allowlist wide enough to be a lie.
+_SYMBOL_DOC_TARGETS = (
+    README,
+    CONFIG_DOC,
+    REPO_ROOT / "docs" / "retrieval.md",
+    REPO_ROOT / "docs" / "scrapers.md",
+    REPO_ROOT / "docs" / "evaluation.md",
+    REPO_ROOT / "docs" / "scoring.md",
+    REPO_ROOT / "docs" / "profiles.md",
+    REPO_ROOT / "docs" / "extractors.md",
+    REPO_ROOT / "docs" / "twitter-cookies.md",
+    REPO_ROOT / "docs" / "horizon-hub-design.md",
+    REPO_ROOT / "docs" / "architecture.md",
+    MCP_DOC,
+    REPO_ROOT / "CONTRIBUTING.md",
+    REPO_ROOT / "SECURITY.md",
+    REPO_ROOT / "CHANGELOG.md",
+)
+
+
+def _repo_vocab() -> set[str]:
+    vocab = _code_vocab()
+    sources = [
+        REPO_ROOT / ".env.example",
+        REPO_ROOT / "pyproject.toml",
+        REPO_ROOT / "docker-compose.yml",
+        REPO_ROOT / "Dockerfile",
+        *sorted((REPO_ROOT / "tests").glob("*.py")),
+        *sorted((REPO_ROOT / "data").glob("*.json")),
+        *sorted((REPO_ROOT / "data" / "eval").glob("*.json")),
+    ]
+    for path in sources:
+        if path.exists():
+            vocab.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", _read(path)))
+    vocab.update(path.name for path in REPO_ROOT.rglob("*") if path.is_file())
+    # tests/*.py is part of the vocabulary (the changelog names test functions),
+    # but this file's own allowlist would otherwise make every exempted name
+    # "real" and quietly disarm the check.
+    return vocab - _EXTERNAL_IDENTIFIERS
+
+
+def _suffix_is_real(token: str, vocab: set[str]) -> bool:
+    """`_draft` counts as real only because `hz_research_draft` ends with it."""
+    if not (token.startswith("_") or token.islower()):
+        return False
+    return any(name.endswith(token) for name in vocab)
+
+
+def _unknown_symbols(text: str, vocab: set[str]) -> list[str]:
+    unknown = []
+    envish = set(re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", text))
+    for token in _doc_identifiers(text):
+        if token in envish:
+            continue          # a ${VAR} name is chosen by the user, not by this repo
+        if token in _EXTERNAL_IDENTIFIERS:
+            continue
+        if token in vocab or all(part in vocab for part in token.split(".")):
+            continue
+        if _suffix_is_real(token, vocab):
+            continue
+        unknown.append(token)
+    return sorted(set(unknown))
+
+
+def test_every_doc_quoted_symbol_exists_somewhere() -> None:
+    offenders = {}
+    vocab = _repo_vocab()
+    for path in _SYMBOL_DOC_TARGETS:
+        missing = _unknown_symbols(_read(path), vocab)
+        if missing:
+            offenders[path.name] = missing
+    assert not offenders, f"docs name identifiers that exist nowhere in the repo: {offenders}"
+
+
+def test_the_symbol_net_is_not_toothless() -> None:
+    vocab = _repo_vocab()
+    assert "SOURCE_SPECS" in vocab and "auth_token" not in vocab
+    # Built at runtime on purpose: this file is part of the vocabulary, so a
+    # literal fake name would become "real" by being written down here.
+    fake_class = f"SOURCE_REGISTRY_V{9}"
+    fake_tool = "hz_research_" + "nothere"
+    assert _unknown_symbols(f"`{fake_class}` and `{fake_tool}` and `_draft`", vocab) == sorted(
+        [fake_class, fake_tool]
+    )
