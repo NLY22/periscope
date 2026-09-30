@@ -297,12 +297,15 @@ class Corpus:
 
     # ---------------------------------------------------------------- write
     def add_items(self, items: Iterable[ContentItem], run_id: Optional[int] = None,
-                  tiering: str = "sections") -> int:
+                  tiering: str = "sections",
+                  now: Optional[datetime] = None) -> int:
         """Insert content items; existing ids are skipped (append-only).
 
         Returns the number of newly stored rows. `tiering="marker"` stores the
         pre-P0 layering so the ablation harness can measure both arms against
-        one corpus (see `claimable_of`).
+        one corpus (see `claimable_of`). `now` pins the freshness feature: with
+        the wall clock the same item scores differently on different days, so a
+        harness or a test that quotes a trust number has to pass a fixed one.
         """
         rows = []
         for item in items:
@@ -320,6 +323,7 @@ class Corpus:
                 published_at=item.published_at,
                 time_basis=item.time_basis,
                 meta=item.metadata if isinstance(item.metadata, dict) else None,
+                now=now,
             )
             rows.append(
                 (

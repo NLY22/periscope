@@ -1,0 +1,128 @@
+{
+  "measured_at": "2026-09-29",
+  "clock": "fixed 2026-09-29T00:00:00+00:00; no wall-clock assertions",
+  "cost_unit": "LLM calls (never latency — see the module docstring)",
+  "partial_vs_full_recompute": [
+    {
+      "branches": 2,
+      "one_branch_calls": 2,
+      "whole_tree_calls": 3,
+      "ratio": 1.5
+    },
+    {
+      "branches": 4,
+      "one_branch_calls": 2,
+      "whole_tree_calls": 5,
+      "ratio": 2.5
+    },
+    {
+      "branches": 8,
+      "one_branch_calls": 2,
+      "whole_tree_calls": 9,
+      "ratio": 4.5
+    }
+  ],
+  "rounds_to_resolve": {
+    "rounds": [
+      {
+        "round": 1,
+        "move": "askuser",
+        "calls": 1,
+        "revision": 1,
+        "new_evidence": 0,
+        "pending_request": "req_002dee1e43",
+        "session_status": "awaiting_user"
+      },
+      {
+        "round": 1.5,
+        "move": "answer_request",
+        "calls": 2,
+        "revision": 2,
+        "new_evidence": 0,
+        "pending_request": null,
+        "session_status": "reported"
+      },
+      {
+        "round": 2,
+        "move": "finalize",
+        "calls": 1,
+        "revision": 2,
+        "new_evidence": 0,
+        "pending_request": null,
+        "session_status": "drafting"
+      }
+    ],
+    "total_calls": 8,
+    "rounds_to_finalize": 2,
+    "reached_finalize": true,
+    "asked_the_user": true
+  },
+  "flood_resistance": {
+    "reposts": 6,
+    "clusters": 4,
+    "independent_sources_before_p1": 4,
+    "independent_sources_after_p1": 1,
+    "noisy_or_trust": 0.7998,
+    "stored_trust": 0.7998,
+    "verdict_rule_says": "unsupported",
+    "grade_min_sources_would_have_admitted_it": true
+  },
+  "flood_curve": [
+    {
+      "reposts": 0,
+      "clusters": 1,
+      "independent_sources_before_p1": 1,
+      "independent_sources_after_p1": 1,
+      "noisy_or_trust": 0.7998,
+      "stored_trust": 0.7998,
+      "verdict_rule_says": "unsupported",
+      "grade_min_sources_would_have_admitted_it": false
+    },
+    {
+      "reposts": 2,
+      "clusters": 2,
+      "independent_sources_before_p1": 2,
+      "independent_sources_after_p1": 1,
+      "noisy_or_trust": 0.7998,
+      "stored_trust": 0.7998,
+      "verdict_rule_says": "unsupported",
+      "grade_min_sources_would_have_admitted_it": true
+    },
+    {
+      "reposts": 4,
+      "clusters": 3,
+      "independent_sources_before_p1": 3,
+      "independent_sources_after_p1": 1,
+      "noisy_or_trust": 0.7998,
+      "stored_trust": 0.7998,
+      "verdict_rule_says": "unsupported",
+      "grade_min_sources_would_have_admitted_it": true
+    },
+    {
+      "reposts": 6,
+      "clusters": 4,
+      "independent_sources_before_p1": 4,
+      "independent_sources_after_p1": 1,
+      "noisy_or_trust": 0.7998,
+      "stored_trust": 0.7998,
+      "verdict_rule_says": "unsupported",
+      "grade_min_sources_would_have_admitted_it": true
+    },
+    {
+      "reposts": 8,
+      "clusters": 5,
+      "independent_sources_before_p1": 5,
+      "independent_sources_after_p1": 1,
+      "noisy_or_trust": 0.7998,
+      "stored_trust": 0.7998,
+      "verdict_rule_says": "unsupported",
+      "grade_min_sources_would_have_admitted_it": true
+    }
+  ],
+  "known_soft_spot": {
+    "scenario": "one author publishing under two source types",
+    "distinct_publisher_pairs": 2,
+    "noisy_or_trust": 0.9137,
+    "verdict_rule_says": "supported"
+  }
+}
