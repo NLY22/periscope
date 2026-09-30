@@ -188,3 +188,7 @@ P0 那份计划写于实现**之前**，所以每个 Task 都带可粘贴的完�
 ③ **多轮循环对老 planner 必须只跑一轮** —— 否则 `revise` 被反复调用、每轮重新拓深同样的分支，多写 report turn 且加宽审计轨迹无意义增长。
 
 ④ **草稿的 lineage 字段声明了却从未被填**（PR #5 正文里「草稿每章节存 `evidence_ids`」这句当时**不成立**，属于我的过度陈述）。后果是两个可见缺陷：面板每节的「N 条证据」恒为 0（而那一节实际引用了三条），`MoveContext.contested_claims` 永远为空 → 决定下一步动词的模型从来看不到矛盾。修复在 `5f3862c`：`commit_draft` 结束时按「节标题 = 子问题」或「节内 `###` 小标题」映射回分支，取证据并集；一节对应多个分支时 `subquestion_id` 留 `None`（指向两个分支里的第一个，是在谎报血缘）。三条新测试先红后绿，全量 **862 collected 全绿**。
+
+⑤ **Task 9 Step 3 那句免责声明被证伪了一次** —— 「面板没在浏览器里点过」促使我真去点了一遍，当场抓到缺陷：`ask()` 在 start/followup 之后只手工刷 `#report`，没向服务器要会话的其余状态，于是轮次时间线、可编辑章节、待回答卡片全空，要刷新页面才出现；状态行还硬编码 `· active`，而 `awaiting_user` / `reported` / `drafting` 正是本 Task 新增的状态。换句话说 **P2 的界面在它唯一被使用的地方不可见，而端点级测试全绿**。修复在 `905ab17`（`ask()` 与 `stepRound()` 都改成 `await showSession(...)`），护栏 `tests/test_web_panel.py::test_panel_repaints_round_state_after_it_changes_the_session` 是文本级断言（证明不了渲染，但回到旧写法会红）。浏览器实测逐条结果见 spec §15.6；全量 **882 collected 全绿**。
+
+> 这一条的教训值得单独留一句：**在浏览器里点一遍不是端到端测试的补充，它是唯一能发现「接口全对、用户看不到」那类缺陷的手段。**
