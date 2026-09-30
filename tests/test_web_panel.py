@@ -114,3 +114,28 @@ def test_unknown_session_404(client) -> None:
 
 def test_start_rejects_empty_question(client) -> None:
     assert client.post("/api/research/start", json={"question": "  "}).status_code == 400
+
+
+def test_panel_repaints_round_state_after_it_changes_the_session() -> None:
+    """A text guard on the panel script, found by actually clicking it.
+
+    Starting a session used to paint only the report, so the round timeline,
+    the editable sections and the pending-request card stayed empty until the
+    page was reloaded — the P2 surface was invisible in the one place it is
+    meant to be used. Verified in a browser against a seeded corpus: after the
+    fix, a start renders the draft, a round appends to the timeline, and an
+    edited section keeps its text and picks up 「上游已变 · 未覆盖」.
+    """
+    script = (REPO_ROOT / "src" / "web" / "static" / "index.html").read_text(encoding="utf-8")
+    ask_block = script.split("async function ask(kind){")[1].split("$('#askBtn').onclick")[0]
+    step_block = script.split("async function stepRound(msg){")[1].split("async function ask(")[0]
+
+    assert "await showSession(r.session_id)" in ask_block, (
+        "starting or following up must reload the whole round state, not just the report"
+    )
+    assert "await showSession(current)" in step_block, (
+        "a round can open a request; without a repaint the user never sees it"
+    )
+    assert "· active" not in script, (
+        "the status line must come from the server, not a hardcoded 'active'"
+    )

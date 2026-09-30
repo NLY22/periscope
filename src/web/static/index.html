@@ -411,7 +411,9 @@ async function stepRound(msg){
     toast(`第 ${r.revision} 版 · ${MOVE[r.move]||r.move}`
       +` · 改了 ${(r.changed_sections||[]).length} 节`
       +` · 新增 ${(r.new_evidence||[]).length} 条证据`);
-    $('#ask').value=''; loadSessions(); loadStats();
+    $('#ask').value='';
+    await showSession(current);   /* the round just changed the draft and maybe opened a request */
+    loadSessions(); loadStats();
   }catch(e){ toast(e.message) }
   finally{ btn.disabled=false; btn.textContent=old }
 }
@@ -425,9 +427,11 @@ async function ask(kind){
     let r;
     if(kind==='start') r=await api('/api/research/start',{question:msg});
     else r=await api(`/api/research/${encodeURIComponent(current)}/followup`,{message:msg});
-    box.value=''; current=r.session_id;
-    $('#report').innerHTML=md2html(r.markdown);
-    $('#sessMeta').textContent=r.session_id+' · active';
+    box.value='';
+    /* showSession, not just the markdown: the round timeline, the editable
+       sections and the pending-request cards are the part the user needs to see
+       after a run, and hand-painting the report left them empty until a reload. */
+    await showSession(r.session_id);
     loadSessions(); loadStats();
   }catch(e){ toast(e.message) }
   finally{ btn.disabled=false; btn.textContent=old }
