@@ -578,7 +578,7 @@ uv run python scripts/eval_multiturn.py    # 多轮调用数比值 / 轮次 / �
 | [Twitter / X Cookie 配置](docs/twitter-cookies.md) | 免费方案：Playwright + 自己账号的 cookie 抓推文（Apify 订阅的替代路径） |
 | [MCP 工具](src/mcp/README.md) | 面向 MCP 兼容客户端的 27 个工具参考 |
 | [设计 spec 与三期实现计划](docs/superpowers/specs/2026-09-29-broad-source-credibility-and-multiturn-research-design.md) | 为什么这么改（spec v4，§15 是交付记录）、`docs/superpowers/plans/` 下逐 Task 的计划与「执行记录」里写错的句子 |
-| [架构与生态设计](docs/horizon-hub-design.md) | HorizonHub 数据源市场与推荐的产品设计 |
+| [生态设计提案（上游，未实现）](docs/horizon-hub-design.md) | HorizonHub 数据源市场与推荐的产品设计文档；本仓库**没有对应代码**，不要当成本项目的架构（架构见 [docs/architecture.md](docs/architecture.md)） |
 
 ## 项目状态
 

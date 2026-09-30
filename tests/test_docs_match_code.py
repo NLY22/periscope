@@ -611,3 +611,32 @@ def test_the_ablation_guard_rejects_a_stale_number() -> None:
     problems = _table_mismatches(tampered, stored["configs"])
     assert len(problems) == 2, problems
     assert "row B, nDCG@10" in problems[0] and "row D, recall@10" in problems[1]
+
+
+# --------------------------------------------------- inherited text vs fork policy
+COOKIE_DOC = REPO_ROOT / "docs" / "twitter-cookies.md"
+HUB_DOC = REPO_ROOT / "docs" / "horizon-hub-design.md"
+
+
+def test_cookie_guide_states_the_collection_boundary() -> None:
+    """Upstream wrote this guide as a multi-account "防封" recipe.
+
+    SECURITY.md in the same repository excludes account pools, so the two
+    cannot both stay true. The guide now separates what the code does from what
+    this fork will support, and still warns about the failure a stale second
+    export causes even for one account.
+    """
+    text = _read(COOKIE_DOC)
+    assert "防封" not in text, "cookie guide sells evasion as a feature"
+    assert "多账号轮询" not in text, "the pool-as-stability section is back"
+    assert "SECURITY.md" in text, "the boundary has to be cited, not implied"
+    assert "一个账号" in text
+    assert "warm-up failed" in text, "the single-account pitfall must stay documented"
+
+
+def test_unimplemented_upstream_proposal_is_labelled_everywhere_it_is_linked() -> None:
+    """A proposal that reads like architecture is the most misleading doc type."""
+    banner = "\n".join(_read(HUB_DOC).splitlines()[:8])
+    assert "not implemented" in banner.lower(), "HorizonHub must be labelled a proposal up top"
+    row = next(line for line in _read(README).splitlines() if "horizon-hub-design.md" in line)
+    assert "未实现" in row and "没有对应代码" in row, f"README row: {row}"
