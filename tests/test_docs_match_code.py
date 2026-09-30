@@ -488,3 +488,21 @@ def test_readme_links_every_top_level_doc() -> None:
         if path.name != "index.md" and path.name not in readme
     ]
     assert not unlinked, f"docs not linked from the README: {unlinked}"
+
+
+def test_site_index_links_the_same_pages_in_both_languages() -> None:
+    """docs/index.md carries a Chinese and an English doc list.
+
+    Editing one and forgetting the other is the obvious failure, and nothing
+    but a test would notice -- the site is not built on this platform.
+    """
+    text = _read(REPO_ROOT / "docs" / "index.md")
+
+    def links_after(heading: str) -> set[str]:
+        block = text.split(heading, 1)[1]
+        block = block.split("\n## ", 1)[0]
+        return set(re.findall(r"\]\(([^)\s]+)\)", block))
+
+    zh, en = links_after("## 文档"), links_after("## Documentation")
+    assert zh == en, f"zh-only={sorted(zh - en)} en-only={sorted(en - zh)}"
+    assert "architecture" in zh, "the diagram page has to be reachable from the site home"

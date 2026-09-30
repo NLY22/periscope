@@ -17,6 +17,7 @@ title: Home
 - [信息源采集器](scrapers) — 如何从 GitHub、Hacker News、RSS、Reddit 等采集内容；本 fork 另有源注册表、限速与鉴权基础设施
 - [评分系统](scoring) — 基于 AI 的内容分析与 0-10 评分体系
 - [处理画像](profiles) — Profile 路由、提示词、运行期过滤偏好与富化 block
+- **[架构图](architecture) (fork)** — 三张结构性图：广源→可用证据的通路、研究会话状态机（`awaiting_user` 是一等状态）、一轮交互的时序；每张图带代码落点，画进图里的名字由测试与代码双向对齐
 - **[取证检索与证据分层](retrieval) (fork)** — 噪声从哪来、类型化 `Section` 分层、条目可信度与独立性重算、缺证时怎么加宽、多轮草稿工件，以及怎么复现
 - **[检索与取证评测](evaluation) (fork)** — 六配置消融表、标注口径、多轮成本与灌水曲线、已知不足
 - **[设计 spec 与三期实现计划](superpowers/specs/2026-09-29-broad-source-credibility-and-multiturn-research-design.md) (fork)** — 为什么这么改、逐 Task 计划、以及交付记录里被实测推翻的前提
@@ -46,6 +47,7 @@ Welcome to [Horizon](https://github.com/thysrael/Horizon), an AI-driven informat
 - [Source Scrapers](scrapers) — How content is collected from GitHub, Hacker News, RSS, Reddit, Bilibili, V2EX, Discourse and YouTube, plus this fork's source registry, throttling and auth plumbing
 - [Scoring System](scoring) — AI-based content analysis and the 0-10 scoring scale
 - [Digest Profiles](profiles) — Profile routing, prompts and enrichment blocks
+- **[Architecture diagrams](architecture)** (fork) — Three structural pictures: the broad-source-to-evidence path, the session state machine (`awaiting_user` drawn as a first-class state) and one round's sequence; each carries its code anchors, and every drawn name is checked against the source in both directions
 - **[Retrieval and Evidence Layering](retrieval)** (fork) — Where the noise comes from, declared `Section` tiers, item trust and the redefined independence count, widening steps, the versioned research draft, and how to reproduce it
 - **[Retrieval Evaluation](evaluation)** (fork) — Six-configuration ablation, labelling protocol, multi-turn cost and flood curves, known gaps
 - **[Design spec and phase plans](superpowers/specs/2026-09-29-broad-source-credibility-and-multiturn-research-design.md)** (fork) — Why it changed this way, task-by-task plans, and the delivery record including the premises measurement overturned

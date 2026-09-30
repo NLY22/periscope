@@ -67,6 +67,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 - **P3 的前置不变式**（不必等 S1 通过就能立）：`Section` 的校验器把 `provenance="vlm"` 的块强制 `asserted=False`，于是"VLM 画面描述只能当线索、不得进声明抽取"（spec §7）成为类型规则而不是各 scraper 要记得写的参数；`provenance="ocr"` 保留 `asserted`，只按 `confidence` 打折 —— 图上写的字往往就是作者本人的主张。
 - `tests/test_docs_match_code.py`：把文档里的可检查断言钉住（配置字段与默认值、MCP 工具名与数量、README 计数、已删标记不得被教成机制）。
 - `docs/architecture.md`：spec §8 图表清单里的**结构性图**（1 广源→可用证据的通路、2 研究会话状态机、3 一轮交互时序），每张图下面写清代码落点，时序图上的调用数是 `scripts/eval_multiturn.py` 的实测值而非估计。附一张 corpus.db 的表清单（12 张普通表 + 2 张 FTS5 虚表，并说明 `items_fts` 含社区层而 `claim_fts` 只含作者层 —— 分层就靠这个差别生效）。**本机没有可用的 mermaid CLI，渲染效果未被验证**，被验证的是内容与代码一致；这一点写在文档里而不是含糊过去。
+- 贡献者侧：`CONTRIBUTING.md` 的「先读」从三份变四份（`docs/architecture.md` 排第一），并加第 9 条硬约束 —— 改动 `Session.status` / `Move` 动词 / corpus 表 / 可达性判定 / 加宽阶梯 / 源族数量就得同步那张图，且**这条规则的预期是它会红**：这些名字都还在动，红了就画图，别删断言。
 
 **修复**
 - 草稿章节的 `evidence_ids` / `subquestion_id` / `verdicts` **声明了但渲染路径从未填** → 面板每节显示"0 条证据"（实际引用三条），且 `MoveContext.contested_claims` 恒为空（选下一个动词的模型从来看不到矛盾）。`5f3862c`。
@@ -82,7 +83,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 - 新增护栏：文档必须提到 `[project.scripts]` 里的全部 6 个命令；workflow 提及必须与"不生效/不执行"同段；Dockerfile 必须 `COPY scripts`；变更记必须与 `SCHEMA_VERSION`、MCP 工具数、开放 PR 列表一致且不得宣布发布。对改动前的 `HEAD` 跑过：这些都会红（HEAD 上测出 4 处未标注的 workflow 提及）。
 - 架构图护栏（`docs/architecture.md` 的三张图）：会话的 7 个状态、子问题的 3 个状态、turn 的 3 个角色、`Move` 的 4 个动词、corpus.db 的 12 张普通表 + 2 张 FTS5 虚表、6 种可达性判定、5 步加宽阶梯、源族数量**必须逐条出现在图里**，反向也必须成立（图里画不出代码没有的名字）；回读方式是 `typing.get_args(Move)` 与对 `CREATE TABLE` 的扫描，而不是把清单再抄一遍到测试里。护栏自带一条自检：用一个真不存在的名（`SOURCE_REGISTRY_V2`）验证它真的会红 —— 因为写图时我把 `SOURCE_REGISTRY` 当成臆造的旧名"修"过一次，它是真的（`src/models.py` 由 `SOURCE_SPECS` 派生）。
 
-**数据**：collected **836 → 944**（934 之后追加的 10 条是文档与架构图护栏）；灌水抵抗实测 `independent_sources` 旧口径 4 → 新口径 1（旧口径下它本可进判级），`T=0.7998` 越过 `supported=0.55` 仍判 `unsupported`（缺跨族宽度，**设计意图，但未经人评检验**）；已知软肋量化：同一作者跨两个 `source_type` → 数成 2 个发布者对。
+**数据**：collected **836 → 945**（934 之后追加的 11 条是文档与架构图护栏）；灌水抵抗实测 `independent_sources` 旧口径 4 → 新口径 1（旧口径下它本可进判级），`T=0.7998` 越过 `supported=0.55` 仍判 `unsupported`（缺跨族宽度，**设计意图，但未经人评检验**）；已知软肋量化：同一作者跨两个 `source_type` → 数成 2 个发布者对。
 
 ### #3 · 文档（spec v4 + 三期实现计划 + 交付记录）
 
