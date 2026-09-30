@@ -443,6 +443,8 @@ P1 两处都要改：
 - OCR 出的图上文字（往往就是作者的主张）→ `tier="primary", provenance="ocr", asserted=True, confidence=OCR 置信度`
 - VLM 对画面的描述 → `tier="primary", provenance="vlm", asserted=False` → **只能当线索（lead），不得进 claim 抽取**（`claims.py:443` 的输入过滤）
 
+> **这条已升级为类型不变式**（`f9baa4f`）：`Section` 的校验器在 `provenance="vlm"` 时强制 `asserted=False`，而 `claimable_from_sections` 只收 `asserted` 的 primary 段。交给各 scraper 自己写那个参数，等于离一次忘写只差一行 —— 那时一句对画面的猜测会变成对世界的断言。OCR 相反：图上烧进去的字往往就是作者本人的主张，所以它保留 `asserted`、只按 `confidence` 打折，这个不对称才是 §7 的实际内容。此改动**不依赖 S1 结论**，所以不必等那个被挡住的源变可达。
+
 必须先测 OCR 错误率对 verdict 的影响，**在此之前不得声称"图文源已可用"**。
 
 ---
@@ -706,7 +708,7 @@ P0 / P2 / P1 三期已实现并推送。**本节只记三件事：验收实测�
 
 | 文件 | 原来的样子 | 现在 |
 |---|---|---|
-| `CONTRIBUTING.md` | 标题就是「Contributing to Horizon」，四步通用流程，**一条测试命令都没有**，还把信息源投稿指向上游站点 | 重写为本 fork 的 7 条硬约束（分层靠声明不靠字符串 / 人群文本只能当线索 / 加源只准动两处 / 禁挂钟断言 / `models.py` 的 import 边界 / 新能力要么进消融表要么别说有用 / 文档要有测试说实话）+ 环境命令 + **本平台没有 CI，验证是提交者的责任** + PR 正文要求（实测数字、先红后绿的失败输出、明确没做、偏差） |
+| `CONTRIBUTING.md` | 标题就是「Contributing to Horizon」，四步通用流程，**一条测试命令都没有**，还把信息源投稿指向上游站点 | 重写为本 fork 的硬约束（现有 8 条）（分层靠声明不靠字符串 / 人群文本只能当线索 / 加源只准动两处 / 禁挂钟断言 / `models.py` 的 import 边界 / 新能力要么进消融表要么别说有用 / 文档要有测试说实话）+ 环境命令 + **本平台没有 CI，验证是提交者的责任** + PR 正文要求（实测数字、先红后绿的失败输出、明确没做、偏差） |
 | `SECURITY.md` | 唯一的披露渠道是上游作者邮箱 `thysrael@gmail.com` | 顶部加「本页两部分」，本 fork 的披露走仓库私信 / `[security]` issue，并列出**本 fork 特有的风险面**（跨运行持久化的 `corpus.db` 与 `llm_cache.db`、cookie provider 会点名哪条 cookie 坏了但不输出值、`on_demand_collection` 与查询扩展会中途联网花额度、反爬边界明确不做） |
 | `CODE_OF_CONDUCT.md` | 执行联系邮箱同样是上游作者 | 保留准则原文，只加一句：本仓库的事件请走本仓库，发给上游不会得到处理 |
 | `README.md` | 开发一节写「CI 见 `.github/workflows/tests.yml`：Linux 与 Windows 各跑一遍」—— 与 §15.5 承认的「本平台不执行 workflow」**自相矛盾** | 改成明确陈述：文件保留但不执行（`check_tasks_num: 0` 已实测），因此 PR 必须自带可复现命令与数字；另把上游安全/准则邮箱加进「属于上游渠道」的隔离清单，并补 `eval_multiturn.py` 与 `--tiering marker` 两条命令 |
@@ -750,3 +752,9 @@ spec 写下「用户侧导出 + 配一个 `hz_corpus_import` 入口」时，那�
 至此全量 **925 passed**（… → 905 → 911 → 925）。
 
 **一处自己的失误要记在这里**：`7e08b24` 的 commit message 只有一个标题行 —— 我把 `git push` 接在同一行的 heredoc 之后，正文被 shell 吃掉了。已推送的提交不做 `force-push` 改写，所以完整理由写在本节与 PR #6 的评论里。教训与本项目其他地方同源：**能复现的记录比事后修饰更值钱**。
+
+### 15.11 P3 的一条前置不变式（`f9baa4f`，PR #6）
+
+§7 要求「VLM 画面描述只能当线索、不得进声明抽取」，但原实现是靠各 scraper 自己写 `asserted=False` —— 离一次忘写只差一个关键字参数，而那次忘写会让一句对画面的猜测变成对世界的断言。现在 `Section` 的校验器在 `provenance="vlm"` 时强制 `asserted=False`，测试断言这个排除一路有效到 `claimable` 层（哪怕该段声明自己是 `primary`）。OCR 故意相反：图上烧进去的字往往就是作者本人的主张，所以保留 `asserted`、只按 `confidence` 打折 —— 这个不对称才是 §7 的实际内容。
+
+**它不依赖 S1 结论**，所以不必等那个被挡住的源变可达就能立；P3 剩下的（OCR 错误率实测）仍然等 S1。全量 **934 passed**。
