@@ -21,7 +21,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.corpus.ingest import IngestError, import_payload, parse_import_payload  # noqa: E402
+from src.corpus.ingest import (  # noqa: E402
+    IngestError,
+    import_payload,
+    parse_import_payload,
+    preview_payload,
+)
 from src.corpus.sections import claimable_of  # noqa: E402
 from src.corpus.store import Corpus  # noqa: E402
 from src.corpus.trust import PROVENANCE_FACTOR, compute_features, trust_score  # noqa: E402
@@ -237,6 +242,15 @@ def test_the_web_endpoint_imports_and_the_panel_can_find_it(tmp_path: Path) -> N
         bad = client.post("/api/import", json={"items": [{"title": "no identity"}]})
         assert bad.status_code == 400 and "locator" in bad.text
 
+        # The panel's 只校验 button: same route, same validation, no write.
+        preview = client.post("/api/import", json={**payload(note(locator="rss:item:zzz9")), "dry_run": True})
+        assert preview.status_code == 200, preview.text
+        assert preview.json()["dry_run"] is True and preview.json()["items_new"] == 0
+        assert client.get("/api/search", params={"q": "zzz9"}).json()["items"] == []
+        assert client.get("/api/search", params={"q": "每百万 token"}).json()["items"], (
+            "a preview must not have deleted what the real import stored"
+        )
+
 
 # ------------------------------------------------------------------- examples
 EXAMPLE = REPO_ROOT / "data" / "export.example.json"
@@ -305,7 +319,11 @@ def test_the_cli_can_dry_run_the_shipped_example(tmp_path: Path, capsys) -> None
         "--file", str(EXAMPLE), "--data-dir", str(tmp_path), "--dry-run", "--json",
     ])
     assert code == 0
-    assert json.loads(capsys.readouterr().out)["items_parsed"] == 4
+    report = json.loads(capsys.readouterr().out)
+    # The preview reports the same keys as the write, so a reader comparing the
+    # two is not comparing two different schemas.
+    assert report["items_total_seen"] == 4 and report["items_new"] == 0
+    assert report["dry_run"] is True
     assert not list(tmp_path.glob("corpus.db")), "a dry run must not create the database"
 
 
@@ -329,3 +347,49 @@ def test_the_cli_script_reports_counts_and_rejects_per_item(tmp_path: Path, caps
     report = json.loads(capsys.readouterr().out)
     assert report["items_new"] == 1 and len(report["rejected"]) == 1
 
+
+
+# --------------------------------------------------------------------- preview
+def test_preview_and_write_agree_because_they_are_the_same_loop(tmp_path: Path) -> None:
+    """The panel's 只校验 button has to predict the 入库 button exactly.
+
+    The CLI used to preview with the strict parser, so a file with one typo
+    failed the preview while the real import accepted the other 29. A preview
+    that disagrees with the write is worse than no preview.
+    """
+    mixed = payload(note(), note(locator="rss:item:b2"), note(source_type="xiaohongshu"))
+    seen = preview_payload(mixed)
+    assert seen["items_total_seen"] == 2 and seen["items_new"] == 0
+    assert seen["dry_run"] is True and len(seen["rejected"]) == 1
+    assert seen["rejected"][0]["index"] == "2"
+    assert seen["claimable_nonempty"] == 2
+
+    corpus = Corpus(tmp_path / "c.db")
+    dry = import_payload(corpus, mixed, now=NOW, dry_run=True)
+    assert dry == seen, "import_payload(dry_run=True) must not diverge from preview_payload"
+    assert corpus.search("每百万 token", tier="claimable", limit=5) == [], "dry run wrote rows"
+
+    real = import_payload(corpus, mixed, now=NOW)
+    corpus.close()
+    assert real["items_total_seen"] == 2 and real["items_new"] == 2
+    assert [r["index"] for r in real["rejected"]] == ["2"]
+    assert real["claimable_nonempty"] == seen["claimable_nonempty"]
+    assert real["dry_run"] is False
+
+
+def test_preview_rejects_a_whole_file_that_is_not_json() -> None:
+    with pytest.raises(IngestError, match="not valid JSON"):
+        preview_payload("{ not json")
+
+
+def test_a_file_of_only_bad_items_is_reported_rather_than_raising() -> None:
+    """Deciding that a wholly invalid file is an error is the *endpoint's* job.
+
+    The library stays total: it reports every rejection and writes nothing, so
+    a caller can show the user all twenty-nine reasons instead of the first.
+    """
+    report = preview_payload(
+        payload(note(source_type="xiaohongshu"), note(source_type="weibo"))
+    )
+    assert report["items_total_seen"] == 0 and report["items_new"] == 0
+    assert [r["index"] for r in report["rejected"]] == ["0", "1"]

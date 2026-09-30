@@ -45,7 +45,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from pydantic import ValidationError
 
@@ -208,9 +208,54 @@ def parse_import_payload(
 
     Raises `IngestError` naming the item index on the first problem, so a
     hand-edited JSON file fails with a sentence rather than a stack trace.
+    Stricter than the import path, which rejects per item and keeps going --
+    callers that want to preview an import must use `import_payload(dry_run=True)`
+    instead, or the preview disagrees with what the write does.
     """
     raw_items = _items_of(payload)
     return [_item_at(raw, index) for index, raw in enumerate(raw_items)]
+
+
+def prepare_import(
+    payload: Union[Dict[str, Any], List[Any], str],
+) -> Tuple[List[ContentItem], List[Dict[str, str]]]:
+    """The one validation path both preview and write share.
+
+    Splitting this out is what makes a dry run trustworthy: preview and import
+    cannot drift, because they are the same loop over the same `_item_at`.
+    """
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise IngestError(f"payload is not valid JSON: {exc}") from exc
+
+    items: List[ContentItem] = []
+    rejected: List[Dict[str, str]] = []
+    for index, raw in enumerate(_items_of(payload)):
+        try:
+            items.append(_item_at(raw, index))
+        except IngestError as exc:
+            rejected.append({"index": str(index), "reason": str(exc)})
+    return items, rejected
+
+
+def preview_payload(payload: Union[Dict[str, Any], List[Any], str]) -> Dict[str, Any]:
+    """What an import would do, without a database and without writing.
+
+    Same `prepare_import` loop as the write, so the counts match -- the CLI's
+    old `--dry-run` used the strict parser and would abort on a file the real
+    import accepts 29/30 of. `items_new` is 0 here by definition, and the
+    `dry_run` flag is what tells a caller which zero it is reading.
+    """
+    items, rejected = prepare_import(payload)
+    return {
+        "items_new": 0,
+        "items_total_seen": len(items),
+        "rejected": rejected,
+        "claimable_nonempty": sum(1 for i in items if claimable_of(i)),
+        "dry_run": True,
+    }
 
 
 def import_payload(
@@ -219,26 +264,21 @@ def import_payload(
     *,
     tiering: str = "sections",
     now: Optional[datetime] = None,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
     """Store an export and report what actually landed.
 
     A bad item is rejected and reported, not silently dropped and not fatal: a
     thirty-note export with one typo should still bring in twenty-nine.
-    """
-    if isinstance(payload, str):
-        try:
-            payload = json.loads(payload)
-        except json.JSONDecodeError as exc:
-            raise IngestError(f"payload is not valid JSON: {exc}") from exc
 
-    raw_items = _items_of(payload)
-    items: List[ContentItem] = []
-    rejected: List[Dict[str, str]] = []
-    for index, raw in enumerate(raw_items):
-        try:
-            items.append(_item_at(raw, index))
-        except IngestError as exc:
-            rejected.append({"index": str(index), "reason": str(exc)})
+    `dry_run=True` runs the identical validation and touches nothing -- no rows,
+    no cluster pass -- so the panel can show a user what their pasted export
+    would do before it does it.
+    """
+    if dry_run:
+        return preview_payload(payload)
+
+    items, rejected = prepare_import(payload)
 
     new_count = corpus.add_items(items, tiering=tiering, now=now) if items else 0
     corpus.recompute_clusters()
@@ -247,4 +287,5 @@ def import_payload(
         "items_total_seen": len(items),
         "rejected": rejected,
         "claimable_nonempty": sum(1 for i in items if claimable_of(i)),
+        "dry_run": False,
     }

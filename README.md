@@ -91,7 +91,7 @@ Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游�
 | 多源聚合、Profile 评分、双语日报、邮件 / Webhook / 微信投递、配置向导 | （上游） | `src/scrapers`（四个新源除外）、`src/processing`、`src/services`、`src/setup` |
 | Bilibili / V2EX / Discourse / YouTube 四个源，含 B 站 CC 字幕层 | （本 fork） | `src/scrapers/{bilibili,v2ex,discourse,youtube}.py` |
 | 证据语料库：SQLite + FTS5 + 手写 SimHash 聚簇，跨运行累积 | （本 fork） | `src/corpus/store.py`、`src/corpus/simhash.py` |
-| 用户导出入库通路（取不到的源不靠抓取）| （本 fork） | `src/corpus/ingest.py`、`scripts/import_corpus.py`、`hz_corpus_import`、`POST /api/import` |
+| 用户导出入库通路（取不到的源不靠抓取）| （本 fork） | `src/corpus/ingest.py`、`scripts/import_corpus.py`、`hz_corpus_import`、面板「导入你导出的内容」（`POST /api/import`，可先只校验）|
 | 证据分层：scraper **声明**的类型化 `Section`（作者亲写 vs 人群发言），独立信源计数只认前者 | （本 fork） | `src/models.py` 的 `Section`、`src/corpus/sections.py`、`items.claimable` + `claim_fts` |
 | 条目可信度与独立性：可拆解的 trust 分数、noisy-OR 聚合、两道门 | （本 fork） | `src/corpus/trust.py`、`items.trust` + `trust_features_json` |
 | 多轮共创：逐轮动词 + 带 revision/locked/stale 的草稿工件 + 向用户索取输入 | （本 fork） | `src/research/{moves,drafts}.py`、`research_drafts` / `research_requests` 表 |

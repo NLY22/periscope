@@ -211,6 +211,28 @@ main{display:grid;grid-template-columns:340px 1fr 360px;gap:16px;
     </h2>
     <div class="body" id="claims"><div class="empty">加载中…</div></div>
   </section>
+
+  <!-- 下：导入导出的内容（spec §6.1 的降级通路，面板里唯一能让取不到的源进来的入口） -->
+  <section class="pane" style="grid-column:1/-1">
+    <h2><span class="dot" style="background:var(--sky)"></span>导入你导出的内容
+      <span class="spacer"></span>
+      <span id="importMeta" style="font-weight:400;font-size:12px;color:var(--muted);font-family:var(--mono)"></span>
+    </h2>
+    <div class="body">
+      <p style="margin:0 0 8px;color:var(--muted);font-size:13px">
+        登录墙或验证码挡住的源，用你自己的账号把内容导出来贴在这里 —— 层级由你声明，来源方式记为
+        <code>manual_export</code>（信任分打折，因为程序没有亲眼取到那一页）。<b>先「只校验」看收多少条，再「入库」。</b>
+      </p>
+      <textarea id="importBox" spellcheck="false" placeholder='{"items":[{"title":"…","url":"…","content":"…","source_type":"forum"}]}'
+        style="width:100%;min-height:110px;font-family:var(--mono);font-size:12px;box-sizing:border-box;border:1px solid var(--coral-soft);border-radius:12px;padding:10px"></textarea>
+      <div class="askbar">
+        <input type="file" id="importFile" accept=".json,application/json" style="flex:1;font-size:12px;color:var(--muted)" />
+        <button class="btn" id="importCheck" title="走与入库完全相同的校验，什么都不写">只校验</button>
+        <button class="btn btn-coral" id="importRun">入库</button>
+      </div>
+      <div id="importOut"></div>
+    </div>
+  </section>
 </main>
 
 <div class="toast" id="toast"></div>
@@ -449,6 +471,31 @@ async function loadSessions(){
   }catch(e){ /* research disabled */ }
 }
 $('#stepBtn').onclick=()=>ask('step');
+
+/* ---------------- 导入导出的内容（§6.1） ---------------- */
+async function doImport(dryRun){
+  const box=$('#importOut'), file=$('#importFile');
+  let text=$('#importBox').value.trim();
+  if(!text && file.files.length) text=await file.files[0].text();
+  if(!text){toast('先粘贴 JSON，或选一个导出文件');return}
+  let payload;
+  try{payload=JSON.parse(text)}
+  catch(e){box.innerHTML=`<div class="item"><div class="t">不是合法 JSON</div><div class="s">${esc(e.message)}</div></div>`;return}
+  if(Array.isArray(payload)) payload={items:payload};
+  payload.dry_run=dryRun;                       // 校验与入库走同一条代码路径
+  try{
+    const r=await api('/api/import',payload);
+    const bad=r.rejected||[];
+    $('#importMeta').textContent=`可读 ${r.items_total_seen} 条 · 有作者层 ${r.claimable_nonempty} 条`
+      + (r.dry_run?'（未写入）':` · 新入库 ${r.items_new}`);
+    box.innerHTML=`<div class="item"><div class="t">${r.dry_run?'校验结果':'已入库'}：${r.items_total_seen} 条可导入，${bad.length} 条不收</div>`
+      +(bad.length?`<div class="s">${bad.map(b=>`第 ${(+b.index+1)} 条：${esc(b.reason)}`).join('<br>')}</div>`:'')
+      +'</div>';
+    if(!r.dry_run){toast(`导入完成：新增 ${r.items_new} 条`); loadItems(); loadStats();}
+  }catch(e){box.innerHTML=`<div class="item"><div class="t">${esc(e.message)}</div></div>`;toast('没收：'+e.message)}
+}
+$('#importCheck').onclick=()=>doImport(true);
+$('#importRun').onclick=()=>doImport(false);
 
 /* ---------------- boot ---------------- */
 loadStats(); loadItems(); loadClaims(); loadSessions();

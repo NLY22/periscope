@@ -162,14 +162,18 @@ def create_app(orchestrator: Any) -> FastAPI:
         handed over as text the user's own account can already see. If every
         item was rejected the request is a 400, because a wholly invalid file
         must not look like a successful import.
+
+        `dry_run` (in the body, so the panel's 预检 button needs no second
+        route) validates through the same code as the write and stores nothing.
         """
         from ..corpus.ingest import IngestError, import_payload
 
+        dry_run = bool(payload.get("dry_run")) if isinstance(payload, dict) else False
         corpus = state.orchestrator.get_corpus()
         if corpus is None:
             raise HTTPException(status_code=503, detail="corpus is disabled in config")
         try:
-            report = import_payload(corpus, payload)
+            report = import_payload(corpus, payload, dry_run=dry_run)
         except IngestError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if not report["items_total_seen"] and report["rejected"]:

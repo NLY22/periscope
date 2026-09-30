@@ -139,3 +139,55 @@ def test_panel_repaints_round_state_after_it_changes_the_session() -> None:
     assert "· active" not in script, (
         "the status line must come from the server, not a hardcoded 'active'"
     )
+
+
+# ------------------------------------------------------- the import affordance
+import re
+
+PANEL_HTML = (
+    Path(__file__).resolve().parents[1] / "src" / "web" / "static" / "index.html"
+)
+
+
+def test_panel_script_parses_when_handed_to_node(tmp_path) -> None:
+    """The panel is one `<script>`; a syntax error blanks the whole page.
+
+    There is no browser here to catch it, so the cheapest real parser wins:
+    `node --check`. Skipped when node is absent rather than pretending coverage.
+    """
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not on PATH")
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    scripts = re.findall(r"<script>(.*?)</script>", html, re.S)
+    assert scripts, "the panel lost its script block"
+    target = tmp_path / "panel.js"
+    target.write_text("\n".join(scripts), encoding="utf-8")
+    result = subprocess.run(
+        [node, "--check", str(target)], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_import_panel_reads_only_fields_the_endpoint_returns(client) -> None:
+    """A UI that reads `r.items_added` against a server returning `items_new`
+    shows an empty result forever, and every endpoint test still passes."""
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    block = html.split("async function doImport")[1].split("$('#importCheck')")[0]
+    used = set(re.findall(r"\br\.([a-z_]+)", block))
+    assert used, "the import handler stopped reading the response at all"
+
+    response = client.post("/api/import", json={
+        "items": [{
+            "title": "面板自检用的一条", "url": "https://example.com/panel-check",
+            "content": "作者写的正文里有一个可核验数字", "source_type": "rss",
+            "locator": "rss:example:panel-check",
+        }],
+        "dry_run": True,
+    })
+    assert response.status_code == 200, response.text
+    returned = set(response.json())
+    assert used <= returned, f"panel reads fields the endpoint does not return: {sorted(used - returned)}"

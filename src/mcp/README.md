@@ -73,7 +73,7 @@ Rules that matter:
 
 The same file ships as [`data/export.example.json`](../../data/export.example.json), and the test suite parses it, so the example cannot drift from the implementation.
 
-Same payload on the CLI (`uv run python scripts/import_corpus.py --file export.json --data-dir data`) and the panel API (`POST /api/import`, which answers 400 only when nothing at all could be imported).
+Same payload on the CLI (`uv run python scripts/import_corpus.py --file export.json --data-dir data`, plus `--dry-run` to validate without opening a database) and on the panel, which has a section for it (`POST /api/import`, answering 400 only when nothing at all could be imported). The panel's 只校验 button sends the same body with `"dry_run": true`: it runs the identical validation loop and writes nothing, so what the preview counts is what the import would accept.
 
 ## Resources
 

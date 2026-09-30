@@ -50,16 +50,20 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.dry_run:
-        from src.corpus.ingest import parse_import_payload
+        from src.corpus.ingest import preview_payload
 
         try:
-            items = parse_import_payload(payload)
+            report = preview_payload(payload)
         except IngestError as exc:
             print(f"解析失败：{exc}", file=sys.stderr)
             return 2
-        report = {"items_parsed": len(items), "dry_run": True}
-        print(json.dumps(report, ensure_ascii=False) if args.as_json else
-              f"可导入 {len(items)} 条（未写入）")
+        if args.as_json:
+            print(json.dumps(report, ensure_ascii=False))
+        else:
+            print(f"可导入 {report['items_total_seen']} 条，其中 "
+                  f"{report['claimable_nonempty']} 条有可 claim 的作者层（未写入）")
+            for row in report["rejected"]:
+                print(f"  第 {int(row['index']) + 1} 条不收：{row['reason']}", file=sys.stderr)
         return 0
 
     from src.web.server import build_orchestrator
