@@ -1,6 +1,6 @@
 # P1：可解释信任分 + 独立性重定义 + noisy-OR 两道门 —— 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: 用 superpowers:executing-plans 逐 Task 执行。步骤用 `- [ ]` 复选框跟踪。**Task 9（人评标注）无法由执行者完成** —— 它是唯一的人类阻塞项，执行到那里要停下来交给维护者。
+> **For agentic workers:** REQUIRED SUB-SKILL: 用 superpowers:executing-plans 逐 Task 执行。步骤用 `- [ ]` 复选框跟踪。**Task 10（人评标注）无法由执行者完成** —— 它是唯一的人类阻塞项，执行到那里要停下来交给维护者。
 
 **Goal:** 让「放宽来源」之后仍然可审计：每条进入证据链的内容带一个可拆解的可信度依据，`independent_sources` 不因同源转载 / 模板化文案 / 评论区文本而虚高，`contested` 与「没走到评级」都有可查的原因。
 
@@ -14,7 +14,7 @@
 
 ## 本文与 P0 / P2 计划的差别
 
-同 P2：写于实现之后（2026-09-29），代码不复贴，给接口契约 + `文件:符号` 锚点，实现以 `feat/p1-trust-independence`（PR #6）为准。**spec §10 的 P1 六条里，本计划只覆盖工程五条；第六条（≥80 条人评标注 + macro-F1 / ROC / θ 拟合）在 Task 9，状态是「工具就位、数据为零」，本文不允许用任何看起来像拟合结果的数字填它。**
+同 P2：写于实现之后（2026-09-29），代码不复贴，给接口契约 + `文件:符号` 锚点，实现以 `feat/p1-trust-independence`（PR #6）为准。**spec §10 的 P1 六条里，本计划只覆盖工程五条；第六条（≥80 条人评标注 + macro-F1 / ROC / θ 拟合）在 Task 10，状态是「工具就位、数据为零」，本文不允许用任何看起来像拟合结果的数字填它。** Task 9 是后来补的：§5.5 里那组**不需要人评**的系统客观量。
 
 ## Global Constraints
 
@@ -41,6 +41,8 @@
 | `src/orchestrator.py` | 把档位与 trust 需要的字段传给 `add_items` | 修改 |
 | `src/research/session.py` | verdict 摘要里列出「未评级 + 原因」，把 `unsupported` 拆成「没找到」与「找到了但可信度不够」 | 修改 |
 | `scripts/eval_retrieval.py`、`scripts/eval_claims.py` | `--tiering=sections\|marker`；`results.json` 记下 `tiering` | 修改 |
+| `scripts/eval_multiturn.py` | §5.5 的系统客观量：调用数比值、轮次到定稿、灌水曲线与旧口径重放（Task 9） | 新建 |
+| `tests/test_eval_multiturn.py` | 上面那些数字的护栏（9 条） | 新建 |
 | `docs/evaluation.md` | 「可信度与独立性（P1 之后）」+「θ 还没有校准」 | 修改 |
 | `tests/test_trust_p1.py` | 23 条判据 | 新建 |
 | `tests/test_corpus_migration.py` | 由 `test_corpus_v3_migration.py` 改名并扩到 v4 | 修改 |
@@ -146,7 +148,22 @@
 - [ ] **Step 4: A 档可复现** —— `uv run python scripts/eval_retrieval.py --tiering marker` 必须与 `docs/evaluation.md` 表格**逐格一致**（0.733 / 0.883 / 0.640 / 0.830 / 1.000）。跑出来不一样就是这次改动移动了旧行为，要先查清为什么
 - [ ] **Step 5: 文档里写「θ 还没有校准」** —— 包括「求和 vs noisy-OR」「发布者解析失败不投票」「同族第 2 个发布者折半」「`unsupported` 拆成两种」四条口径变化
 
-## Task 9: 人评与校准（人类阻塞项，执行者到此为止）
+## Task 9: §5.5 的客观量与 §8 图表 6/7（`scripts/eval_multiturn.py`）
+
+**Files:** Create `scripts/eval_multiturn.py`、`data/eval/multiturn_results.json`、`tests/test_eval_multiturn.py`；Modify `docs/evaluation.md`、`src/corpus/store.py`
+
+**Interfaces:**
+- Produces: `CountingPlanner`（只计数的替身规划器，`calls` / `start_round()` / `close_round()`）、`measure_recompute(tmp_path, branches)`、`measure_rounds(tmp_path)`、`measure_flood(tmp_path, reposts=6)`、`measure_soft_spot(tmp_path)`、`old_style_count(corpus, claim_id)`（**在脚本里重放已退役的旧口径**）、`run()` / `print_table()` / `--branches`
+- Consumes: Task 4 的 `classify` / `noisy_or` / `distinct_publishers`、Task 6 的 `evidence_votes` / `recompute_independence`、P2 的 `step` / `answer_request`
+- 顺带产出的接缝：`Corpus.add_items(..., now=None)` —— 新鲜度原本读 `datetime.now()`，于是同一内容在不同日期入库得到不同 trust，文档里引用到第四位小数的数字会悄悄过期。**默认值不变，生产行为不变**
+
+- [ ] **Step 1: 明确不测什么** —— 单位是 LLM 调用数，**没有延迟**（仓库禁挂钟断言）。这句话要写进模块 docstring 与文档，不能让人把调用数读成毫秒
+- [ ] **Step 2: 比值测量要防自己糊弄** —— `Deepen` 的分支 id 必须在 `start()` 之后从库里取真 id；手造的 id 匹配不到任何分支，会打出一个很好看的比值
+- [ ] **Step 3: 旧口径显式重放** —— `independent_sources` 的 pre-P1 算法已从生产代码消失，比较要仍可复现就必须在 harness 里重跑那条 SQL（与 `--tiering marker` 保留 A 档同一个理由）
+- [ ] **Step 4: 红测试** —— 曲线必须平在 1（`test_more_reposts_never_buy_independence_under_the_new_rule`）、深一条的调用数不随树宽增长、时钟钉住后 trust 可复现
+- [ ] **Step 5: 把不好看的那条写出来** —— 实测 `T=0.7998` 已越过 `supported=0.55` 但判定仍是 `unsupported`（缺跨族宽度）。**一篇独立硬稿单独无法构成 supported** 是 §5.2.2 的设计意图，不是 bug，但它对不对只有人评能判
+
+## Task 10: 人评与校准（人类阻塞项，执行者到此为止）
 
 **Files:** `data/eval/claims_labels.json`（由维护者产出）
 
@@ -160,9 +177,9 @@
 
 ## Self-Review
 
-**1. Spec 覆盖**：§5.1 特征与可解释 → Task 1/5；§5.2.1 独立性重定义 → Task 2/6；§5.2.2 noisy-OR 与两道门 → Task 3/4/8；§5.2.3 矛盾 → Task 7；§5.3 人评协议 → Task 9；§5.4 消融 → Task 5/8；§1.6 门的位置 → Task 8。§5.5（多轮交互侧的评测）不在本计划，它依赖 P2 的会话数据积累，spec 里也没给指标。
+**1. Spec 覆盖**：§5.1 特征与可解释 → Task 1/5；§5.2.1 独立性重定义 → Task 2/6；§5.2.2 noisy-OR 与两道门 → Task 3/4/8；§5.2.3 矛盾 → Task 7；§5.3 人评协议 → Task 10；§5.4 消融 → Task 5/8；§1.6 门的位置 → Task 8；§5.5 的系统客观量 → Task 9；§8 图表清单的第 6、7 号 → Task 9（第 4、5 号卡人评，第 3 号的延迟一栏**没有数据**）。
 
-**2. 占位符扫描**：Task 9 的 Step 2「人工判 50–100 条」不是占位符，它是本计划唯一无法自动化的一步，且已写明工具、口径与产出文件名。
+**2. 占位符扫描**：Task 10 的 Step 2「人工判 50–100 条」不是占位符，它是本计划唯一无法自动化的一步，且已写明工具、口径与产出文件名。
 
 **3. 类型一致性**：`Vote.prior` 允许 `None`（手工构造的 Vote 走 `SOURCE_PRIORS` 兜底，`classify` 里已处理）；`TrustFeatures.from_dict` 的每个默认值必须与 `to_dict` 的字段一一对应，否则老库回填出的 JSON 缺键时会静默用默认值掩盖问题；`ungraded_reason` 的三个字面量在 `claims.py` 与 `session.py` 的摘要映射里是同一套，第四种 `⏳ 低于分诊门` 是**没有 reason** 时（`verdict IS NULL` 且 `trust < triage`）的兜底文案，不要给它新增枚举值。
 
@@ -175,3 +192,5 @@
 - **below-floor 用例选错源**：要一个低于 `same_family_prior=0.40` 的族，第一版用了 `twitter`（先验 0.40，正好不满足严格大于），换成 `bilibili`（0.35）才是想要的负例。
 - **矛盾测试需要 `status='linked'`**：`recompute_independence()` 的 stale 补 0 分支只处理 `linked`，用 `extracted` 构造的 fixture 走不到判级路径。
 - **PR 正文里的一处数字**：`tests/test_research_p2.py` 当时写的是 20 条，实际 19 条（`--collect-only` 实测）。P1 之后加 3 条 lineage 测试变成 22 条，见 P2 计划的执行记录 ④。
+- **补做了 §5.5 的客观量**（Task 9）：IR 指标量不了多轮，而人评还没开始，所以用一个只计数的替身规划器把调用数比值（1.5 / 2.5 / 4.5）、轮次到定稿（2 轮）与灌水曲线（旧口径 1→5，新口径恒为 1）测了出来。**过程中发现 `Corpus.add_items()` 的新鲜度读 `datetime.now()`**，于是同一内容在不同日期入库得到不同 trust —— 文档里第四位小数会悄悄过期。加了 `now=` 注入（默认行为不变）。
+- **顺带量化了一个不好看的设计后果**：`T=0.7998` 已越过 `supported=0.55`，判定仍是 `unsupported`（缺跨族宽度）。**一篇独立硬稿单独无法构成 supported** 是 §5.2.2 的意图，但它对不对属于 Task 10 的人评，不属于工程能自己宣布的结论。
