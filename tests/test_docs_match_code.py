@@ -527,3 +527,87 @@ def test_every_image_referenced_in_docs_exists() -> None:
             if not (base / ref.lstrip("/")).exists():
                 broken.append(f"{path.name} -> {ref}")
     assert not broken, f"embedded images that are not in the repository: {broken}"
+
+
+# ------------------------------------------------------------- the ablation table
+EVAL_DOC = REPO_ROOT / "docs" / "evaluation.md"
+RESULTS_JSON = REPO_ROOT / "data" / "eval" / "results.json"
+_METRIC_KEYS = {
+    "recall@5": "recall@5",
+    "recall@10": "recall@10",
+    "precision@5": "precision@5",
+    "nDCG@10": "ndcg@10",
+    "MRR": "mrr",
+}
+
+
+def _ablation_table(text: str) -> tuple[list[str], list[list[str]]]:
+    lines = text.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("| 配置 |"))
+    header = [c.strip() for c in lines[start].strip("|").split("|")]
+    rows = []
+    for line in lines[start + 2:]:
+        if not line.startswith("|"):
+            break
+        rows.append([c.strip() for c in line.strip("|").split("|")])
+    return header, rows
+
+
+def _table_mismatches(rows: list[list[str]], configs: list[dict]) -> list[str]:
+    """Compare the doc's ablation rows against the stored run, cell by cell."""
+    problems: list[str] = []
+    for cells, config in zip(rows, configs):
+        letter = cells[0].split()[0]
+        if not config["name"].startswith(letter):
+            problems.append(f"{config['name']!r} is not row {letter}")
+        for column, printed in zip(_METRIC_KEYS, cells[1:]):
+            actual = f"{config['metrics'][_METRIC_KEYS[column]]:.3f}"
+            if actual != printed.replace("**", ""):
+                problems.append(
+                    f"row {letter}, {column}: docs/evaluation.md says {printed}, "
+                    f"results.json says {actual}"
+                )
+    return problems
+
+
+def test_ablation_table_matches_the_stored_eval_run() -> None:
+    """The headline numbers were, until now, checked only by eye.
+
+    They are this project's most-quoted table, and `data/eval/results.json`
+    sits in the repository right next to it -- so a mismatch is a bug someone
+    can actually catch, not a judgement call.
+    """
+    text = _read(EVAL_DOC)
+    header, rows = _ablation_table(text)
+    assert header == ["配置", *_METRIC_KEYS], "the ablation table changed shape"
+
+    stored = json.loads(RESULTS_JSON.read_text(encoding="utf-8"))
+    configs = stored["configs"]
+    assert len(rows) == len(configs), f"doc has {len(rows)} rows, results.json has {len(configs)}"
+
+    assert not _table_mismatches(rows, configs), "; ".join(_table_mismatches(rows, configs))
+
+
+def test_ablation_table_names_the_tiering_the_run_recorded() -> None:
+    """Every quoted number has to be traceable to a tiering arm.
+
+    `--tiering=marker` reproduces the A/B rows; if the committed run is from the
+    other arm, the reproduction command in the doc is wrong and must be fixed
+    rather than left to read plausibly.
+    """
+    stored = json.loads(RESULTS_JSON.read_text(encoding="utf-8"))
+    assert f'--tiering={stored["tiering"]}' in _read(EVAL_DOC)
+
+
+def test_the_ablation_guard_rejects_a_stale_number() -> None:
+    """The table check has to bite: a rounded digit off by one is what rot looks like."""
+    stored = json.loads(RESULTS_JSON.read_text(encoding="utf-8"))
+    rows = _ablation_table(_read(EVAL_DOC))[1]
+    assert not _table_mismatches(rows, stored["configs"])
+
+    tampered = [row[:] for row in rows]
+    tampered[1][4] = "0.851"          # B's nDCG@10, one unit in the last place
+    tampered[3][2] = "**1.00**"        # D's recall@10, right value, wrong precision
+    problems = _table_mismatches(tampered, stored["configs"])
+    assert len(problems) == 2, problems
+    assert "row B, nDCG@10" in problems[0] and "row D, recall@10" in problems[1]

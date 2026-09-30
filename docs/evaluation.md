@@ -26,6 +26,8 @@ uv run pytest tests/test_eval_metrics.py         # 指标实现 + harness 的行
 | E B+语义路（stub） | 0.758 | 0.967 | 0.680 | 0.904 | 1.000 |
 | F 全开（分层+扩展+语义+放宽） | 0.758 | **1.000** | 0.680 | 0.928 | 1.000 |
 
+> 这张表与 `data/eval/results.json` **逐格对齐**，由 `tests/test_docs_match_code.py::test_ablation_table_matches_the_stored_eval_run` 检查（最后一位偏移也红），并有一条用例专门验证那个检查真的会红。要改数字先重跑 `uv run python scripts/eval_retrieval.py`，再改表 —— 而不是只改表。
+
 读法（包括不好看的部分）：
 
 1. **证据分层买的是准度和排序，不是覆盖**：B 相对 A，precision@5 `0.640 → 0.680`、nDCG@10 `0.830 → 0.850`，而 recall@10 反而从 `0.883` 掉到 `0.875` —— 有极少数条目只有评论区提到过，分层后就不算证据了。这是有意的取舍：报告宁可少一条来源，也不能把一个陌生人的回帖当信源。
