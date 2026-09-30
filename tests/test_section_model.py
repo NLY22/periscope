@@ -91,3 +91,38 @@ def test_extra_fields_are_still_forbidden() -> None:
 def test_section_rejects_an_unknown_tier() -> None:
     with pytest.raises(ValidationError):
         Section(tier="crowd", text="x")
+
+
+def test_a_vlm_caption_cannot_be_marked_as_asserted() -> None:
+    """spec §7: model-written picture descriptions are leads, never claims.
+
+    Left to each scraper this is one forgotten keyword argument away from
+    breaking, which is why the type refuses it.
+    """
+    caption = Section(tier="primary", text="画面里的人在演示安装步骤",
+                      provenance="vlm")
+    assert caption.asserted is False
+
+    forced = Section(tier="primary", text="画面里的人在演示安装步骤",
+                     provenance="vlm", asserted=True)
+    assert forced.asserted is False
+
+
+def test_a_vlm_caption_is_invisible_to_the_claimable_layer() -> None:
+    from src.corpus.sections import claimable_from_sections
+
+    parts = [
+        Section(tier="primary", text="官方说安装三步。", provenance="author"),
+        Section(tier="primary", text="画面里的人在演示安装步骤", provenance="vlm"),
+    ]
+    claimable = claimable_from_sections(parts)
+    assert "官方说安装三步" in claimable
+    assert "画面里的人" not in claimable
+
+
+def test_an_ocr_block_keeps_its_own_assertion_and_confidence() -> None:
+    """OCR text is often the author's actual claim, so only its trust is discounted."""
+    ocr = Section(tier="primary", text="图上写着 HumanEval 71",
+                  provenance="ocr", confidence=0.62)
+    assert ocr.asserted is True
+    assert ocr.confidence == 0.62

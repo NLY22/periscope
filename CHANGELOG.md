@@ -64,6 +64,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 - `scripts/eval_multiturn.py`：spec §5.5 里**不需要人评**的那组系统客观量（调用数比值、轮次到定稿、灌水曲线）。
 - `src/corpus/ingest.py` + `scripts/import_corpus.py` + `hz_corpus_import` + `POST /api/import`：§6.1 的降级通路 —— 取不到的源由**用户导出、按声明层级入库**，新增来源方式 `manual_export`（折扣 0.85）。样例负载 `data/export.example.json` 由测试直接解析。
 - `src/sources/reachability.py` + `scripts/spike_sources.py`：可达性判别做成六种判定的纯函数（`pass` / `list_only` / `blocked_captcha` / `signed_required` / `blocked_auth` / `error`），**不加 `--online` 不发任何请求**；§14.2 的手工结论现在是断言。
+- **P3 的前置不变式**（不必等 S1 通过就能立）：`Section` 的校验器把 `provenance="vlm"` 的块强制 `asserted=False`，于是"VLM 画面描述只能当线索、不得进声明抽取"（spec §7）成为类型规则而不是各 scraper 要记得写的参数；`provenance="ocr"` 保留 `asserted`，只按 `confidence` 打折 —— 图上写的字往往就是作者本人的主张。
 - `tests/test_docs_match_code.py`：把文档里的可检查断言钉住（配置字段与默认值、MCP 工具名与数量、README 计数、已删标记不得被教成机制）。
 
 **修复**
@@ -79,7 +80,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 - `docs/configuration.md` 的 MCP 一节原先只列 7 个工具名（"available tools include…"），现在列全 **27** 个并分组；Dockerfile 补 `COPY scripts`，否则文档里让读者跑的 harness 在镜像里根本不存在（该命令的形状沿用仓库已有的 `--entrypoint uv` 用法，**未在本机跑过 docker build**，`docs/evaluation.md` 里带着这句限制一起写）。
 - 新增护栏：文档必须提到 `[project.scripts]` 里的全部 6 个命令；workflow 提及必须与"不生效/不执行"同段；Dockerfile 必须 `COPY scripts`；变更记必须与 `SCHEMA_VERSION`、MCP 工具数、开放 PR 列表一致且不得宣布发布。对改动前的 `HEAD` 跑过：这些都会红（HEAD 上测出 4 处未标注的 workflow 提及）。
 
-**数据**：collected **836 → 931**；灌水抵抗实测 `independent_sources` 旧口径 4 → 新口径 1（旧口径下它本可进判级），`T=0.7998` 越过 `supported=0.55` 仍判 `unsupported`（缺跨族宽度，**设计意图，但未经人评检验**）；已知软肋量化：同一作者跨两个 `source_type` → 数成 2 个发布者对。
+**数据**：collected **836 → 934**；灌水抵抗实测 `independent_sources` 旧口径 4 → 新口径 1（旧口径下它本可进判级），`T=0.7998` 越过 `supported=0.55` 仍判 `unsupported`（缺跨族宽度，**设计意图，但未经人评检验**）；已知软肋量化：同一作者跨两个 `source_type` → 数成 2 个发布者对。
 
 ### #3 · 文档（spec v4 + 三期实现计划 + 交付记录）
 

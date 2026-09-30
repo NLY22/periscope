@@ -26,6 +26,7 @@
 - **取不到的源走导入，不走抓取。** 设计排除验证码打码、签名逆向与多账号池，所以小红书 / 贴吧 / 登录墙论坛的正当通路是**用户自己导出、本仓库按声明的层级入库**：`hz_corpus_import`（MCP）、`POST /api/import`（面板）、`scripts/import_corpus.py`（CLI）。导入的分层同样是声明式的：`community` 文字照样只能当线索；没有分层信息的整段导出会落成 `legacy_marker` 并被信任分打折；来源方式记为 `manual_export`（0.85），因为 Periscope 没有亲眼取到那一页。`source_type` 必须从已注册的 14 个族里选，因为它决定源先验与独立性计数里的那个"族"，人不许在导入里给自己发明先验。样例负载见 `data/export.example.json` —— `tests/test_corpus_import.py` 直接解析这个随仓库发布的文件（含 lead-only、`asserted=false`、OCR 带置信度三种情形），所以文档里的样例不会跟实现脱节。
 - 旧库自动升级（schema v2→v3→v4）：`ALTER` 加列 → 回填 `locator` / `time_basis` / `sections_json` / `publisher` / `trust` → 重建两个 FTS 镜像。回填出来的层标 `provenance="legacy_marker"`，信任分按 0.8 折扣（见下节）。**不回填会让分层前已存在的声明突然查不到任何证据**，静默变成 `unsupported`。
 - 消费侧：声明只从 `claimable` 蒸馏（`ClaimAnalyzer._author_text`）、证据只关联 `claimable`（`search(tier="claimable")`）、评级摘录只取 `claimable`、研究取证的 snippet 同样只用 `claimable`；`processing/content.split_item_content` 让日报链路和取证链路对同一条目切出同样的层。
+- **VLM 生成的画面描述进不了声明层，这是类型不变式而不是约定。** `Section` 的校验器把 `provenance="vlm"` 的块强制 `asserted=False`，而 `claimable_from_sections` 只收 `asserted` 的 primary 段（spec §7 要求如此）。留给各 scraper 自己写 `asserted=False`，等于离一个忘写的参数只差一行 —— 那时一句对画面的猜测会变成对世界的断言。`provenance="ocr"` 则保留 `asserted`，只按 `confidence` 打折：图上写的字往往就是作者本人的主张。
 - 开关：`analysis.claimable_only`、`research.claimable_only`（默认 `true`）。关掉即回到分层前的行为，这是消融表里 A 与 B 两列的区别。
 
 ## 每条证据值多少信任（`src/corpus/trust.py`，P1）

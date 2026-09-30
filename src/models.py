@@ -191,6 +191,19 @@ class Section(BaseModel):
     locator: Optional[str] = None
     meta: Dict[str, Any] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def _vlm_never_asserts(self) -> "Section":
+        """A description of a picture is not something the author asserted.
+
+        spec §7 allows VLM captions as leads and forbids them from claim
+        extraction. Leaving that to each scraper would mean one forgotten
+        keyword argument turns a guessed caption into an atomic claim about the
+        world, so the exclusion lives in the type instead.
+        """
+        if self.provenance == "vlm" and self.asserted:
+            self.asserted = False
+        return self
+
 
 def sections_to_content(sections: List[Section]) -> str:
     """Flatten sections into the legacy single-string body.
