@@ -1,8 +1,8 @@
 # Horizon MCP
 
-Horizon includes a built-in MCP server that exposes the native Horizon pipeline as staged tools and read-only resources.
+The MCP server exposes the fetch → score → digest pipeline as staged tools, the evidence corpus and claim layer as read tools, and the research session as **per-round verbs**. 26 tools in total.
 
-The MCP layer does not reimplement Horizon business logic. It reuses the existing fetch, score, filter, enrich, and summarize modules from the main codebase.
+The MCP layer does not reimplement business logic. It reuses the existing fetch, score, filter, enrich, and summarize modules, and the same `corpus.db` that the CLI and the web panel share.
 
 ## Tools
 
@@ -23,12 +23,21 @@ The MCP layer does not reimplement Horizon business logic. It reuses the existin
 | `hz_corpus_stats` | Evidence-corpus overview (items, clusters, claims, sessions) |
 | `hz_corpus_search` | Full-text search over everything ever collected (CJK-aware) |
 | `hz_corpus_recent` | Most recent corpus items, optionally one source |
-| `hz_list_claims` | Claims by status with verdicts + independent-source counts |
-| `hz_get_claim` | One claim with its linked evidence rows |
+| `hz_list_claims` | Claims by pipeline status with verdicts, trust, `ungraded_reason` and independent-source counts |
+| `hz_get_claim` | One claim with its linked evidence rows and recorded contradictions |
 | `hz_research_start` | Open a long-session research task → cited report |
-| `hz_research_followup` | Iterate an existing session (narrow/expand/challenge) |
-| `hz_research_status` | Session state: sub-question tree, turns, current report |
-| `hz_research_list` | Recent research sessions |
+| `hz_research_followup` | Macro: advance the session until it finalises or has to ask |
+| `hz_research_step` | One round: decide a verb, recompute only the named branches, return the delta |
+| `hz_research_draft` | Read the versioned draft (revision, locked/stale sections, per-section evidence) |
+| `hz_research_edit` | Edit one section — creates a `user_edit` revision and locks that section |
+| `hz_research_answer` | Answer or skip a request the system raised, resuming a parked session |
+| `hz_research_status` | Session state: sub-question tree, turns, widening actions, current report |
+| `hz_research_list` | Recent research sessions, including `awaiting_user` ones |
+| `hz_send_webhook` | Deliver a summary to the configured channel |
+
+### The research verbs, in one round
+
+`hz_research_step` returns a `TurnResult`: `revision`, `move` (`askuser` / `rescope` / `deepen` / `finalize`), `changed_sections`, `new_evidence`, `verdict_changes` and `pending_request`. When the move is `askuser` the session lands in `awaiting_user` and a `research_requests` row opens; `hz_research_answer` closes it (answered or skipped) and continues the same session. A section the user edited or locked is never overwritten by a later recompute — it is marked `stale` and kept. See [docs/retrieval.md](../../docs/retrieval.md) for the layering and trust rules behind those numbers.
 
 ## Resources
 
@@ -69,7 +78,7 @@ Each run writes artifacts under `data/mcp-runs/<run_id>/`:
 1. Keep Horizon as the single source of business logic.
 2. Preserve staged re-entry so a run can continue from intermediate artifacts.
 3. Default to no extra side effects unless explicitly requested.
-4. Periscope evidence tools (`hz_corpus_*`, `hz_claims`, `hz_research_*`) act on the shared `corpus.db`, not the per-run artifacts — sessions and evidence survive server restarts and are visible to the CLI and web panel alike.
+4. Periscope evidence tools (`hz_corpus_*`, `hz_list_claims`, `hz_get_claim`, `hz_research_*`) act on the shared `corpus.db`, not the per-run artifacts — sessions and evidence survive server restarts and are visible to the CLI and web panel alike.
 
 ## Client Setup
 

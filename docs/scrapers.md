@@ -7,6 +7,16 @@ title: Source Scrapers
 
 Horizon fetches content from multiple source types. All scrapers inherit from `BaseScraper`, share an async HTTP client, and implement a `fetch(since)` method that returns a list of `ContentItem` objects. Sources are fetched concurrently via `asyncio.gather`.
 
+## 本 fork 加的抓取基础设施（P0）
+
+三处与上游不同，读下面的逐源清单前先知道：
+
+1. **源列表由注册表驱动，不再是一串 `if`。** `SOURCE_SPECS`（`src/models.py`，纯元数据：key / label / `credibility_prior` / `login_required` / `config_field` / `item_fields`）派生出 `SOURCE_REGISTRY`；`src/sources/registry.py` 持有 `key → 工厂函数`。用工厂而不是类，是因为 RSS 需要第三个参数 `ExtractorRegistry`，而 Twitter 按 `mode` 在两个类之间二选一（Playwright 版不接受 client）。加一个源的同步点从 5 处降到 2 处，由 `tests/test_source_registry.py`（28 条）钉住注册表 ↔ enum ↔ `SourcesConfig` ↔ bindings 的一致性，并在 `MockTransport` 下断言抓取循环真的到达每一个已启用源。
+2. **限速与鉴权是可注入的共享件。** `src/scrapers/throttle.py` 做 per-host 令牌桶 + 抖动 + `429` 重试一次（clock / sleeper / rng 全部可注入，测试不打挂钟）；`src/scrapers/auth.py` 提供 env-token 与 cookie-file 两种 provider，带过期检测——哪条 cookie 坏了会点名，而不是下游显示 "found 0 items"。`BaseScraper` 的这两个接缝是可选注入，默认值等于现行为，所以 14 个 scraper 一行没改也能跑。顺带修掉一个真实缺陷：`Retry-After` 按 RFC 9110 可以是 HTTP-date，原先 `int(headers["Retry-After"])` 会抛 `ValueError`，把限速升级成抓取失败。
+3. **人群文本是声明出来的，不是靠标记反解的。** 各源把评论/回复/楼层放进 `ContentItem.sections`（`tier="community"`，带 `author` 与 `locator`），`content` 由 sections 拼回。`src/scrapers/` 里**不允许再出现任何分层标记字面量**，由 `tests/test_tier_guard.py` 守护。详见 [docs/retrieval.md](retrieval.md)。
+
+因此下面每个源的 "Extracted data" 里，凡是提到评论区的地方，都指 community 层：它进全文检索与日报，不进声明蒸馏与独立信源计数。
+
 ## Hacker News
 
 **File**: `src/scrapers/hackernews.py`
@@ -226,7 +236,7 @@ When users are configured, a single profile run fetches their timelines together
 - `keywords` — independent Apify search queries (`source_mode: "search"`), not filters on the configured users' timelines. Not supported in Playwright mode.
 - `fetch_limit` — in Apify mode, each profile or keyword-search actor run requests up to `max(100, fetch_limit)` tweets. This is not a combined limit: the example above starts three discovery runs with a limit of 100 tweets each, before time filtering and deduplication. Each keyword adds an actor run and associated Apify usage.
 - `category` — optional tag for balanced digest grouping (applies to all tweets from this source)
-- `fetch_reply_text` — when `true`, a second Apify run fetches reply bodies for each important tweet and appends them under `--- Top Comments ---` for AI analysis
+- `fetch_reply_text` — when `true`, a second Apify run fetches reply bodies for each important tweet and appends them as `community` sections (declared tiers, not a text marker), so replies stay out of the claimable evidence layer
 - `max_replies_per_tweet` — maximum reply lines per tweet (sorted by engagement score)
 - `max_tweets_to_expand` — cap on reply expansion runs per pipeline cycle, to control Apify credit usage
 - `reply_min_likes` — minimum likes required for a reply to be included
@@ -235,4 +245,4 @@ When users are configured, a single profile run fetches their timelines together
 
 **Authentication**: Set `APIFY_TOKEN` in your `.env`. Get a token at [console.apify.com](https://console.apify.com/account/integrations).
 
-**Extracted data**: tweet text, URL, author, publish time, likes, retweets, replies, views, category, and (optionally) reply-thread text appended under `--- Top Comments ---`.
+**Extracted data**: tweet text, URL, author, publish time, likes, retweets, replies, views, category, and (optionally) reply-thread text appended as `community` sections.

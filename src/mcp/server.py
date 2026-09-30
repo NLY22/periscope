@@ -458,7 +458,7 @@ async def hz_list_claims(
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Claims by pipeline status (extracted | linked | graded) with verdicts,
-    confidence and independent-source counts."""
+    confidence, trust, ungraded_reason and independent-source counts."""
 
     return await _run_tool(
         "hz_list_claims",

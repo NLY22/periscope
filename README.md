@@ -82,7 +82,7 @@
 
 你的品味决定了你读什么，也决定了你希望从中得到什么。一篇新闻报道需要回答「为什么重要」，一篇工程深度长文需要回答「我能用上什么」。Periscope 的 **Profile（画像）** 为每一类内容定义各自的评分标准与输出形式，让简报读起来像是为你手工挑选的。
 
-Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游只回答「今天有什么值得读」，到了第二天就遗忘；本 fork 在此之上增加了**证据语料库、声明级核查与长会话研究**三项核心能力，并提供 **Web 面板**与扩展的 **MCP** 入口，让知识能够跨运行累积；再往下是两项支撑机制——**证据分层**与**自适应取证**，它们决定了前三项在噪声里是否真的站得住。详见[本 fork 的独有层次](#本-fork-的独有层次)。
+Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游只回答「今天有什么值得读」，到了第二天就遗忘；本 fork 在此之上增加了**证据语料库、声明级核查与多轮共创研究**三项核心能力，并提供 **Web 面板**与扩展的 **MCP**（26 个工具）入口，让知识能够跨运行累积；再往下是三项支撑机制——**证据分层**、**条目可信度**与**自适应取证**，它们决定了前三项在噪声里是否真的站得住。详见[本 fork 的独有层次](#本-fork-的独有层次)。
 
 ## 本 fork 与上游的能力对照
 
@@ -91,7 +91,10 @@ Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游�
 | 多源聚合、Profile 评分、双语日报、邮件 / Webhook / 微信投递、配置向导 | （上游） | `src/scrapers`（四个新源除外）、`src/processing`、`src/services`、`src/setup` |
 | Bilibili / V2EX / Discourse / YouTube 四个源，含 B 站 CC 字幕层 | （本 fork） | `src/scrapers/{bilibili,v2ex,discourse,youtube}.py` |
 | 证据语料库：SQLite + FTS5 + 手写 SimHash 聚簇，跨运行累积 | （本 fork） | `src/corpus/store.py`、`src/corpus/simhash.py` |
-| 证据分层：作者亲写 vs 人群发言，独立信源计数只认前者 | （本 fork） | `src/corpus/sections.py`、`items.claimable` + `claim_fts` |
+| 证据分层：scraper **声明**的类型化 `Section`（作者亲写 vs 人群发言），独立信源计数只认前者 | （本 fork） | `src/models.py` 的 `Section`、`src/corpus/sections.py`、`items.claimable` + `claim_fts` |
+| 条目可信度与独立性：可拆解的 trust 分数、noisy-OR 聚合、两道门 | （本 fork） | `src/corpus/trust.py`、`items.trust` + `trust_features_json` |
+| 多轮共创：逐轮动词 + 带 revision/locked/stale 的草稿工件 + 向用户索取输入 | （本 fork） | `src/research/{moves,drafts}.py`、`research_drafts` / `research_requests` 表 |
+| 源注册表与抓取基础设施：per-host 令牌桶、可注入时钟、env/cookie 鉴权与过期检测 | （本 fork） | `src/sources/registry.py`、`src/scrapers/{throttle,auth}.py`、`SOURCE_SPECS` |
 | 取证检索：查询扩展 + 向量路 + RRF 融合 | （本 fork） | `src/corpus/retrieval.py`、`src/ai/{expand,embeddings}.py`、`src/corpus/semantic.py` |
 | 声明级核查 + 评级一致率工具 | （本 fork） | `src/analysis/{claims,agreement}.py`、`scripts/eval_claims.py` |
 | 长会话研究：子问题树、崩溃续跑、缺证时自适应加宽 | （本 fork） | `src/research/`、`research_actions` 表 |
@@ -193,15 +196,16 @@ Profile 是一套可复用的编辑规则：**什么内容该收录、什么值�
 
 ## 本 fork 的独有层次
 
-上游 Horizon 只回答「今天有什么值得读」，并且到了第二天就遗忘。本 fork 在此基础上做了六项增强：
+上游 Horizon 只回答「今天有什么值得读」，并且到了第二天就遗忘。本 fork 在此基础上做了八项增强：
 
 1. **证据语料库（`corpus.db`）** — 所有曾经采集过的条目都会带 SimHash 指纹与近似重复聚簇被持久化存储，可用 SQLite FTS5（对 CJK 友好）检索。知识会跨运行累积，而不是在生成摘要后就蒸发。
-2. **声明级正确性核查** — 高分条目会被蒸馏为原子化、可核查的声明；每条声明都与语料证据关联，并按重复聚簇统计*独立信源*：一份通稿被十家媒体转载，只算一票而非十票。评级（supported / contested / unsupported + 置信度）每轮有预算上限。
+2. **声明级正确性核查** — 高分条目会被蒸馏为原子化、可核查的声明；每条声明都与语料证据关联并评级（supported / contested / unsupported + 置信度），评级每轮有预算上限。`contested` 不再只是一个标签：`claim_contradictions` 会记下是哪两条声明、靠哪些条目互相冲突。
 3. **长会话研究** — 提出一个问题，会得到一棵分解后的子问题树，逐题对照语料取证，并输出带引用的 Markdown 报告。追问会在同一会话上跨天、跨重启迭代（状态保存在 SQLite 中）。
-4. **处处诚实降级** — 没有 LLM key？语料照常增长，证据照常确定性关联，报告会写明*「尚未回答」*并附上已收集的证据，而不是编造内容。默认 LLM 是免费的 **Agnes** 层（`agnes-2.5-flash`），且每次调用都经过持久化响应缓存与限流，因此崩溃恢复运行与重复提示词都不消耗额外额度。
-
-5. **证据分层** — 抓取器会把评论区、楼层回复、视频字幕接进同一条正文。分层把它们拆回 `primary`（作者亲写）与 `community`（人群发言）：声明只从前者蒸馏，证据只与前者关联，独立信源计数不会被一句回帖抬高，报告引用的也是前者。可用 `analysis.claimable_only` / `research.claimable_only` 关闭，用于对照。
-6. **自适应取证加宽** — 一个子问题不再只有一次查询：先放宽词条，再换没查过的来源族，然后让模型改写查询，最后（显式开启时）用 GDELT / Google News 现采一轮。每次尝试都写进 `research_actions`，未回答的子问题会在报告里列出「取证尝试：动作(+新增条数)」，把"语料里确实没有"和"这次的问法没查到"区分开。
+4. **多轮共创（逐轮动词）** — 研究循环的顶层动词是 `AskUser | Rescope | Deepen | Finalize`。一轮 `step` 只重算被点名的分支，返回这一轮改了什么；报告是**带 revision 的草稿工件**，用户改过或锁定的章节在后续重算中**只被标记为陈旧、不会被覆盖**；缺输入时系统会主动提问并把会话停在 `awaiting_user`（没有可用 LLM 时回退只 `deepen`/`finalize`，不会连环追问）。
+5. **处处诚实降级** — 没有 LLM key？语料照常增长，证据照常确定性关联，报告会写明*「尚未回答」*并附上已收集的证据，而不是编造内容。默认 LLM 是免费的 **Agnes** 层（`agnes-2.5-flash`），且每次调用都经过持久化响应缓存与限流，因此崩溃恢复运行与重复提示词都不消耗额外额度。
+6. **证据分层（类型化字段，不靠字符串约定）** — 抓取器把评论、楼层回复、视频字幕**声明**为 `ContentItem.sections`：`primary`（作者亲写，可承载声明）与 `community`（人群发言，只能当线索），每段带 `author` / `provenance` / `locator`（可引用到具体一层）。声明只从前者蒸馏、证据只与前者关联、报告引用的也是前者。旧的标记反解只作为 `tiering="marker"` 的消融档与老库回填存在，`src/scrapers/` 里已不允许出现任何分层标记字面量。可用 `analysis.claimable_only` / `research.claimable_only` 关闭，用于对照。
+7. **条目可信度与独立性** — 每条入库内容算一个**可拆解**的信任分：`σ(源先验, 作者等级, 交叉支持, 可核验实体, 新鲜度, 来源方式 − 模板度)`，**特征与分数一起落库**，"为什么这条被当成证据"随时答得出来。独立信源**先按簇折叠重复内容、再数不同的 `(source_type, publisher)`，解析不出发布者的条目不投票**；声明级聚合用 **noisy-OR** 而不是求和（求和没有上界，够多的低质源能把任何结论刷成 supported）。阈值 `θ` 是手工先验、分诊门默认关闭，等人工标注到位才谈校准。
+8. **自适应取证加宽** — 一个子问题不再只有一次查询：先放宽词条，再换没查过的来源族，然后让模型改写查询，最后（显式开启时）用 GDELT / Google News 现采一轮。每次尝试都写进 `research_actions`，未回答的子问题会在报告里列出「取证尝试：动作(+新增条数)」，把"语料里确实没有"和"这次的问法没查到"区分开。
 
 这些能力由 CLI、Web 面板与 MCP 三个入口共享同一份 `corpus.db`，因此会话与证据跨入口、跨重启都可见。各层的实际收益见[检索与取证评测](docs/evaluation.md)。
 
@@ -214,7 +218,7 @@ uv run periscope --hours 24
 # Web 面板：证据库 / 研究报告 / 核查台（http://localhost:8790）
 uv run periscope-web --data-dir data
 
-# MCP：面向任意 MCP 客户端的 22 个工具（hz_research_start、hz_corpus_search 等）
+# MCP：面向任意 MCP 客户端的 26 个工具（hz_research_start、hz_research_step、hz_corpus_search 等）
 uv run periscope-mcp
 ```
 
@@ -453,7 +457,7 @@ Periscope 可以通过多种方式发布或投递生成的简报：
 uv run periscope-web --data-dir data        # 默认 http://localhost:8790
 ```
 
-三栏式界面：**证据库**（全文检索）、**研究报告**（长会话研究，可追问迭代）、**核查台**（按 verdict 展示声明与证据）。顶部可一键触发采集。API 文档位于 `/api/docs`。
+三栏式界面：**证据库**（全文检索）、**研究报告**（长会话研究）、**核查台**（按 verdict 展示声明与证据）。研究报告栏按轮次组织：`推一轮` 按钮、每节的「已锁定」与「上游已变 · 未覆盖」标记、待回答请求卡片；报告正文会列出未评级声明的原因（低于分诊门 / 证据不足 / 无可核验发布者 / 可信度不足）。顶部可一键触发采集。API 文档位于 `/api/docs`。
 
 ### MCP 服务
 
@@ -490,8 +494,8 @@ uv run periscope-webhook --dry-run # 预览 Webhook 请求
 | `webhook` | Webhook 端点、平台适配、消息模板与投递语言 |
 | `wechat` | 微信投递开关、语言与分块大小 |
 | `corpus` | 证据语料库：`enabled`、`path`、`cluster_max_distance`、`cluster_lookback_rows` |
-| `analysis` | 声明核查：`max_claims_per_item`、`evidence_per_claim`、`grade_min_sources`、`grade_budget_per_run`、`extract_top_items`、`claimable_only` |
-| `research` | 长会话研究：`evidence_per_question`、`max_evidence_chars`、`planner_budget_per_invocation`、`claimable_only`、`max_retrieval_rounds`、`min_evidence_for_answer` |
+| `analysis` | 声明核查：`max_claims_per_item`、`evidence_per_claim`、`grade_min_sources`、`triage_min_trust`（分诊门，默认 `0.0` = 关闭）、`grade_budget_per_run`、`extract_top_items`、`item_content_chars`、`claimable_only` |
+| `research` | 长会话研究：`evidence_per_question`、`max_evidence_chars`、`planner_budget_per_invocation`、`claimable_only`、`max_retrieval_rounds`、`min_evidence_for_answer`、`report_template`（`auto` / `flat` / 指定骨架） |
 | `retrieval` | 取证检索：`query_expansion`、`expansion_max_terms`、`semantic` + `embedding_model`/`embedding_base_url`/`embedding_api_key_env`、`semantic_top_k`、`index_batch_size`、`on_demand_collection` |
 
 ## 项目结构
@@ -553,22 +557,27 @@ CI 见 `.github/workflows/tests.yml`：Linux 与 Windows 各跑一遍全量测�
 | [评分](docs/scoring.md) | Periscope 如何评估与排序新闻条目 |
 | [抓取器](docs/scrapers.md) | 各数据源抓取器细节与扩展说明 |
 | [正文抽取](docs/extractors.md) | RSS 源的全文抽取 |
-| [检索与取证评测](docs/evaluation.md) | 消融表、标注口径、已知不足 |
-| [取证检索与证据分层](docs/retrieval.md) | 噪声从哪来、怎么分层、找不到时怎么加宽、怎么复现 |
-| [MCP 工具](src/mcp/README.md) | 面向 MCP 兼容客户端的工具参考 |
+| [检索与取证评测](docs/evaluation.md) | 消融表、标注口径、多轮成本与灌水曲线、已知不足 |
+| [取证检索与证据分层](docs/retrieval.md) | 噪声从哪来、类型化分层怎么声明、可信度与独立性怎么重算、找不到时怎么加宽、多轮草稿怎么保住了用户的字、怎么复现 |
+| [MCP 工具](src/mcp/README.md) | 面向 MCP 兼容客户端的 26 个工具参考 |
+| [设计 spec 与三期实现计划](docs/superpowers/specs/2026-09-29-broad-source-credibility-and-multiturn-research-design.md) | 为什么这么改（spec v4，§15 是交付记录）、`docs/superpowers/plans/` 下逐 Task 的计划与「执行记录」里写错的句子 |
 | [架构与生态设计](docs/horizon-hub-design.md) | HorizonHub 数据源市场与推荐的产品设计 |
 
 ## 项目状态
 
 本 fork 继承的日报闭环（上游）：多源采集、Profile 驱动的分析与富化、去重、评论摘要、双语生成、邮件 / Webhook / 微信投递、Docker 部署、MCP 集成与配置向导。其中 **GitHub Pages 发布这一条在本平台上不生效** —— `deploy-docs.yml` 仍是 GitHub Pages 专用配置，待换成平台静态托管或删除。
 
-本 fork 在此基础上额外提供证据语料库、声明级核查与长会话研究三项核心能力，以及证据分层与自适应取证两项支撑机制，并提供 Web 面板这一独立入口（见[本 fork 的独有层次](#本-fork-的独有层次)）。
+本 fork 在此基础上额外提供证据语料库、声明级核查与多轮共创研究三项核心能力，以及证据分层、条目可信度与自适应取证三项支撑机制，并提供 Web 面板这一独立入口（见[本 fork 的独有层次](#本-fork-的独有层次)）。
 
-后续计划：
+后续计划（与 `docs/superpowers/specs/` 里设计 spec 的 §15.5「还剩什么」一致）：
 
+- **声明 verdict 的人工标注 50–100 条** → 报 macro-F1 与按独立信源数分桶的一致率，再用 `roc_thresholds()` 校准 θ_s / θ_triage。这是本项目唯一"能力已实现、效果未主张"的一块：工具已就位（`scripts/eval_claims.py --export/--score`），缺的是标注本身，在此之前阈值是手工先验、分诊门默认关闭
+- **源可达性探针**：小红书 S1 三步、贴吧 S2 的第 2–3 步（第 1 步已判不通过：楼层不可达）。需要登录态或浏览器，只有仓库维护者能做
+- **P3 图文 → 文本通路**（OCR / VLM）：条件执行，卡在 S1 结论；VLM 描述只能当线索，不进声明蒸馏
 - 支持更多数据源类型，例如 Discord
-- 在 AtomGit 上发布 Release
-- 发布到 PyPI，支持 `pip install`
+- 平台侧未决：CI 是否在本平台执行（GitHub 语法的 workflow 不被执行，`deploy-docs.yml` 待替换或删除）、仓库 issue 开关只能在网页打开
+- 在 AtomGit 上发布 Release；发布到 PyPI，支持 `pip install`
+- 命名：上游后期也把项目改叫 Periscope，两个仓库同名分不开 —— 是否改名由维护者决定，尚未执行
 
 ## 贡献
 
