@@ -35,6 +35,10 @@ PROVENANCE_FACTOR: Dict[str, float] = {
     "ocr": None,           # type: ignore[assignment] -> replaced by the section's own confidence
     "vlm": 0.6,
     "legacy_marker": 0.8,
+    # A user export: the tier is declared, but Periscope did not fetch it and
+    # cannot confirm the page said this. Above inferred history, below what we
+    # pulled ourselves.
+    "manual_export": 0.85,
 }
 
 _CJK = re.compile(r"[\u3400-\u9fff]")

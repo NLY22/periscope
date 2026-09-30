@@ -166,7 +166,9 @@ class ProcessingResult(BaseModel):
 
 
 TimeBasis = Literal["published", "crawled", "unknown"]
-SectionProvenance = Literal["author", "transcript", "ocr", "vlm", "legacy_marker"]
+SectionProvenance = Literal[
+    "author", "transcript", "ocr", "vlm", "legacy_marker", "manual_export"
+]
 
 
 class Section(BaseModel):

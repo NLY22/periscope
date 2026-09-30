@@ -1,6 +1,6 @@
 # Horizon MCP
 
-The MCP server exposes the fetch → score → digest pipeline as staged tools, the evidence corpus and claim layer as read tools, and the research session as **per-round verbs**. 26 tools in total.
+The MCP server exposes the fetch → score → digest pipeline as staged tools, the evidence corpus and claim layer as read tools, and the research session as **per-round verbs**. 27 tools in total.
 
 The MCP layer does not reimplement business logic. It reuses the existing fetch, score, filter, enrich, and summarize modules, and the same `corpus.db` that the CLI and the web panel share.
 
@@ -23,6 +23,7 @@ The MCP layer does not reimplement business logic. It reuses the existing fetch,
 | `hz_corpus_stats` | Evidence-corpus overview (items, clusters, claims, sessions) |
 | `hz_corpus_search` | Full-text search over everything ever collected (CJK-aware) |
 | `hz_corpus_recent` | Most recent corpus items, optionally one source |
+| `hz_corpus_import` | Ingest a user export (`{"items": [...]}`) with declared tiers |
 | `hz_list_claims` | Claims by pipeline status with verdicts, trust, `ungraded_reason` and independent-source counts |
 | `hz_get_claim` | One claim with its linked evidence rows and recorded contradictions |
 | `hz_research_start` | Open a long-session research task → cited report |
@@ -38,6 +39,39 @@ The MCP layer does not reimplement business logic. It reuses the existing fetch,
 ### The research verbs, in one round
 
 `hz_research_step` returns a `TurnResult`: `revision`, `move` (`askuser` / `rescope` / `deepen` / `finalize`), `changed_sections`, `new_evidence`, `verdict_changes` and `pending_request`. When the move is `askuser` the session lands in `awaiting_user` and a `research_requests` row opens; `hz_research_answer` closes it (answered or skipped) and continues the same session. A section the user edited or locked is never overwritten by a later recompute — it is marked `stale` and kept. See [docs/retrieval.md](../../docs/retrieval.md) for the layering and trust rules behind those numbers.
+
+### Importing a user export
+
+`hz_corpus_import` is the sanctioned path for sources Periscope must not scrape — the design excludes captcha solving, request signing and account pools, so a gated platform arrives as text the user's own account can already see. It reaches no network.
+
+```json
+{
+  "items": [
+    {
+      "source_type": "rss",
+      "title": "某笔记：定价对比",
+      "locator": "xhs:note:abc123",
+      "author": "作者甲",
+      "published_at": "2026-09-20T00:00:00+00:00",
+      "metadata": {"source_label": "xiaohongshu"},
+      "sections": [
+        {"tier": "primary", "text": "官方定价是每百万 token 2 元。"},
+        {"tier": "community", "author": "路人乙", "text": "我觉得明明是 5 元。"}
+      ]
+    }
+  ]
+}
+```
+
+Rules that matter:
+
+- **Tiers are declared, never inferred.** `community` text from an export stays a lead: it is searchable in the full-text index but cannot enter `claimable`, claim extraction, or the independent-source count. An item with no `sections` at all is stored as one `legacy_marker` section, which the trust model already discounts.
+- **Provenance defaults to `manual_export`** (factor 0.85) because Periscope did not fetch the page and cannot confirm it said this. A payload may declare `transcript` / `ocr` / `vlm` / `author` per section instead.
+- **`source_type` must be one of the 14 registered families**, because it selects the credibility prior and the source family used by independence counting. Put the human name in `metadata.source_label`. An import may not invent its own prior.
+- **`locator` (or `url`) is the identity**; without one the item is rejected, since re-importing the same export would otherwise create a second copy. Ids are derived from the locator, so importing the same file twice reports `items_new: 0`.
+- Each item is validated independently: one bad item is returned in `rejected` with every problem it has, the rest still land.
+
+Same payload on the CLI (`uv run python scripts/import_corpus.py --file export.json --data-dir data`) and the panel API (`POST /api/import`, which answers 400 only when nothing at all could be imported).
 
 ## Resources
 

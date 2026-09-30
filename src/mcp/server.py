@@ -451,6 +451,26 @@ async def hz_corpus_recent(
 
 
 @mcp.tool()
+async def hz_corpus_import(
+    payload: dict[str, Any],
+    tiering: str = "sections",
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Import a user export ({"items": [...]}) into the evidence corpus.
+
+    Each item declares its own authorship tiers through `sections`, so crowd
+    text from an export cannot become evidence. Use this for sources Periscope
+    must not scrape; see `src/mcp/README.md` for the payload shape.
+    """
+
+    return await _run_tool(
+        "hz_corpus_import",
+        lambda: service.corpus_import(payload=payload, tiering=tiering, horizon_path=horizon_path, config_path=config_path)
+    )
+
+
+@mcp.tool()
 async def hz_list_claims(
     status: str = "graded",
     limit: int = 50,

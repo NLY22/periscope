@@ -82,7 +82,7 @@
 
 你的品味决定了你读什么，也决定了你希望从中得到什么。一篇新闻报道需要回答「为什么重要」，一篇工程深度长文需要回答「我能用上什么」。Periscope 的 **Profile（画像）** 为每一类内容定义各自的评分标准与输出形式，让简报读起来像是为你手工挑选的。
 
-Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游只回答「今天有什么值得读」，到了第二天就遗忘；本 fork 在此之上增加了**证据语料库、声明级核查与多轮共创研究**三项核心能力，并提供 **Web 面板**与扩展的 **MCP**（26 个工具）入口，让知识能够跨运行累积；再往下是三项支撑机制——**证据分层**、**条目可信度**与**自适应取证**，它们决定了前三项在噪声里是否真的站得住。详见[本 fork 的独有层次](#本-fork-的独有层次)。
+Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游只回答「今天有什么值得读」，到了第二天就遗忘；本 fork 在此之上增加了**证据语料库、声明级核查与多轮共创研究**三项核心能力，并提供 **Web 面板**与扩展的 **MCP**（27 个工具）入口，让知识能够跨运行累积；再往下是三项支撑机制——**证据分层**、**条目可信度**与**自适应取证**，它们决定了前三项在噪声里是否真的站得住。详见[本 fork 的独有层次](#本-fork-的独有层次)。
 
 ## 本 fork 与上游的能力对照
 
@@ -91,6 +91,7 @@ Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游�
 | 多源聚合、Profile 评分、双语日报、邮件 / Webhook / 微信投递、配置向导 | （上游） | `src/scrapers`（四个新源除外）、`src/processing`、`src/services`、`src/setup` |
 | Bilibili / V2EX / Discourse / YouTube 四个源，含 B 站 CC 字幕层 | （本 fork） | `src/scrapers/{bilibili,v2ex,discourse,youtube}.py` |
 | 证据语料库：SQLite + FTS5 + 手写 SimHash 聚簇，跨运行累积 | （本 fork） | `src/corpus/store.py`、`src/corpus/simhash.py` |
+| 用户导出入库通路（取不到的源不靠抓取）| （本 fork） | `src/corpus/ingest.py`、`scripts/import_corpus.py`、`hz_corpus_import`、`POST /api/import` |
 | 证据分层：scraper **声明**的类型化 `Section`（作者亲写 vs 人群发言），独立信源计数只认前者 | （本 fork） | `src/models.py` 的 `Section`、`src/corpus/sections.py`、`items.claimable` + `claim_fts` |
 | 条目可信度与独立性：可拆解的 trust 分数、noisy-OR 聚合、两道门 | （本 fork） | `src/corpus/trust.py`、`items.trust` + `trust_features_json` |
 | 多轮共创：逐轮动词 + 带 revision/locked/stale 的草稿工件 + 向用户索取输入 | （本 fork） | `src/research/{moves,drafts}.py`、`research_drafts` / `research_requests` 表 |
@@ -218,8 +219,12 @@ uv run periscope --hours 24
 # Web 面板：证据库 / 研究报告 / 核查台（http://localhost:8790）
 uv run periscope-web --data-dir data
 
-# MCP：面向任意 MCP 客户端的 26 个工具（hz_research_start、hz_research_step、hz_corpus_search 等）
+# MCP：面向任意 MCP 客户端的 27 个工具（hz_research_start、hz_research_step、hz_corpus_search 等）
 uv run periscope-mcp
+
+# 取不到的源：用户自己导出，按声明的层级入库（不联网、不碰验证码与签名）
+uv run python scripts/import_corpus.py --file export.json --data-dir data --dry-run
+uv run python scripts/import_corpus.py --file export.json --data-dir data
 ```
 
 配置键：`corpus`、`analysis`、`research`（见 `data/config.example.json`）。把 `.env` 指向 `AGNES_API_KEY` 即可获得完整体验；不配置任何 key，其余功能也能运行。
@@ -565,7 +570,7 @@ uv run python scripts/eval_multiturn.py    # 多轮调用数比值 / 轮次 / �
 | [正文抽取](docs/extractors.md) | RSS 源的全文抽取 |
 | [检索与取证评测](docs/evaluation.md) | 消融表、标注口径、多轮成本与灌水曲线、已知不足 |
 | [取证检索与证据分层](docs/retrieval.md) | 噪声从哪来、类型化分层怎么声明、可信度与独立性怎么重算、找不到时怎么加宽、多轮草稿怎么保住了用户的字、怎么复现 |
-| [MCP 工具](src/mcp/README.md) | 面向 MCP 兼容客户端的 26 个工具参考 |
+| [MCP 工具](src/mcp/README.md) | 面向 MCP 兼容客户端的 27 个工具参考 |
 | [设计 spec 与三期实现计划](docs/superpowers/specs/2026-09-29-broad-source-credibility-and-multiturn-research-design.md) | 为什么这么改（spec v4，§15 是交付记录）、`docs/superpowers/plans/` 下逐 Task 的计划与「执行记录」里写错的句子 |
 | [架构与生态设计](docs/horizon-hub-design.md) | HorizonHub 数据源市场与推荐的产品设计 |
 
@@ -578,7 +583,7 @@ uv run python scripts/eval_multiturn.py    # 多轮调用数比值 / 轮次 / �
 后续计划（与 `docs/superpowers/specs/` 里设计 spec 的 §15.5「还剩什么」一致）：
 
 - **声明 verdict 的人工标注 50–100 条** → 报 macro-F1 与按独立信源数分桶的一致率，再用 `roc_thresholds()` 校准 θ_s / θ_triage。这是本项目唯一"能力已实现、效果未主张"的一块：工具已就位（`scripts/eval_claims.py --export/--score`），缺的是标注本身，在此之前阈值是手工先验、分诊门默认关闭
-- **源可达性探针**：小红书 S1 三步、贴吧 S2 的第 2–3 步（第 1 步已判不通过：楼层不可达）。需要登录态或浏览器，只有仓库维护者能做
+- **源可达性探针**：小红书 S1 三步、贴吧 S2 的第 2–3 步（第 1 步已判不通过：楼层不可达）。S1 的第 1 步本身不需要账号，只是一次未登录 HTTP 判别；第 2–3 步才需要登录态或浏览器。**S1 不通过时的降级路径已经实现**（用户导出 → `scripts/import_corpus.py` / `hz_corpus_import` / `POST /api/import`，分层靠声明），所以"取不到的源"不再是死路，只是不自动。
 - **P3 图文 → 文本通路**（OCR / VLM）：条件执行，卡在 S1 结论；VLM 描述只能当线索，不进声明蒸馏
 - 支持更多数据源类型，例如 Discord
 - 平台侧未决：CI 是否在本平台执行（GitHub 语法的 workflow 不被执行，`deploy-docs.yml` 待替换或删除）、仓库 issue 开关只能在网页打开

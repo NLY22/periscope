@@ -154,6 +154,28 @@ def create_app(orchestrator: Any) -> FastAPI:
             row.pop("metadata", None)
         return {"count": len(rows), "items": rows}
 
+    @app.post("/api/import")
+    async def import_export(payload: dict[str, Any]) -> dict[str, Any]:
+        """Ingest a user export with declared tiers (spec §6.1 fallback path).
+
+        Nothing here reaches the network: the point is that a gated source is
+        handed over as text the user's own account can already see. If every
+        item was rejected the request is a 400, because a wholly invalid file
+        must not look like a successful import.
+        """
+        from ..corpus.ingest import IngestError, import_payload
+
+        corpus = state.orchestrator.get_corpus()
+        if corpus is None:
+            raise HTTPException(status_code=503, detail="corpus is disabled in config")
+        try:
+            report = import_payload(corpus, payload)
+        except IngestError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not report["items_total_seen"] and report["rejected"]:
+            raise HTTPException(status_code=400, detail=report["rejected"][0]["reason"])
+        return report
+
     # -------------------------------------------------------------- claims
     @app.get("/api/claims")
     async def claims(status: str = "graded", limit: int = 50) -> dict[str, Any]:
