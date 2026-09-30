@@ -775,4 +775,4 @@ spec 写下「用户侧导出 + 配一个 `hz_corpus_import` 入口」时，那�
 
 顺带发现 README 的文档表没有链 `docs/twitter-cookies.md`（从首屏根本走不到那篇），已补行并加一条"顶层 `docs/*.md` 必须被 README 链接"的护栏（`docs/index.md` 例外：它是 GitHub Pages 站点首页，本平台不构建）。
 
-**这一节没有做的事**：mermaid 的**渲染效果**未验证（本机没有可用的 mermaid CLI，`npx` 也起不来），被验证的只有内容与代码一致；§8 的 4、5 号仍没有人评标注就画不出来，7 号的延迟轴仍无数据。全量 **944 passed**（本轮 +10：9 条图元护栏 + 1 条 README 链接护栏）。
+**这一节没有做的事**：mermaid 的**渲染效果**未验证（本机没有可用的 mermaid CLI，`npx` 也起不来），被验证的只有内容与代码一致；§8 的 4、5 号仍没有人评标注就画不出来，7 号的延迟轴仍无数据；6、7 号**有数字但还没画成图**，因为 `pyproject.toml` 与 `uv.lock` 里没有任何绘图依赖（matplotlib / plotly 都没有），加不加是维护者的决定 —— 现在的载体是 `docs/evaluation.md` 的表格与 `data/eval/multiturn_results.json`。图文件本身随 **PR #6** 进来，所以只合 #3 而不合 #6 时本节与 §8 的链接会悬空到 #6 落地为止。另有一条**给贡献者的** consequence 落在 `CONTRIBUTING.md` 第 9 条：改 `Session.status` / `Move` 动词 / corpus 表 / 六种判定 / 五步阶梯 / 源族数量就得同步改图，且那条规则明写"预期它会红"。全量 **945 passed**（934 之后 +11：9 条图元护栏、1 条 README 链接护栏、1 条站点首页中英两份清单的对称护栏）。
