@@ -117,6 +117,41 @@ def test_readme_tool_count_matches_the_server() -> None:
     assert quoted == {len(tools)}, f"README says {sorted(quoted)}; server registers {len(tools)}"
 
 
+# ---------------------------------------------------------------- fork identity
+_UPSTREAM_CONTACTS = ("thysrael@gmail.com", "thysrael@163.com")
+_FORK_DOC = re.compile(r"本 fork|this fork", re.IGNORECASE)
+
+
+@pytest.mark.parametrize("name", ["SECURITY.md", "CODE_OF_CONDUCT.md"])
+def test_fork_contact_banner_comes_before_the_upstream_address(name: str) -> None:
+    """Both files were pure upstream, so every report went to a stranger's inbox.
+
+    The rule is not "never mention the upstream address" — it is that a reader
+    must be told whose address it is before they can act on it.
+    """
+    text = (REPO_ROOT / name).read_text(encoding="utf-8")
+    first_contact = min(
+        (text.index(c) for c in _UPSTREAM_CONTACTS if c in text),
+        default=None,
+    )
+    assert first_contact is not None, f"{name} no longer carries the upstream contact"
+    header = text[:first_contact]
+    assert _FORK_DOC.search(header), (
+        f"{name}: the fork/upstream distinction must appear before any contact address"
+    )
+
+
+def test_contributing_guide_is_not_the_upstream_one() -> None:
+    """CONTRIBUTING.md used to be upstream verbatim: no test command, no invariant,
+    and it sent source suggestions to a site this fork does not run."""
+    text = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    assert "uv run pytest" in text, "contributor duties must include the actual test command"
+    assert "test_tier_guard" in text, "the marker ban is the fork's core invariant; it must be documented"
+    assert "没有 CI" in text or "不执行" in text, (
+        "this platform does not run GitHub workflows; contributors must be told to verify locally"
+    )
+
+
 # ------------------------------------------------------------------- stale text
 _HISTORICAL_CONTEXT = (
     "banned", "deleted", "legacy", "not a text marker", "反解", "早期", "不再", "P0 之前", "复现",

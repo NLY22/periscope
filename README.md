@@ -74,7 +74,7 @@
 | 结论可核性 | AI 评分与摘要 | 声明级核查 + 独立信源计数 + 引用反解核验 |
 | 维护与协作 | 上游作者的渠道 | <https://atomgit.com/NLY22/periscope> 的 issue / PR |
 
-> **本页面上的 Trendshift、HelloGitHub、LINUX.DO、小红书徽章，在线演示 `thysrael.github.io`，QQ 群、`periscope1123.top` 与 `thysrael@163.com` 等联系方式以及三家赞助位，全部属于上游项目。** 本 fork 不经这些渠道分发，也不为其内容负责。下文用 `（上游）` / `（本 fork）` 标注每条能力的出处。
+> **本页面上的 Trendshift、HelloGitHub、LINUX.DO、小红书徽章，在线演示 `thysrael.github.io`，QQ 群、`periscope1123.top` 与 `thysrael@163.com` / `thysrael@gmail.com`（后者是上游的安全披露与行为准则执行邮箱）以及三家赞助位，全部属于上游项目。** 本 fork 不经这些渠道分发，也不为其内容负责；本 fork 的问题请开在本仓库，安全问题是私下联系本仓库维护者（见 [SECURITY.md](SECURITY.md)）。下文用 `（上游）` / `（本 fork）` 标注每条能力的出处。
 
 ## 简介
 
@@ -531,13 +531,19 @@ periscope/
 ## 开发与测试
 
 ```bash
-uv sync --extra dev                    # 安装开发依赖
-uv run pytest                          # 运行全部测试
-uv run pytest tests/test_corpus.py     # 运行单个测试文件
-uv run python scripts/eval_retrieval.py  # 检索消融表（docs/evaluation.md）
+uv sync --extra dev                        # 安装开发依赖
+uv run pytest                              # 运行全部测试
+uv run pytest tests/test_corpus.py         # 运行单个测试文件
+uv run python scripts/eval_retrieval.py    # 检索消融表（docs/evaluation.md）
+uv run python scripts/eval_retrieval.py --tiering marker   # 复现分层前的 A 档
+uv run python scripts/eval_multiturn.py    # 多轮调用数比值 / 轮次 / 灌水曲线（不联网）
 ```
 
-CI 见 `.github/workflows/tests.yml`：Linux 与 Windows 各跑一遍全量测试，并执行一次检索 harness（只看能否复现，不在 CI 里断言指标数值）。
+**关于 CI：这个平台上没有自动执行。** `.github/workflows/tests.yml` 与 `deploy-docs.yml` 是 GitHub 语法的配置，AtomGit 不执行它们（每个 PR 的 `check_tasks_num` 都是 0，已实测确认）。所以：
+
+- 那些文件**保留着**，迁到 GitHub 或支持该语法的平台就生效；内容仍然是可信的验收脚本（Linux + Windows 各跑一遍全量，再跑一次检索 harness，只看能否复现，不在 CI 里断言指标数值）。
+- 但在当前平台，**验证是提交者的责任**：本地跑 `uv run pytest` 与相关 harness，把实测数字写进 PR 正文。本项目不接受「有 CI 兜底」作为质量证据，PR 模板性的「测试通过」需要能复现的命令。
+- `deploy-docs.yml` 对应的 GitHub Pages 站点也不生效，`docs/` 目前只是仓库内的 Markdown；要么换平台静态托管，要么删除该文件（未决）。
 
 测试位于 `tests/`，覆盖流水线各阶段、各数据源抓取器、证据语料库与声明核查、研究会话、Web 面板与 MCP 服务等。
 

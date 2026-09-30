@@ -1,72 +1,66 @@
-# Contributing to Horizon
+# 贡献给 Periscope（本 fork）
 
-Thanks for your interest in contributing to Horizon.
+> 本仓库是 [Thysrael/Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游的 issue、PR、赞助渠道、在线演示与「投稿信息源」网站都属于**上游社区**，与本 fork 无关。本 fork 的代码、issue 与 PR 只在 <https://atomgit.com/NLY22/periscope>。
 
-## Ways to Contribute
+本 fork 的全部工作可以压成一句话：**把来源放宽到论坛、视频与评论区，再用分层、交叉印证与可解释打分把必然下降的质量补回来。** 因此这里的贡献规则只服务于一件事：改动之后，这个补质量的机制还成立吗？
 
-You can contribute in more than one way:
+## 先读这三份
 
-- Report bugs or suggest features by opening an issue
-- Improve code, documentation, or examples through pull requests
-- Contribute reusable processing profiles for new content domains
-- Share valuable news sources with the community through the website
+| 文件 | 为什么先读 |
+|---|---|
+| [`docs/retrieval.md`](docs/retrieval.md) | 分层、可信度、独立性、加宽阶梯、多轮草稿的机制 |
+| [`docs/evaluation.md`](docs/evaluation.md) | 现有数字是怎么测出来的，以及**哪些主张目前不许说** |
+| [`docs/superpowers/specs/`](docs/superpowers/specs/) | 设计 spec（含 §9 逻辑接缝自查与 §15 交付记录）与三期实现计划 |
 
-## Code Contributions
+## 这个仓库的硬约束
 
-If you want to contribute code or docs:
+这些不是风格偏好，每一条都有守护测试或明确的失效后果。
 
-1. Fork the repository
-2. Create a new branch
-3. Make your changes
-4. Open a pull request with a clear description
+1. **分层靠声明，不靠字符串。** 新的抓取器必须把作者文本与人群文本放进 `ContentItem.sections`（`tier="primary"|"community"`，带 `author` / `provenance` / 必要时 `locator`），`content` 由 sections 拼回。`src/scrapers/` 里**禁止出现任何分层标记字面量**（中文 `【…】` 与英文 `--- Top Comments ---` 都不行）—— 曾经有两套互不相交的标记词表，结果三个现役源的评论在取证链路被当成作者亲写，这条规则就是那次事故的产物。守护测试：`tests/test_tier_guard.py`。
+2. **人群文本只能是线索。** 声明只能从 `claimable` 蒸馏、证据只与 `claimable` 关联、独立信源计数只认有发布者的条目。如果你的改动让一句回帖能变成"信源"，那是 bug。
+3. **加一个源只准动两处。** 源元数据写在 `models.py` 的 `SOURCE_SPECS`（key / label / `credibility_prior` / `login_required` / `config_field` / `item_fields`），scraper 绑定写在 `src/sources/registry.py`。第四处都不许出现手工同步点。守护测试：`tests/test_source_registry.py`。
+4. **不许写挂钟断言。** 凡涉及时间的代码都要接受可注入的 `clock` / `now` / `sleeper` / `rng`，测试里传固定值。理由很实际：Windows 时钟粒度约 15ms，挂钟断言会在跑全量时随机变红；而且文档里引用到小数点后四位的数字会随日历过期（`Corpus.add_items(..., now=)` 就是这么加上的）。
+5. **`src/models.py` 只准 import stdlib + pydantic。** 它会反向被 `corpus/store.py` import，破这条就是死循环。共享逻辑放 `src/corpus/`，别放 `src/analysis/`（`analysis/__init__` 会拉起 `claims` → `corpus.store`）。
+6. **新增能力要么进消融表，要么别说它有用。** 每个新特性都要么在 `scripts/eval_*.py` 里有一列可复现的数字，要么在 `docs/evaluation.md` 的"已知不足"里写清"能力已实现、效果未主张"。后者是本项目的诚实底线。
+7. **文档要说真话，而且要有测试说真话。** 配置项、MCP 工具名与数量、README 的计数都由 `tests/test_docs_match_code.py` 钉住；改了模型字段或加工具而没改文档，那条测试会红。
 
-Please keep pull requests focused and easy to review.
+## 环境
 
-## Contribute a Processing Profile
+```bash
+uv venv --python 3.12
+uv sync --extra dev
+uv run pytest                       # 全量
+uv run python scripts/eval_retrieval.py
+uv run python scripts/eval_multiturn.py
+```
 
-A processing profile is a reusable editorial policy for one content domain. It
-defines what content belongs to the domain, how Horizon scores it, and which
-content blocks Horizon generates. Profiles are prompt and JSON files, so adding
-one does not require changing Python code.
+## 本平台上没有 CI，验证是你的责任
 
-Add a new directory under `profiles/<id>/` containing:
+`.github/workflows/` 里的文件是 GitHub 语法，AtomGit 不执行（每个 PR 的 `check_tasks_num` 都是 0，已实测确认）。所以：
 
-- `profile.json` for the profile contract and output blocks
-- `match.md` for content routing rules
-- `analysis.md` for the scoring rubric
-- `enrichment.md` for output instructions
+- 提交前本地跑全量测试，**collected 数只增不减**；
+- 修 bug 时先写一条能红的测试，把失败输出贴进 commit message（本仓库的 P0 就是这么留证据的）；
+- PR 正文里给出可复现的命令与实测数字，而不是「测试通过」。
 
-Built-in profiles participate in automatic routing. Contributions should
-therefore describe a clear content domain, be useful beyond one person's source
-list, and avoid overlapping an existing profile without a meaningful difference
-in evaluation or output. Keep personal thresholds and topic-deduplication
-preferences in runtime configuration rather than the profile.
+## PR 正文希望包含的内容
 
-See [Processing Profiles](docs/profiles.md#contributing-a-profile) for the full
-format and submission checklist.
+1. 这是什么改动，挂在 spec 的哪一节（或哪条现役缺陷）；
+2. 改了什么，指到 `文件:符号`；
+3. 验收表：判据 / 怎么验 / **结果数字**；
+4. **明确没做**：这一期故意不碰什么；
+5. 与计划或设计的偏差，以及为什么；
+6. 已知不好看的部分照写：本项目靠承认限制来换取可信，藏起来反而失去意义。
 
-## Share Sources
+## 贡献处理画像（Profile）
 
-Horizon also welcomes **source contributions**, not just code.
+画像定义某个内容域该收什么、怎么打分、生成哪些输出块，是 prompt + JSON，不需要改 Python。新增 `profiles/<id>/`：`profile.json`（契约与输出块）、`match.md`（路由规则）、`analysis.md`（评分标准）、`enrichment.md`（输出说明）。内置画像参与自动路由，所以贡献的画像要能描述一个清晰的内容域、对别人也有用、与现有画像有实质差别。个人阈值与话题去重偏好请放在运行期配置里，不要塞进画像。完整格式见 [docs/profiles.md](docs/profiles.md#contributing-a-profile)。
 
-If you discover high-quality sources worth sharing with other users, please submit them via **[horizon1123.top](https://horizon1123.top)**.
+## 贡献信息源
 
-Good examples include:
+本 fork 的信息源改动**直接开 PR 或 issue**。（上游社区收集投稿的站点不由本 fork 运营，而且两处地址不一致：上游 `CONTRIBUTING.md` 写的是 `horizon1123.top`，上游 `README.md` 现在写的是 `periscope1123.top` —— 本项目改名后旧地址未同步。以那两个字面量出现在本仓库里只是为了说明归属，不代表本 fork 使用或背书它们。）
 
-- niche RSS or Atom feeds
-- valuable Hacker News or Reddit sources
-- notable GitHub repositories or release sources
-- high-signal Telegram channels
-- other reliable tech news sources
+新增一个源通常只需要：`SOURCE_SPECS` 一条 + `src/sources/registry.py` 一个工厂绑定 + 抓取器（如果要新增）+ `docs/scrapers.md` 一节。**先确认取得到**：中文 UGC 平台默认有登录墙或验证码，请先在 PR 里贴出实际响应，而不是假设能抓。贴吧的教训记录在 spec §14.2：列表页可达但楼层全部 `HTTP 403`，于是它连"分层"都无法验证。
 
-## Before You Submit
+## 行为准则与安全披露
 
-Please make sure your contribution is:
-
-- relevant to Horizon users
-- clear and well-described
-- respectful of copyright and platform rules
-
-## Questions
-
-If you are unsure whether something fits, feel free to open an issue first.
+见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) 与 [SECURITY.md](SECURITY.md)。两者顶部的说明同样适用于本 fork：**上游联系邮箱不代表本 fork**，本 fork 的问题请开在本仓库。
