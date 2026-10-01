@@ -246,6 +246,9 @@ def render(source: Path) -> Dict[str, str]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    from src._cli import force_utf8_output
+
+    force_utf8_output()  # it prints captions quoting source text, and chart labels
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument(

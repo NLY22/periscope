@@ -28,7 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src._cli import display_path  # noqa: E402
+from src._cli import display_path, force_utf8_output  # noqa: E402
 from src.corpus.metrics import evaluate  # noqa: E402
 from src.corpus.retrieval import HybridRetriever  # noqa: E402
 from src.corpus.semantic import EmbeddingIndex  # noqa: E402
@@ -187,6 +187,7 @@ def markdown_table(rows: List[List[str]]) -> str:
 
 
 async def main() -> int:
+    force_utf8_output()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--top-k", type=int, default=10, help="rank depth scored")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)

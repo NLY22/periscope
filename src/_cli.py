@@ -1,7 +1,24 @@
 """Shared CLI argument helpers for Horizon entrypoints."""
 
 import argparse
+import sys
 from pathlib import Path
+
+
+def force_utf8_output() -> None:
+    """Make console output survivable on a Chinese Windows code page.
+
+    The default console encoding there is cp936, which cannot encode `⚠` or any
+    of the report's status glyphs, so a script that finishes its work and then
+    prints a warning dies with `UnicodeEncodeError` at the last line - the
+    result looks like a broken tool, and on a labeling run it costs the printed
+    thresholds. Replacing what cannot be encoded beats losing the output.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
 
 
 def display_path(path, root=None) -> str:

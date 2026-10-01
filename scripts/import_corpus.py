@@ -29,6 +29,9 @@ from src.corpus.sections import TIERINGS  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
+    from src._cli import force_utf8_output
+
+    force_utf8_output()  # titles and bodies come from outside: any glyph can appear
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--file", required=True, help="export JSON path, or - for stdin")
     parser.add_argument("--data-dir", default="data", help="directory holding corpus.db")

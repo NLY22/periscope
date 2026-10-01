@@ -389,6 +389,9 @@ def print_table(results: Dict[str, Any]) -> None:
 
 
 def main() -> int:
+    from src._cli import force_utf8_output
+
+    force_utf8_output()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--branches", default="2,4,8",
                         help="comma-separated branch counts for the recompute ratio")

@@ -12,6 +12,9 @@ from src.mcp.service import HorizonPipelineService
 
 
 async def _main() -> None:
+    from src._cli import force_utf8_output
+
+    force_utf8_output()
     horizon_path = resolve_horizon_path()
     service = HorizonPipelineService()
     validation = await service.validate_config(

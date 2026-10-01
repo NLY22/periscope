@@ -26,7 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src._cli import display_path  # noqa: E402
+from src._cli import display_path, force_utf8_output  # noqa: E402
 from src.analysis.agreement import LABELS, independence_buckets, score_pairs  # noqa: E402
 from src.corpus.sections import split_sections  # noqa: E402
 from src.corpus.trust import roc_thresholds  # noqa: E402
@@ -400,6 +400,7 @@ def score_sheet(sheet_path: Path, out_path: Path | None,
 
 
 def main() -> int:
+    force_utf8_output()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--export", type=Path, default=None, metavar="DB", help="导出标注表")
     parser.add_argument("--sheet", type=Path, default=DEFAULT_SHEET)
