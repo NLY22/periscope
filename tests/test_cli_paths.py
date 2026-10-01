@@ -84,6 +84,30 @@ def test_every_printing_script_declares_its_output_encoding() -> None:
     assert not unguarded, f"scripts printing without a code-page guard: {unguarded}"
 
 
+def test_the_guard_reconfigures_the_real_streams(monkeypatch) -> None:
+    """Not just "it does not raise": after the call, an unencodable glyph has to
+    actually reach the byte stream as UTF-8 instead of killing the process.
+
+    The first version of this asserted `"⚠ 阈值\\n"` exactly and failed - on
+    Windows a TextIOWrapper translates `\n` to `\r\n` on write, so the fix was
+    fine and the expectation was wrong. Normalizing newlines keeps the
+    assertion about what it was for: the encoding, not the line ending.
+    """
+    import io
+
+    buffer = io.BytesIO()
+    stream = io.TextIOWrapper(buffer, encoding="gbk", errors="strict")
+    monkeypatch.setattr(sys, "stdout", stream)
+    monkeypatch.setattr(sys, "stderr", stream)
+
+    force_utf8_output()
+    print("\u26a0 阈值")
+    stream.flush()
+
+    written = buffer.getvalue().decode("utf-8").replace("\r\n", "\n")
+    assert written == "⚠ 阈值\n", buffer.getvalue()
+
+
 LABELLED = {
     "labels": [
         {"claim_id": "a", "machine_verdict": "supported", "human_verdict": "supported",
