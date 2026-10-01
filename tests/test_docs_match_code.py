@@ -758,3 +758,152 @@ def test_the_symbol_net_is_not_toothless() -> None:
     assert _unknown_symbols(f"`{fake_class}` and `{fake_tool}` and `_draft`", vocab) == sorted(
         [fake_class, fake_tool]
     )
+
+
+# ------------------------------------------------------------ documented CLI surface
+_SCRIPTS_TABLE = re.compile(r'^(periscope[a-z-]*)\s*=\s*"([\w.]+):', re.M)
+
+
+def _entry_points() -> dict[str, str]:
+    return dict(_SCRIPTS_TABLE.findall(_read(REPO_ROOT / "pyproject.toml")))
+
+
+def _options_in(mod_rel: str) -> set[str]:
+    path = REPO_ROOT / mod_rel
+    if not path.exists():
+        return set()
+    text = _read(path)
+    # Match any `"--flag"` literal in the module: argparse calls wrap, and several
+    # declare the short form first (`"-d", "--data-dir"`), which an
+    # `add_argument("--x"` anchored pattern silently misses.
+    flags = set(re.findall(r'"--([a-z][a-z0-9-]*)"', text))
+    # Entry points share one parser helper: src/_cli.py contributes --data-dir and
+    # --config to whichever CLI imports it. Without this the docs looked like they
+    # advertised three flags that do not exist -- they do, they are just declared
+    # one file over. Absence claims need the whole search surface.
+    if "_cli" in text:
+        flags |= _options_in("src/_cli.py")
+    return flags
+
+
+# Flags of the programs that *wrap* ours. A line like
+# "uv run periscope --hours 24` 或 `docker compose run --rm periscope-collect"
+# puts a compose flag between two of our commands, and crediting `--rm` to the
+# collector would report a documentation defect that does not exist.
+_ORCHESTRATOR_FLAGS = {"rm", "entrypoint", "build", "no-cache", "it", "detach", "d"}
+
+
+def _command_lines(path: Path) -> list[str]:
+    """Only code spans and fenced blocks, one line at a time.
+
+    Scanning prose makes a changelog that *discusses* `--flag` look like a
+    tutorial that advertises it. Commands in this repository are always inside
+    code spans or fenced blocks, so that is where they get checked.
+    """
+    text = _read(path)
+    chunks = re.findall(r"`([^`\n]+)`", text)
+    chunks += re.findall(r"```[a-zA-Z]*\n(.*?)```", text, re.S)
+    lines: list[str] = []
+    for chunk in chunks:
+        lines.extend(chunk.splitlines())
+    return lines
+
+
+def _documented_targets() -> dict[str, set[str]]:
+    """Every --flag the docs print for one of our commands.
+
+    A flag belongs to the command it follows *up to the next command on the
+    same line*, because the compose idiom stacks two: `docker compose run --rm
+    --entrypoint uv periscope-collect run periscope-wechat test --lang zh`
+    advertises `--lang` for the wechat CLI, not the collector, and `--rm` is
+    docker's. Matching by whole line made both look like documentation defects.
+    """
+    pattern = re.compile(r"(?:uv run )?(?:python )?(scripts/\w+\.py|periscope-[a-z-]+|periscope)")
+    found: dict[str, set[str]] = {}
+    sources = [
+        README, MCP_DOC, REPO_ROOT / "CONTRIBUTING.md", REPO_ROOT / "SECURITY.md",
+        REPO_ROOT / "CHANGELOG.md", *sorted((REPO_ROOT / "docs").glob("*.md")),
+    ]
+    for path in sources:
+        for line in _command_lines(path):
+            matches = list(pattern.finditer(line))
+            for index, match in enumerate(matches):
+                stop = matches[index + 1].start() if index + 1 < len(matches) else len(line)
+                segment = line[match.end():stop]
+                found.setdefault(match.group(1), set()).update(
+                    flag for flag in re.findall(r"--([a-z][a-z0-9-]+)", segment)
+                    if flag not in _ORCHESTRATOR_FLAGS
+                )
+    return found
+
+
+def _resolve_module(target: str) -> str:
+    if target.startswith("scripts/"):
+        return target
+    if target == "periscope-collect":        # docker-compose service -> image entrypoint
+        return "src/main.py"
+    return _entry_points().get(target, "").replace(".", "/") + ".py"
+
+
+def test_every_documented_command_flag_exists() -> None:
+    """A flag copied out of the docs has to be accepted by the program.
+
+    Command-line twin of the route-reachability guard: the docs promise a
+    surface, and an unchecked promise turns into `unrecognized arguments` on a
+    reader's machine while every test stays green.
+    """
+    unknown = {}
+    for target, flags in _documented_targets().items():
+        module = _resolve_module(target)
+        assert module, f"{target} is documented but is neither an entry point nor a script"
+        available = _options_in(module)
+        missing = sorted(flag for flag in flags if flag not in available)
+        if missing:
+            unknown[target] = missing
+    assert not unknown, f"docs print flags the programs do not accept: {unknown}"
+
+
+def test_the_reachability_probe_is_documented_as_a_runnable_command() -> None:
+    """A tool named only in prose is a tool nobody runs.
+
+    The probe is the thing that turns "can this source be fetched" from an
+    opinion into a measurement, and the whole S1/P3 chain waits on it -- yet
+    the README used to say "one command does it" without printing the command.
+    """
+    mentions = [
+        line
+        for path in (README, REPO_ROOT / "CONTRIBUTING.md", *sorted((REPO_ROOT / "docs").glob("*.md")))
+        for line in _command_lines(path)
+        if "spike_sources.py" in line
+    ]
+    assert mentions, "scripts/spike_sources.py is never shown as a command"
+    # A bare `scripts/spike_sources.py` inside prose is a mention, not a
+    # runnable example -- what has to exist is at least one line a reader can
+    # copy, which means it names the required --source and the --online switch
+    # that is the whole point of the guard.
+    invocations = [line for line in mentions if "--source" in line]
+    assert invocations, (
+        "the probe is only ever mentioned; no documented line can be run as-is"
+    )
+    assert any("--online" in line for line in invocations), (
+        "no example shows the only flag that makes the probe actually fetch"
+    )
+
+
+def test_the_flag_guard_resolves_shared_and_invented_options() -> None:
+    assert "hours" in _options_in("src/main.py")
+    assert "data-dir" in _options_in("src/main.py"), "the shared parser must count"
+    for made_up in ("summarise-everything", "force-refresh-all"):
+        assert made_up not in _options_in("src/main.py")
+        assert made_up not in _options_in("scripts/eval_retrieval.py")
+    assert {"tiering", "check"} <= {  # the harnesses the docs tell people to run
+        f for f in _options_in("scripts/eval_retrieval.py")
+    } | _options_in("scripts/render_eval_charts.py")
+
+    # Bite proof: the same comparison the guard runs, fed an invented flag.
+    synthetic = {"periscope": {"hours", "totally-made-up"}}
+    missing = {
+        target: sorted(flag for flag in flags if flag not in _options_in(_resolve_module(target)))
+        for target, flags in synthetic.items()
+    }
+    assert missing == {"periscope": ["totally-made-up"]}

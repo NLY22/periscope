@@ -62,7 +62,13 @@ uv run python scripts/eval_multiturn.py
 
 本 fork 的信息源改动**直接开 PR 或 issue**。（上游社区收集投稿的站点不由本 fork 运营，而且两处地址不一致：上游 `CONTRIBUTING.md` 写的是 `horizon1123.top`，上游 `README.md` 现在写的是 `periscope1123.top` —— 本项目改名后旧地址未同步。以那两个字面量出现在本仓库里只是为了说明归属，不代表本 fork 使用或背书它们。）
 
-新增一个源通常只需要：`SOURCE_SPECS` 一条 + `src/sources/registry.py` 一个工厂绑定 + 抓取器（如果要新增）+ `docs/scrapers.md` 一节。**先确认取得到**：中文 UGC 平台默认有登录墙或验证码，请先在 PR 里贴出实际响应，而不是假设能抓。贴吧的教训记录在 spec §14.2：列表页可达但楼层全部 `HTTP 403`，于是它连"分层"都无法验证。
+新增一个源通常只需要：`SOURCE_SPECS` 一条 + `src/sources/registry.py` 一个工厂绑定 + 抓取器（如果要新增）+ `docs/scrapers.md` 一节。**先确认取得到**：中文 UGC 平台默认有登录墙或验证码，请先在 PR 里贴出实际响应，而不是假设能抓。判别这件事已经做成工具，跑一条就有结论（不加 `--online` 它一个请求都不发）：
+
+```bash
+uv run python scripts/spike_sources.py --source tieba --kw <吧名或关键词> --online
+```
+
+贴吧的教训记录在 spec §14.2：列表页可达但楼层全部 `HTTP 403`，于是它连"分层"都无法验证。**取不到的源不要写抓取代码**，走导出入库那条路（见 `docs/retrieval.md` 的 §6.1 一节与面板的「导入你导出的内容」）。
 
 ## 行为准则与安全披露
 
