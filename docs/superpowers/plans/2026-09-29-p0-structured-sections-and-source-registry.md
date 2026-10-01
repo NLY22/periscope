@@ -36,7 +36,7 @@
 | `src/scrapers/auth.py` | 两种 provider：env token、cookie 文件（含过期检测与失效重试一次） |
 | `tests/test_section_model.py` | Task 1：Section / ContentItem 归一化 |
 | `tests/test_claimable_dispatch.py` | Task 2：`claimable_of` 的 sections 路径与 legacy 路径 |
-| `tests/test_corpus_v3_migration.py` | Task 3：schema v3 迁移与写入侧回填 |
+| `tests/test_corpus_v3_migration.py`（P1 里改名为 `tests/test_corpus_migration.py`） | Task 3：schema v3 迁移与写入侧回填 |
 | `tests/test_locator_dedup.py` | Task 4：locator 去重键与跨源合并 |
 | `tests/test_source_registry.py` | Task 5 + Task 9：注册表 ↔ enum ↔ `SourcesConfig` ↔ bindings 一致性 |
 | `tests/test_throttle.py` | Task 6（+ Task 8 追加 BaseScraper 黏合） |
@@ -619,7 +619,7 @@ git commit -m "Feat: route the claimable layer through typed sections, markers a
 
 - [ ] **Step 1: 写失败的测试**
 
-创建 `tests/test_corpus_v3_migration.py`：
+创建 `tests/test_corpus_v3_migration.py`（**这个文件后来被 P1 改名为 `tests/test_corpus_migration.py` 并扩到 schema v4**；在现在的仓库里找它请以新名为准）：
 
 ```python
 """Schema v3: locator/time_basis/sections_json, backfilled on old databases."""
