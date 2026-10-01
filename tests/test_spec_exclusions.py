@@ -29,6 +29,7 @@ from src.models import (  # noqa: E402
 )
 
 CONFIG_DOC = REPO_ROOT / "docs" / "configuration.md"
+GUIDE_DOC = REPO_ROOT / "docs" / "twitter-cookies.md"
 
 
 def _sources(*folders: str) -> str:
@@ -118,3 +119,31 @@ def test_the_extra_key_strictness_split_is_still_the_documented_one() -> None:
 
 def _read_config_doc() -> str:
     return CONFIG_DOC.read_text(encoding="utf-8")
+
+
+def test_the_cookie_guide_does_not_sell_an_account_pool() -> None:
+    """§11 excludes account pools; the inherited guide recommended one.
+
+    The pooling machinery is upstream code and stays (this fork adds none of
+    it, which `test_no_captcha_solving_and_no_request_signing` does not claim
+    otherwise), so the enforceable part is the prose: a guide that says "rotate
+    accounts, it is much more stable" states the opposite of SECURITY.md three
+    lines from a section that states the boundary. Assert both halves - the
+    selling phrases are gone, and the boundary sentence is still there to
+    replace them - then check the phrases would have matched the old copy.
+    """
+    guide = GUIDE_DOC.read_text(encoding="utf-8")
+    for phrase in ("防封", "多账号轮询", "大幅提升稳定性", "建议使用"):
+        assert phrase not in guide, (
+            f"the cookie guide is selling {phrase} again, which §11 rules out"
+        )
+    assert "一个账号，你自己的账号" in guide
+    assert "本 fork 的采集边界" in guide
+
+    old_copy = (
+        "## 4. 多账号轮询（防封策略）\n"
+        "如果你有多个 X 账号，可以为每个账号导出 cookie\n"
+        "Horizon 会自动轮询使用这些 cookie，大幅提升稳定性。\n"
+        "⚠️ 账号安全：建议使用小号/备用号，避免主账号风险"
+    )
+    assert sum(p in old_copy for p in ("防封", "多账号轮询", "大幅提升稳定性", "建议使用")) == 4
