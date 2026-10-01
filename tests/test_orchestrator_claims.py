@@ -184,3 +184,22 @@ def test_linking_and_grading_still_run_when_nothing_is_new(tmp_path, monkeypatch
     assert ("grade",) in ran
     assert not [r for r in ran if r[0] == "extract"]
     orch._get_corpus().close()
+
+
+def test_triage_floor_reaches_the_analyzer_that_picks_claims(tmp_path, monkeypatch) -> None:
+    """`analysis.triage_min_trust` has to arrive at the ClaimAnalyzer.
+
+    The store-level gate is tested (test_trust_p1.py); the hop that was not is
+    config -> analyzer. Hardcode 0.0 at the call site and every document stays
+    true while the gate is silently dead. The default assertion is the docs'
+    claim "0 = 门关闭", so it is pinned from the code side too.
+    """
+    orch = make_orchestrator(tmp_path, monkeypatch)
+    analyzer = orch._get_claim_analyzer()
+    assert analyzer.triage_min_trust == orch.config.analysis.triage_min_trust == 0.0
+
+    orch.config.analysis.triage_min_trust = 0.42
+    assert orch._get_claim_analyzer().triage_min_trust == 0.42, (
+        "the analyzer is cached without re-reading config; if that is intended, "
+        "document that the knob applies only to a fresh analyzer"
+    )
