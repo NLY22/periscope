@@ -1229,11 +1229,10 @@ class ResearchSession:
                     # model with a judgment it never made.
                     trust = v.get("trust")
                     if v.get("verdict_source") == "trust_gate":
-                        tag = (
-                            f"🚫 未通过可信度门（T={float(trust):.2f}，模型原判 supported）"
-                            if trust is not None
-                            else "🚫 未通过可信度门（模型原判 supported）"
-                        )
+                        # No T in here on purpose: the suffix already prints
+                        # `（独立信源 N，T=…）`; the first browser render duplicated
+                        # it and put two bracket groups side by side.
+                        tag = "🚫 未通过可信度门 · 模型原判 supported"
                     else:
                         tag = (
                             f"❌ 可信度不足（T={float(trust):.2f}）"
