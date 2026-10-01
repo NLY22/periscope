@@ -158,6 +158,84 @@ def test_the_export_tells_the_labeler_about_class_coverage_up_front() -> None:
     assert "0.667" in eval_claims.COVERAGE_NOTE, "the reason belongs on the sheet, not only in the docs"
 
 
+# ------------------------------------------------------------------- excerpts
+# The instructions told the labeler to judge from the excerpts in `evidence` -
+# and the sheet contained titles and URLs only, so the task as written could not
+# be done without opening every source by hand. `--tiering` was also decorative
+# in this script: parsed, never read.
+
+def _leak_item(corpus):
+    """Author paragraph plus a comment thread joined by the English marker that
+    `corpus/sections.py` never learned - this fork's founding leak."""
+    from datetime import datetime, timezone
+
+    from src.models import ContentItem, Section, SourceType
+
+    now = datetime(2026, 9, 29, tzinfo=timezone.utc)
+    item = ContentItem(
+        id="x:leak", source_type=SourceType.HACKERNEWS, title="t",
+        url="https://e.com/leak",
+        content="DeepSeek-V4 shipped in 2026-09.\n\n--- Top Comments ---\n\n"
+                "[alice]: the benchmark is rigged",
+        author="bob", published_at=now, fetched_at=now,
+        sections=[
+            Section(tier="primary", text="DeepSeek-V4 shipped in 2026-09."),
+            Section(tier="community", text="[alice]: the benchmark is rigged", author="alice"),
+        ],
+    )
+    corpus.add_items([item])
+    return item
+
+
+def test_both_arms_disagree_about_what_counts_as_author_text(tmp_path: Path) -> None:
+    from src.corpus.store import Corpus
+
+    corpus = Corpus(tmp_path / "arms.db")
+    _leak_item(corpus)
+    row = corpus._conn.execute(
+        "SELECT content, claimable FROM items WHERE id='x:leak'"
+    ).fetchone()
+
+    sections_arm = eval_claims.claimable_excerpt(row["content"], row["claimable"], "sections")
+    marker_arm = eval_claims.claimable_excerpt(row["content"], row["claimable"], "marker")
+
+    assert "rigged" not in sections_arm, sections_arm
+    assert "rigged" in marker_arm, "arm A must show the leak it is there to quantify"
+    assert "\n" not in marker_arm and len(marker_arm) <= eval_claims.EXCERPT_CHARS
+
+
+def test_scoring_under_a_different_arm_than_the_sheet_refuses_to_be_silent(
+    tmp_path: Path,
+) -> None:
+    payload = three_class_rows()
+    payload["tiering"] = "marker"
+    path = tmp_path / "marker-sheet.json"
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    out = tmp_path / "r.json"
+
+    text = eval_claims.score_sheet(path, out, None, "sections")
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert "两档不能共用同一份 ground truth" in text, text
+    assert report["arm_mismatch"] is True
+    assert text.index("两档不能共用") < text.index("n="), "the warning precedes the numbers"
+
+    matching = eval_claims.score_sheet(path, out, None, "marker")
+    assert "两档不能共用" not in matching, matching
+
+
+def test_the_tiering_flag_reaches_both_halves_of_the_pipeline() -> None:
+    """Guards against the flag going decorative again, which is how it shipped."""
+    source = (REPO_ROOT / "scripts" / "eval_claims.py").read_text(encoding="utf-8")
+    export = source.split("def export_sheet")[1].split("def score_sheet")[0]
+    score = source.split("def score_sheet")[1].split("def main")[0]
+    main = source.split("def main")[1]
+
+    assert "claimable_excerpt" in export, "the sheet stopped carrying excerpts"
+    assert '"tiering": tiering' in export, "the export no longer records its arm"
+    assert "sheet_arm" in score and "arm_mismatch" in score
+    assert main.count("args.tiering") == 2, "one half stopped honouring --tiering"
+
+
 # --------------------------------------------------------------- blind labelling
 # The non-blind shape was a documented caveat ("一致率因此偏乐观") plus an
 # instruction to blank two columns by hand. Anchored agreement is the number a

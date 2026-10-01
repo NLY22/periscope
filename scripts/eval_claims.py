@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -26,6 +27,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.analysis.agreement import LABELS, independence_buckets, score_pairs  # noqa: E402
+from src.corpus.sections import split_sections  # noqa: E402
 from src.corpus.trust import roc_thresholds  # noqa: E402
 
 DEFAULT_DB = REPO_ROOT / "data" / "corpus.db"
@@ -64,7 +66,31 @@ def split_machine_columns(claims: List[Dict[str, Any]]) -> Dict[str, Dict[str, A
     return machine
 
 
-def export_sheet(db_path: Path, out_path: Path, blind: bool = False) -> int:
+EXCERPT_CHARS = 400
+
+
+def claimable_excerpt(content: str | None, stored_claimable: str | None,
+                      tiering: str, chars: int = EXCERPT_CHARS) -> str:
+    """The text the grader was shown, under the arm being labelled.
+
+    Same whitespace collapse and same cap as `ClaimAnalyzer._excerpt`, on purpose:
+    a verdict a human wrote against different text than the model saw is not a
+    measurement of the same system. `tiering="marker"` ignores the declared
+    tiers and re-derives them from marker lines, which is what lets a labeler
+    see the leak arm A is there to quantify.
+    """
+    if tiering == "marker":
+        text = " ".join(
+            section.text for section in split_sections(content)
+            if section.tier == "primary"
+        ) or (content or "")
+    else:
+        text = stored_claimable or content or ""
+    return re.sub(r"\s+", " ", text)[:chars]
+
+
+def export_sheet(db_path: Path, out_path: Path, blind: bool = False,
+                 tiering: str = "sections") -> int:
     """Dump graded and linked claims into a labeling sheet, verdicts unfilled.
 
     With `blind`, the machine columns are held out of the sheet entirely and
@@ -84,7 +110,8 @@ def export_sheet(db_path: Path, out_path: Path, blind: bool = False) -> int:
             """SELECT c.id, c.text, c.claim_type, c.status, c.verdict,
                       c.verdict_source,
                       c.confidence, c.trust, c.independent_sources, c.item_id,
-                      i.title AS origin_title, i.url AS origin_url
+                      i.title AS origin_title, i.url AS origin_url,
+                      i.content AS origin_content, i.claimable AS origin_claimable
                FROM claims c LEFT JOIN items i ON i.id = c.item_id
                WHERE c.status IN ('linked','graded')
                ORDER BY c.independent_sources DESC, c.created_at"""
@@ -96,18 +123,39 @@ def export_sheet(db_path: Path, out_path: Path, blind: bool = False) -> int:
             # is what makes the sheet show the same excerpts the grader was
             # given. A second number in this query would silently relabel a
             # different evidence set than the one being graded.
-            evidence = conn.execute(
-                """SELECT e.item_id, e.cluster_id, e.source_type, i.title, i.url
-                   FROM claim_evidence e LEFT JOIN items i ON i.id = e.item_id
-                   WHERE e.claim_id=? ORDER BY e.score DESC""",
-                (row["id"],),
-            ).fetchall()
+            evidence = [
+                {
+                    "item_id": e["item_id"],
+                    "cluster_id": e["cluster_id"],
+                    "source_type": e["source_type"],
+                    "title": e["title"],
+                    "url": e["url"],
+                    # The instructions tell the labeler to judge from these
+                    # excerpts; before this there were none in the sheet, so the
+                    # only way to do the task was to open every URL.
+                    "claimable_excerpt": claimable_excerpt(
+                        e["content"], e["claimable"], tiering
+                    ),
+                }
+                for e in conn.execute(
+                    """SELECT e.item_id, e.cluster_id, e.source_type, i.title, i.url,
+                              i.content, i.claimable
+                       FROM claim_evidence e LEFT JOIN items i ON i.id = e.item_id
+                       WHERE e.claim_id=? ORDER BY e.score DESC""",
+                    (row["id"],),
+                ).fetchall()
+            ]
             claims.append(
                 {
                     "claim_id": row["id"],
                     "text": row["text"],
                     "claim_type": row["claim_type"],
-                    "origin": {"title": row["origin_title"], "url": row["origin_url"]},
+                    "origin": {
+                        "title": row["origin_title"], "url": row["origin_url"],
+                        "claimable_excerpt": claimable_excerpt(
+                            row["origin_content"], row["origin_claimable"], tiering
+                        ),
+                    },
                     "independent_sources": row["independent_sources"],
                     "machine_verdict": row["verdict"],
                     # Whether the stored verdict is the model's or the trust
@@ -116,7 +164,7 @@ def export_sheet(db_path: Path, out_path: Path, blind: bool = False) -> int:
                     "machine_verdict_source": row["verdict_source"],
                     "machine_confidence": row["confidence"],
                     "machine_trust": row["trust"],
-                    "evidence": [dict(e) for e in evidence],
+                    "evidence": evidence,
                     "human_verdict": None,
                     "human_note": "",
                 }
@@ -125,7 +173,9 @@ def export_sheet(db_path: Path, out_path: Path, blind: bool = False) -> int:
         conn.close()
 
     instructions = (
-        "读 evidence 里的原文摘录，只按这些摘录判断：supported=独立说法一致；"
+        f"读 evidence[].claimable_excerpt —— 那就是评级模型当时看到的同一段文字"
+        f"（本表按 `tiering={tiering}` 导出，上限 {EXCERPT_CHARS} 字、空白折叠），"
+        "只按这些摘录判断：supported=独立说法一致；"
         "contested=至少一条实质性反驳；unsupported=摘录太泛或跑题，无法确认。"
         "填 human_verdict，不确定的留 null 并在 human_note 说明。"
     )
@@ -143,7 +193,8 @@ def export_sheet(db_path: Path, out_path: Path, blind: bool = False) -> int:
     if blind:
         machine_map = split_machine_columns(claims)
 
-    payload = {"instructions": instructions, "blind": blind, "labels": claims}
+    payload = {"instructions": instructions, "blind": blind, "tiering": tiering,
+               "labels": claims}
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
 
@@ -191,10 +242,20 @@ def _with_machine_fields(rows: List[Dict[str, Any]], path: Path) -> List[Dict[st
     return [{**(table.get(row.get("claim_id")) or {}), **row} for row in rows]
 
 
-def score_sheet(sheet_path: Path, out_path: Path | None, machine_path: Path | None = None) -> str:
+def score_sheet(sheet_path: Path, out_path: Path | None,
+                machine_path: Path | None = None, tiering: str | None = None) -> str:
     payload = json.loads(sheet_path.read_text(encoding="utf-8"))
     declared = payload if isinstance(payload, dict) else {}
     rows = declared.get("labels", payload) if declared else payload
+
+    # The two ablation arms must not share one ground truth by accident: the arm
+    # a sheet was exported under is recorded in the sheet, so scoring it under a
+    # different one is said out loud instead of producing a plausible table.
+    sheet_arm = declared.get("tiering")
+    arm_note = (
+        f"⚠ 这份标注表是按 `tiering={sheet_arm}` 导出的，你现在按 `--tiering {tiering}` 报指标："
+        "两档不能共用同一份 ground truth，请用导出时那一档报，或以该档重新导出再标。"
+    ) if tiering and sheet_arm and sheet_arm != tiering else None
 
     # "No machine columns" has two very different causes - a blind sheet, and an
     # empty sheet nobody has labelled yet. Guessing from the columns alone once
@@ -303,6 +364,9 @@ def score_sheet(sheet_path: Path, out_path: Path | None, machine_path: Path | No
                     },
                     "macro_f1_interpretable": not absent,
                     "blind": blind,
+                    "tiering": tiering,
+                    "sheet_tiering": sheet_arm,
+                    "arm_mismatch": arm_note is not None,
                     "by_verdict_source": by_source,
                     "threshold_pairs": len(pairs),
                     "thresholds_suggested": None if fitted is None else {
@@ -317,6 +381,9 @@ def score_sheet(sheet_path: Path, out_path: Path | None, machine_path: Path | No
             encoding="utf-8",
             newline="\n",
         )
+    if arm_note:
+        lines.insert(0, arm_note)
+        lines.insert(1, "")
     return "\n".join(lines)
 
 
@@ -337,20 +404,22 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=REPO_ROOT / "data" / "eval" / "claims_results.json")
     parser.add_argument(
         "--tiering", choices=("sections", "marker"), default="sections",
-        help="这批标注是在哪种分层判据下导出的。人评本身与判据无关，但指标要按档"
-             "分别报，否则消融表的两行会共用一份 ground truth 而看不出差别。",
+        help="这批标注属于哪个消融档。导出的 `evidence[].claimable_excerpt` 就按这一档"
+             "重算（marker 档会忽略声明层级、按标记重切，于是能看见人群文本泄漏），"
+             "档位写进表里；`--score` 用它对照，两档不得共用一份 ground truth。",
     )
     args = parser.parse_args()
 
     if args.export:
-        count = export_sheet(args.export, args.sheet, blind=args.blind)
+        count = export_sheet(args.export, args.sheet, blind=args.blind,
+                             tiering=args.tiering)
         print(f"已导出 {count} 条待标注声明 -> {args.sheet.relative_to(REPO_ROOT)}")
         if args.blind:
             print("盲标：machine_* 在 "
                   f"{sidecar_path(args.sheet).relative_to(REPO_ROOT)}，标完再打开；--score 会自动合回来。")
         return 0
     if args.score:
-        print(score_sheet(args.score, args.out, args.machine))
+        print(score_sheet(args.score, args.out, args.machine, args.tiering))
         return 0
     parser.print_help()
     return 1
