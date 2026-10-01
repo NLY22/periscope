@@ -1,6 +1,24 @@
 """Shared CLI argument helpers for Horizon entrypoints."""
 
 import argparse
+from pathlib import Path
+
+
+def display_path(path, root=None) -> str:
+    """A path for human-facing output: relative to `root` when it is inside it.
+
+    `Path.relative_to` raises when the path lies elsewhere, so printing it that
+    way turned a successful run into a traceback the moment someone pointed an
+    argument outside the repository - a scratch directory, or a second drive on
+    Windows where the repo lives on D: and the temp folder on C:.
+    """
+    candidate = Path(path)
+    if root is None:
+        return str(candidate)
+    try:
+        return str(candidate.relative_to(Path(root)))
+    except ValueError:
+        return str(candidate)
 
 
 def add_log_level_argument(

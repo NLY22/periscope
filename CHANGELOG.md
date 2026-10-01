@@ -113,7 +113,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 ## 尚未合入（本轮，分支 `feat/labeling-coverage-guardrails`）
 
-六件事都属于"规则写在纸上，但机器不知道"的同类项 —— 上一轮把 §11 变成了断言，这几轮把"断言"再往前推一格：**真跑起来时会拦、会说、会自证**。第四条最重：它是一条写在已合并 PR 正文里的机制，实际从未在生产路径跑过。
+七件事都属于"规则写在纸上，但机器不知道"的同类项 —— 上一轮把 §11 变成了断言，这几轮把"断言"再往前推一格：**真跑起来时会拦、会说、会自证**。第四条最重：它是一条写在已合并 PR 正文里的机制，实际从未在生产路径跑过。
 
 - **标注管线不再能把覆盖度缺陷报成质量分**。`--score` 以前无条件打印 macro-F1，而它固定在三类标签上取平均：缺 `contested` 样本时**人机完全一致也只有 0.667**。现在缺类会**先**打印一句警告（含那个天花板数字）**再**打表，结果 JSON 里加 `class_coverage` 与 `macro_f1_interpretable`；`--export` 的说明里也写明三类都要标到样本，不等标完 100 条才发现。测试 3 条，含反向用例（三类齐全时不许出警告）。
 - **§11 的"多账号池"补上代码半边**。继承来的 `twitter_playwright` 是池形状的（这条上一轮已确认不能靠断言否认），而边界此前只在文档里。现在匹配到 >1 个 cookie 文件时，`_planned_cookie_files()` 在**开跑前**警告一句本 fork 的采集边界是一个账号，并说明账号列表会被切成几份 —— 顺带覆盖那个对单账号也成立的坑（留着过期旧导出＝多了个上下文）。**没有删除继承实现、没有改默认行为、单 cookie 集时不产生任何日志噪音**（反向用例钉住）。
@@ -137,9 +137,11 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 - **标注表里根本没有摘录，`--tiering` 在这个脚本里根本没有被用过**（本轮最尴尬的一条，因为它属于"人评"那半步唯一的入口）。说明写着"读 evidence 里的原文摘录，只按这些摘录判断"，而每行只有 `item_id / cluster_id / source_type / title / url` —— 标注者只能挨个开链接，或者凭标题猜。同时 `--tiering` 在 `eval_retrieval.py` 里是真接线（`build_corpus(..., tiering=)`），在 `eval_claims.py` 里**只有 argparse 那一行**，`args.tiering` 从未被读；文档还给过 `--tiering=sections` 的具体命令。现在：每行带 `claimable_excerpt`（复用 `ClaimAnalyzer._excerpt` 的同一套空白折叠与 400 字上限，所以人看到的**就是**模型看到的），`marker` 档按标记重切、于是人群文本泄漏在表里看得见；档位写进表与结果 JSON，两档混用时 `--score` 先警告再报数（"两档不能共用同一份 ground truth"）。
   - 断言里带一个真夹具：作者正文 + `--- Top Comments ---` + `[alice]: the benchmark is rigged` —— `sections` 档的摘录**不含** "rigged"，`marker` 档**必须含**（那正是 A 档要量出来的泄漏）。另有一条"这个标志不能只是装饰"的静态断言：`args.tiering` 必须出现两次（导出与评分各一处），导出体里必须有 `claimable_excerpt` 与档位记录。
 
+- **成功之后的打印不该让命令失败**（本轮最后一条，也是同族）：两个评测脚本用 `Path.relative_to(REPO_ROOT)` 展示输出路径 —— `--sheet C:\Users\...\labels.json` 这类**仓库外**的路径会在**导出已经完成之后**抛 `ValueError: ... is not in the subpath of ...`。本机就是最常见的形状：仓库在 `D:`，临时目录在 `C:`。改成 `_cli.display_path()`（在里面就给相对路径，在外面就原样给绝对路径），并留一条静态断言：`scripts/` 里不许再出现 `relative_to(REPO_ROOT)`。顺手补另一处：从**还没跑过声明抽取**的语料库导表，以前是 `sqlite3.OperationalError: no such table: claims` 的裸 traceback，现在明说先跑 `uv run periscope --hours 24`。
+
 配套：`docs/twitter-cookies.md` §4 补一句这个启动期警告是什么、要你做什么（删掉多余那份，不是多备几个号）；`docs/evaluation.md` 口径 ③ 改写为 `--blind` 的用法与"只有盲标出来的一致率适合被引用"，并写明 `machine_verdict_source` 与拆分读法；`docs/configuration.md` 补三个阈值字段、"设了就改判定"、拟合 triage 该放哪，以及校验会回这句；README 的 `analysis` 行补上三个阈值字段。**四处描述"两道门"的文档也一并跟上事实**（此前它们把一个未接线的函数写成判定机制）：README 能力表标出它跑在 `grade_claim` 并给出 `claims.verdict_source` 位置、`docs/architecture.md` 的 `claims` 行补上该列、`docs/retrieval.md` 写清降级规则与四个可覆盖阈值、`docs/evaluation.md` 第 3 点注明这条现在对产品路径也成立。
 
-**数据**：collected **994 → 1032**（+4 覆盖度与池形状，+5 盲标通路，+6 门接线与迁移，+5 判定来源的读取与拆分，+3 聚合面与 MCP 直传核实，+8 拟合阈值的校验与"死把手"两条断言，+4 证据集上限统一到写入处，+3 摘录入表与档位不共用 ground truth；`uv run pytest` exit=0）。逐文件对过账：1029 + 3 = 1032。中途一次 `--collect-only` 报过 1015，与逐文件账目差 1；重跑两次稳定 1014（`test_trust_gate_wired.py` 稳定 11 条），所以采用 1014。**那一次多出的 1 我没查明原因** —— 只记现象与"以复测为准"，不给一个没验证过的解释。（同一轮我还把"新增 4 条"算错过一次：实际 3 条，账目对上才发现是加法错，不是测试丢了。）
+**数据**：collected **994 → 1036**（+4 覆盖度与池形状，+5 盲标通路，+6 门接线与迁移，+5 判定来源的读取与拆分，+3 聚合面与 MCP 直传核实，+8 拟合阈值的校验与"死把手"两条断言，+4 证据集上限统一到写入处，+3 摘录入表与档位不共用 ground truth，+4 CLI 输出路径与裸库提示；`uv run pytest` exit=0）。逐文件对过账：1032 + 4 = 1036。中途一次 `--collect-only` 报过 1015，与逐文件账目差 1；重跑两次稳定 1014（`test_trust_gate_wired.py` 稳定 11 条），所以采用 1014。**那一次多出的 1 我没查明原因** —— 只记现象与"以复测为准"，不给一个没验证过的解释。（同一轮我还把"新增 4 条"算错过一次：实际 3 条，账目对上才发现是加法错，不是测试丢了。）
 
 ---
 

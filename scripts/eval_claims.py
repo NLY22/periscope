@@ -26,6 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from src._cli import display_path  # noqa: E402
 from src.analysis.agreement import LABELS, independence_buckets, score_pairs  # noqa: E402
 from src.corpus.sections import split_sections  # noqa: E402
 from src.corpus.trust import roc_thresholds  # noqa: E402
@@ -105,6 +106,17 @@ def export_sheet(db_path: Path, out_path: Path, blind: bool = False,
         )
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='claims'"
+    ).fetchone():
+        # A corpus written before claim analysis has no claims layer at all, and
+        # the raw `no such table: claims` traceback tells a first-time user
+        # nothing about what to run first.
+        conn.close()
+        raise SystemExit(
+            f"{db_path} 里还没有 claims 表。先跑一次采集（`uv run periscope --hours 24`），"
+            "声明抽取与关联会建好这张表，再回来导标注表。"
+        )
     try:
         rows = conn.execute(
             """SELECT c.id, c.text, c.claim_type, c.status, c.verdict,
@@ -413,10 +425,10 @@ def main() -> int:
     if args.export:
         count = export_sheet(args.export, args.sheet, blind=args.blind,
                              tiering=args.tiering)
-        print(f"已导出 {count} 条待标注声明 -> {args.sheet.relative_to(REPO_ROOT)}")
+        print(f"已导出 {count} 条待标注声明 -> {display_path(args.sheet, REPO_ROOT)}")
         if args.blind:
             print("盲标：machine_* 在 "
-                  f"{sidecar_path(args.sheet).relative_to(REPO_ROOT)}，标完再打开；--score 会自动合回来。")
+                  f"{display_path(sidecar_path(args.sheet), REPO_ROOT)}，标完再打开；--score 会自动合回来。")
         return 0
     if args.score:
         print(score_sheet(args.score, args.out, args.machine, args.tiering))
