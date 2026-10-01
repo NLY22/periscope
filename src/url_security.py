@@ -37,30 +37,42 @@ def validate_http_url(url: str) -> str:
     return url
 
 
-async def _resolve_hostname(hostname: str, port: int) -> set[str]:
+def _default_resolver(hostname: str, port: int) -> list:
+    return socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+
+
+async def _resolve_hostname(
+    hostname: str, port: int, resolver=None
+) -> set[str]:
+    """Look up a host, with the resolver injectable.
+
+    Same reason the scrapers take a clock and a sleeper: without a seam here,
+    every test that names a hostname inherits whatever the machine's DNS
+    answers. On a network that intercepts lookups, `example.com` resolves to
+    the RFC 2544 benchmark range, which is not globally routable -- and the
+    security check that is *working correctly* turns the suite red.
+    """
+    resolver = resolver or _default_resolver
     try:
         literal = ipaddress.ip_address(hostname)
     except ValueError:
         try:
-            results = await asyncio.to_thread(
-                socket.getaddrinfo,
-                hostname,
-                port,
-                type=socket.SOCK_STREAM,
-            )
+            results = await asyncio.to_thread(resolver, hostname, port)
         except socket.gaierror as exc:
             raise UnsafeURLError(f"Could not resolve hostname: {hostname}") from exc
         return {str(result[4][0]) for result in results}
     return {str(literal)}
 
 
-async def validate_public_http_url(url: str) -> str:
+async def validate_public_http_url(url: str, resolver=None) -> str:
     """Resolve a URL hostname and require every result to be globally routable."""
     validate_http_url(url)
     parsed = urlsplit(url)
     hostname = parsed.hostname or ""
     addresses = await _resolve_hostname(
-        hostname.rstrip("."), parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+        hostname.rstrip("."),
+        parsed.port or (443 if parsed.scheme.lower() == "https" else 80),
+        resolver=resolver,
     )
     if not addresses:
         raise UnsafeURLError(f"Hostname resolved to no addresses: {hostname}")

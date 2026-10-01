@@ -64,6 +64,8 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 - `scripts/eval_multiturn.py`：spec §5.5 里**不需要人评**的那组系统客观量（调用数比值、轮次到定稿、灌水曲线）。
 - `src/corpus/ingest.py` + `scripts/import_corpus.py` + `hz_corpus_import` + `POST /api/import`：§6.1 的降级通路 —— 取不到的源由**用户导出、按声明层级入库**，新增来源方式 `manual_export`（折扣 0.85）。样例负载 `data/export.example.json` 由测试直接解析。
 - **导入通路补上面板那一段**：`POST /api/import` 早就存在，但面板里**没有任何地方用到它** —— 而会去导出小红书 / 贴吧内容的人是用户，不是维护者，所以这个缺失正好落在最不该缺的入口上。面板新增「导入你导出的内容」一节：贴 JSON 或选文件 → **只校验** → **入库**，逐条报「第几条为什么不收」，入库后刷新证据列表与统计。同时把预览的语义修正为**与写入同一段校验**（`prepare_import` / `preview_payload`）：CLI 原先的 `--dry-run` 用严格解析器，会把「30 条里 1 个错字」报成整体失败，而真导入会收 29 条 —— 预览与结果不一致的预览比没有预览更坏。面板的 `<script>` 现在过 `node --check`，并且有一条测试把界面读取的字段与端点**实际返回**的字段对比 —— 这两处都是本轮为「UI 只能靠人点」找的替代证据；**浏览器里长什么样仍未验证**（会话浏览器没有可见 surface）。
+- **命令行标志也进了同一类检查**（`test_every_documented_command_flag_exists`）：从 README、各指南、CONTRIBUTING/SECURITY 与 CHANGELOG 的**代码片段与代码块**里抽出「我们的命令 + 它后面的 `--flag`」，逐个对回真正的 argparse。覆盖 **13 个目标**（6 个 `periscope-*` 入口、compose 服务 `periscope-collect`、以及 5 个 `scripts/*.py`）与 **23 个标志位出现**，标志层面**全对 —— 这条没抓到假命令，它是预防性的**；但它顺手暴露了一个真缺口：`scripts/spike_sources.py` 在全部文档里**只被提过一次，且没有一条可复制的命令**（README 写"一条命令即可跑"却没把命令写出来），而这个探针正是 S1 / P3 那条链的开关。已给 README 与 CONTRIBUTING 补上 `--source/--kw/--url/--online` 的真实用法，并加一条 `test_the_reachability_probe_is_documented_as_a_runnable_command`（**对着改动前的 README 量过：1 处提及、0 条可跑示例 → 它会红**）。
+  过程中三次假警报比结论更值得记：① `--data-dir` / `--config` 不在 `src/main.py` 而在共享的 `src/_cli.py` —— 只 grep 入口文件就会把真文档误判成造假；② `--rm` / `--entrypoint` 属于 docker，且 `docker compose run --rm --entrypoint uv periscope-collect run periscope-wechat test --lang zh` 这种**一行两个命令**的写法会把后一个命令的标志错记到前一个头上 —— 现在按「到下一个命令为止」分段归属，docker/uv 自己的标志单列一份带理由的排除表；③ 最初连散文一起扫，于是 CHANGELOG 里讨论 `--flag` 的那句话本身就成了"文档承诺了一个不存在的标志" —— 现在只扫代码片段与代码块。正则也放宽到认 `"--flag"` 字面量，因为 argparse 常见 `"-d", "--data-dir"` 这种短选项在前的写法。
 - 新增一条**会咬人的路由可达性护栏**（`tests/test_web_panel.py`）：拿服务真实注册的路由表逐条问"面板里有没有代码调它"，只有两条能豁免（`/api/docs` 是 FastAPI 自带的 Swagger 页；`/api/collect/status` 与 `/api/stats` 是同一份状态，留给 API 客户端），而且豁免必须**写出理由**且"面板确实没调它"，否则免单独自变成藏东西的地方。**这条护栏是对着 git 验过的，不是嘴上说的**：拿改动前的 `index.html`（`1cd1deb`）跑，它精确报出 `/api/import` 一条；拿现在的 HEAD 跑，报 0 条。匹配故意宽松 —— 路径的每个字面片段都要在脚本里出现，因为 `${id}` 模板串让精确匹配做不到（除非去解析 JS）；它可能被巧合的字符串骗过去，这句也写在测试注释里而不是藏起来。
 - `src/sources/reachability.py` + `scripts/spike_sources.py`：可达性判别做成六种判定的纯函数（`pass` / `list_only` / `blocked_captcha` / `signed_required` / `blocked_auth` / `error`），**不加 `--online` 不发任何请求**；§14.2 的手工结论现在是断言。
 - **P3 的前置不变式**（不必等 S1 通过就能立）：`Section` 的校验器把 `provenance="vlm"` 的块强制 `asserted=False`，于是"VLM 画面描述只能当线索、不得进声明抽取"（spec §7）成为类型规则而不是各 scraper 要记得写的参数；`provenance="ocr"` 保留 `asserted`，只按 `confidence` 打折 —— 图上写的字往往就是作者本人的主张。
@@ -76,6 +78,8 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 **修复**
 - 草稿章节的 `evidence_ids` / `subquestion_id` / `verdicts` **声明了但渲染路径从未填** → 面板每节显示"0 条证据"（实际引用三条），且 `MoveContext.contested_claims` 恒为空（选下一个动词的模型从来看不到矛盾）。`5f3862c`。
 - 面板在 start / 推一轮之后不重绘轮次状态（轮次时间线、可编辑章节、待回答卡片要刷新才出现），状态行硬编码 `· active` —— 浏览器实测抓到，端点级测试当时全绿。`905ab17`。
+- **套件会因机器的 DNS 而红，这条修掉了**：`src/url_security.py` 的 SSRF 校验会**真去解析**主机名（这是它该有的行为 —— 防的是把通知目标配成 `169.254.169.254`）。但在这台机器上，出站解析被网络拦截并把 `example.com` 一类主机名回答成 **RFC 2544 基准段 `198.18.0.x`**，而它不是 globally routable，于是"正确工作的安全检查"把 **20 条 webhook 测试**判红（外加一条按顺序才红的抽取测试）。2026-10-01 实测：`21 failed, 951 passed` → 修完 `972 passed`，连跑两次一致。
+  做法是给校验加一个**可注入的 resolver**（`_default_resolver` 这个接缝，与仓库里 clock / sleeper / rng 的既有约定同形），测试在 `tests/conftest.py` 里用 autouse fixture 把默认解析钉成固定公网地址；**没有删测试、没有放宽校验、没有改生产默认行为**。要测解析分支的测试仍然自己 patch `_resolve_hostname`（见 `tests/test_url_security.py`），所以确定性与覆盖率都保住了。生产侧要注入的话：`validate_public_http_url(url, resolver=...)`。
 - `Corpus.add_items()` 的新鲜度读 `datetime.now()`，同一内容不同日期入库得到不同 trust，文档里第四位小数会随日历过期 → 加 `now=` 注入（默认行为不变）。
 - `test_llm_cache.py::test_throttle_spaces_upstream_calls` 的"确定性"断言其实仍来自挂钟 → 给 `CachingAIClient` 注入 clock。
 
@@ -90,7 +94,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 - 消融表护栏：`docs/evaluation.md` 那张 A–F 六行的表与 `data/eval/results.json` **逐格**对齐（`recall@5` / `recall@10` / `precision@5` / `nDCG@10` / `MRR`，按四舍五入到三位小数比），行首字母还要对得上配置名；另断言文档里写的复现命令含 `results.json` 记录的那个 `tiering` 档位。这张表此前只被眼睛核过，而它是全项目被引用最多的数字 —— **最后一位偏移也要红**，所以带一条 tamper 用例证明它真的会红（改两个格子 → 恰好两条定位到行列的报告）。
 - 架构图护栏（`docs/architecture.md` 的三张图）：会话的 7 个状态、子问题的 3 个状态、turn 的 3 个角色、`Move` 的 4 个动词、corpus.db 的 12 张普通表 + 2 张 FTS5 虚表、6 种可达性判定、5 步加宽阶梯、源族数量**必须逐条出现在图里**，反向也必须成立（图里画不出代码没有的名字）；回读方式是 `typing.get_args(Move)` 与对 `CREATE TABLE` 的扫描，而不是把清单再抄一遍到测试里。护栏自带一条自检：用一个真不存在的名（`SOURCE_REGISTRY_V2`）验证它真的会红 —— 因为写图时我把 `SOURCE_REGISTRY` 当成臆造的旧名"修"过一次，它是真的（`src/models.py` 由 `SOURCE_SPECS` 派生）。
 
-**数据**：collected **836 → 969**（934 之后追加的 35 条是文档、架构图、两张数据图、消融表、采集边界、符号网、导入面板与路由可达性的护栏）；灌水抵抗实测 `independent_sources` 旧口径 4 → 新口径 1（旧口径下它本可进判级），`T=0.7998` 越过 `supported=0.55` 仍判 `unsupported`（缺跨族宽度，**设计意图，但未经人评检验**）；已知软肋量化：同一作者跨两个 `source_type` → 数成 2 个发布者对。
+**数据**：collected **836 → 972**（934 之后追加的 38 条是文档、架构图、两张数据图、消融表、采集边界、符号网、导入面板、路由可达性与命令行标志的护栏）；灌水抵抗实测 `independent_sources` 旧口径 4 → 新口径 1（旧口径下它本可进判级），`T=0.7998` 越过 `supported=0.55` 仍判 `unsupported`（缺跨族宽度，**设计意图，但未经人评检验**）；已知软肋量化：同一作者跨两个 `source_type` → 数成 2 个发布者对。
 
 ### #3 · 文档（spec v4 + 三期实现计划 + 交付记录）
 
