@@ -302,3 +302,35 @@ def test_sheets_without_the_column_get_no_split_and_no_complaint(tmp_path) -> No
 
     assert "按判定来源拆分" not in text, text
     assert report["by_verdict_source"] == {}
+
+
+def test_aggregate_stats_keep_the_two_kinds_of_unsupported_apart(tmp_path) -> None:
+    """`hz_corpus_stats` answers "how many supported?" for an agent. After the
+    gate that count mixes a model judgment with an arithmetic veto, and the
+    caller has no way to ask which is which."""
+    _demoted(tmp_path)
+    stats = ClaimStore(Corpus(tmp_path / "gate.db")).stats()
+
+    assert stats["by_verdict"] == {"unsupported": 1}
+    assert stats["by_verdict_source"] == {"trust_gate": 1}
+
+
+def test_pre_gate_verdicts_count_as_unset_rather_than_as_the_model(tmp_path) -> None:
+    """NULL means nobody knows who decided, and the count must not quietly
+    attribute those to the model to make the totals look complete."""
+    _demoted(tmp_path)
+    corpus = Corpus(tmp_path / "gate.db")
+    corpus._conn.execute("UPDATE claims SET verdict_source=NULL")
+    corpus._conn.commit()
+
+    assert ClaimStore(corpus).stats()["by_verdict_source"] == {"unset": 1}
+
+
+def test_the_service_hands_the_whole_stats_dict_to_the_agent() -> None:
+    """`corpus_stats` must not pick keys: that is how a new field goes missing
+    from MCP while remaining correct in the store, the panel and the tests."""
+    text = (REPO_ROOT / "src" / "mcp" / "service.py").read_text(encoding="utf-8")
+    body = text.split("def corpus_stats")[1].split("def corpus_search")[0]
+    assert 'stats["claims"] = claim_store.stats()' in body, (
+        "the MCP layer stopped forwarding the claim stats dict wholesale"
+    )

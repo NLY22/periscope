@@ -467,6 +467,16 @@ CREATE INDEX IF NOT EXISTS idx_contra_b ON claim_contradictions(claim_b);
                 "SELECT verdict, COUNT(*) FROM claims WHERE verdict IS NOT NULL GROUP BY verdict"
             ).fetchall()
         )
+        # `by_verdict` alone hides how many of those the gate overruled, and
+        # `hz_corpus_stats` hands this dict straight to an agent. Pre-gate rows
+        # are labelled `unset` rather than folded into `llm`: nobody knows who
+        # decided those, and the count must not imply otherwise.
+        by_verdict_source = dict(
+            self._conn.execute(
+                "SELECT COALESCE(verdict_source,'unset'), COUNT(*) FROM claims"
+                " WHERE verdict IS NOT NULL GROUP BY COALESCE(verdict_source,'unset')"
+            ).fetchall()
+        )
         multi = self._conn.execute(
             "SELECT COUNT(*) FROM claims WHERE independent_sources>=2"
         ).fetchone()[0]
@@ -474,6 +484,7 @@ CREATE INDEX IF NOT EXISTS idx_contra_b ON claim_contradictions(claim_b);
             "claims": total,
             "by_status": by_status,
             "by_verdict": by_verdict,
+            "by_verdict_source": by_verdict_source,
             "multi_source": multi,
         }
 
