@@ -250,6 +250,30 @@ class HorizonPipelineService:
         warnings: list[str] = []
         missing_env: list[str] = []
 
+        # The labeling loop has a quiet last mile: `--score` can write a fitted
+        # theta that nothing ever applies, leaving the gates on their hand
+        # priors while the docs keep saying "θ 已可校准". This call is the one an
+        # agent or the CLI already makes to ask "is my setup ok", so the check
+        # belongs here rather than in a script nobody runs afterwards.
+        import json
+
+        from ..corpus.trust import unused_calibration
+
+        calibration_path = (
+            Path(__file__).resolve().parents[2] / "data" / "eval" / "claims_results.json"
+        )
+        calibration: dict[str, Any] | None = None
+        if calibration_path.exists():
+            try:
+                calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
+            except ValueError:
+                warnings.append(
+                    f"{calibration_path} 不是能读的 JSON，阈值一致性检查已跳过。"
+                )
+        note = unused_calibration(ctx.config.analysis, calibration)
+        if note:
+            warnings.append(note)
+
         if check_env:
             required = [ctx.config.ai.api_key_env]
             for key in required:

@@ -333,6 +333,62 @@ def classify(T: float, votes: Sequence[Vote], thresholds: Thresholds = Threshold
         else "unsupported"
 
 
+def thresholds_from(analysis) -> Thresholds:
+    """Overlay configured cut points on the hand priors.
+
+    Explicit rather than a dataclass merge so that "absent" and "zero" stay
+    different things: a `0.0` someone typed is a decision, `None` is not, and
+    the report has to be able to tell the two apart.
+    """
+    hand = Thresholds()
+    picks = {
+        "supported": getattr(analysis, "supported_min_trust", None),
+        "same_family_prior": getattr(analysis, "same_family_prior", None),
+        "same_family_publishers": getattr(analysis, "same_family_publishers", None),
+    }
+    merged = {}
+    for name, value in picks.items():
+        merged[name] = value if value is not None else getattr(hand, name)
+    return Thresholds(**merged)
+
+
+def unused_calibration(analysis, results: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Warn when labels produced a fitted theta that nothing is using.
+
+    The labeling loop has one obvious way to die at the last mile: `--score`
+    writes a suggestion, a human reads it, and the gates go on running the hand
+    prior forever. Only this side can see both halves at once, so the check has
+    to live here. Note the triage leg compares against `triage_min_trust` - the
+    floor that actually decides whether an LLM call is spent - and not against
+    `Thresholds.triage`, which nothing reads at runtime.
+    """
+    if not results:
+        return None
+    suggested = results.get("thresholds_suggested")
+    if not suggested:
+        return None
+
+    in_use = thresholds_from(analysis)
+    stale: List[str] = []
+    fit = suggested.get("supported")
+    if fit is not None and abs(float(fit) - float(in_use.supported)) > 1e-9:
+        stale.append(f"supported：拟合 {fit} → 在用 {in_use.supported}")
+    fit = suggested.get("triage")
+    if fit is not None and abs(float(fit) - float(analysis.triage_min_trust)) > 1e-9:
+        stale.append(f"triage：拟合 {fit} → 在用 {analysis.triage_min_trust}")
+    if not stale:
+        return None
+
+    note = (
+        "标注已经拟出阈值，但线上还在用旧值：" + "；".join(stale)
+        + "。要让拟合值生效就设 `analysis.supported_min_trust` / "
+        "`analysis.triage_min_trust`（后者为 0.0 表示分诊门关闭）。"
+    )
+    if not results.get("blind"):
+        note += "这批标注不是盲标，一致率与由此拟出的阈值都偏乐观。"
+    return note
+
+
 def roc_thresholds(pairs: Sequence[tuple]) -> Optional[Thresholds]:
     """Pick (supported, triage) from labelled (trust, is_supported) pairs.
 

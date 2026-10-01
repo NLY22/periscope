@@ -30,7 +30,7 @@
         "calls": 1,
         "revision": 1,
         "new_evidence": 0,
-        "pending_request": "req_002dee1e43",
+        "asked_user": true,
         "session_status": "awaiting_user"
       },
       {
@@ -39,7 +39,7 @@
         "calls": 2,
         "revision": 2,
         "new_evidence": 0,
-        "pending_request": null,
+        "asked_user": false,
         "session_status": "reported"
       },
       {
@@ -48,7 +48,7 @@
         "calls": 1,
         "revision": 2,
         "new_evidence": 0,
-        "pending_request": null,
+        "asked_user": false,
         "session_status": "drafting"
       }
     ],

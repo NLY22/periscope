@@ -13,6 +13,7 @@ from rich.console import Console
 from .console_icons import get_icons
 from .models import Config, ContentItem, SOURCE_SPECS
 from .corpus.sections import marker_sections_to_model
+from .corpus.trust import thresholds_from
 from .storage.manager import StorageManager, safe_output_path
 from .services.email import EmailManager
 from .services.webhook import WebhookNotifier
@@ -334,7 +335,7 @@ class HorizonOrchestrator:
         from .analysis import ClaimAnalyzer, ClaimStore
 
         return ClaimAnalyzer(
-            store=ClaimStore(corpus),
+            store=ClaimStore(corpus, evidence_limit=self.config.analysis.evidence_per_claim),
             corpus=corpus,
             client=self._get_optional_ai_client(),
             max_claims_per_item=self.config.analysis.max_claims_per_item,
@@ -343,6 +344,7 @@ class HorizonOrchestrator:
             content_chars=self.config.analysis.item_content_chars,
             claimable_only=self.config.analysis.claimable_only,
             triage_min_trust=self.config.analysis.triage_min_trust,
+            thresholds=thresholds_from(self.config.analysis),
         )
 
     def _get_optional_ai_client(self):
@@ -423,7 +425,7 @@ class HorizonOrchestrator:
             return None
         from .analysis import ClaimStore
 
-        return ClaimStore(corpus)
+        return ClaimStore(corpus, evidence_limit=self.config.analysis.evidence_per_claim)
 
     def get_corpus(self):
         """Public accessor for the evidence corpus (None when disabled)."""

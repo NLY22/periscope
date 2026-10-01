@@ -93,7 +93,7 @@ Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游�
 | 证据语料库：SQLite + FTS5 + 手写 SimHash 聚簇，跨运行累积 | （本 fork） | `src/corpus/store.py`、`src/corpus/simhash.py` |
 | 用户导出入库通路（取不到的源不靠抓取）| （本 fork） | `src/corpus/ingest.py`、`scripts/import_corpus.py`、`hz_corpus_import`、面板「导入你导出的内容」（`POST /api/import`，可先只校验）|
 | 证据分层：scraper **声明**的类型化 `Section`（作者亲写 vs 人群发言），独立信源计数只认前者 | （本 fork） | `src/models.py` 的 `Section`、`src/corpus/sections.py`、`items.claimable` + `claim_fts` |
-| 条目可信度与独立性：可拆解的 trust 分数、noisy-OR 聚合、两道门 | （本 fork） | `src/corpus/trust.py`、`items.trust` + `trust_features_json` |
+| 条目可信度与独立性：可拆解的 trust 分数、noisy-OR 聚合、两道门（跑在 `grade_claim`，判定来源可追） | （本 fork） | `src/corpus/trust.py`、`items.trust` + `trust_features_json`、`claims.verdict_source` |
 | 多轮共创：逐轮动词 + 带 revision/locked/stale 的草稿工件 + 向用户索取输入 | （本 fork） | `src/research/{moves,drafts}.py`、`research_drafts` / `research_requests` 表 |
 | 源注册表与抓取基础设施：per-host 令牌桶、可注入时钟、env/cookie 鉴权与过期检测 | （本 fork） | `src/sources/registry.py`、`src/scrapers/{throttle,auth}.py`、`SOURCE_SPECS` |
 | 取证检索：查询扩展 + 向量路 + RRF 融合 | （本 fork） | `src/corpus/retrieval.py`、`src/ai/{expand,embeddings}.py`、`src/corpus/semantic.py` |
@@ -502,7 +502,7 @@ uv run periscope-webhook --dry-run # 预览 Webhook 请求
 | `webhook` | Webhook 端点、平台适配、消息模板与投递语言 |
 | `wechat` | 微信投递开关、语言与分块大小 |
 | `corpus` | 证据语料库：`enabled`、`path`、`cluster_max_distance`、`cluster_lookback_rows` |
-| `analysis` | 声明核查：`max_claims_per_item`、`evidence_per_claim`、`grade_min_sources`、`triage_min_trust`（分诊门，默认 `0.0` = 关闭）、`grade_budget_per_run`、`extract_top_items`、`item_content_chars`、`claimable_only` |
+| `analysis` | 声明核查：`max_claims_per_item`、`evidence_per_claim`、`grade_min_sources`、`triage_min_trust`（分诊门，默认 `0.0` = 关闭）、`supported_min_trust` / `same_family_prior` / `same_family_publishers`（`supported` 判定门的阈值，默认全部 = 手工先验）、`grade_budget_per_run`、`extract_top_items`、`item_content_chars`、`claimable_only` |
 | `research` | 长会话研究：`evidence_per_question`、`max_evidence_chars`、`planner_budget_per_invocation`、`claimable_only`、`max_retrieval_rounds`、`min_evidence_for_answer`、`report_template`（`auto` / `flat` / 指定骨架） |
 | `retrieval` | 取证检索：`query_expansion`、`expansion_max_terms`、`semantic` + `embedding_model`/`embedding_base_url`/`embedding_api_key_env`、`semantic_top_k`、`index_batch_size`、`on_demand_collection` |
 

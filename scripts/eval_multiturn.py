@@ -195,7 +195,7 @@ async def measure_rounds(tmp_path: Path) -> Dict[str, Any]:
             "calls": planner.close_round(),
             "revision": result.revision,
             "new_evidence": len(result.new_evidence),
-            "pending_request": result.pending_request.id if result.pending_request else None,
+            "asked_user": result.pending_request is not None,
             "session_status": rs.store.get_session(started.session_id).status,
         })
         if result.pending_request is not None:
@@ -209,7 +209,7 @@ async def measure_rounds(tmp_path: Path) -> Dict[str, Any]:
                 "calls": planner.close_round(),
                 "revision": answered.revision,
                 "new_evidence": len(answered.new_evidence),
-                "pending_request": None,
+                "asked_user": False,
                 "session_status": rs.store.get_session(started.session_id).status,
             })
         if result.move == "finalize":
@@ -256,7 +256,10 @@ def measure_flood(tmp_path: Path, reposts: int = 6) -> Dict[str, Any]:
     ]
     corpus.add_items(items, now=NOW)
 
-    store = ClaimStore(corpus)
+    # These fixtures measure how independence is *counted*, so every planted link
+    # has to survive: the production evidence cap would truncate the set at
+    # `evidence_per_claim` and the curve would end up measuring the cap.
+    store = ClaimStore(corpus, evidence_limit=24)
     claim = Claim(id="cl_flood", item_id="mt:real", text="该公司已提交上市申请",
                   status="linked")
     store.upsert_claims([claim])
@@ -267,7 +270,7 @@ def measure_flood(tmp_path: Path, reposts: int = 6) -> Dict[str, Any]:
         ))
     store.add_evidence(links)
 
-    votes = store.evidence_votes("cl_flood")
+    votes = store.independence_votes("cl_flood")
     T = noisy_or(votes)
     store.recompute_independence()
     graded = store.get_claim("cl_flood")
@@ -301,14 +304,17 @@ def measure_soft_spot(tmp_path: Path) -> Dict[str, Any]:
         make_item("hn", SourceType.HACKERNEWS, " HN 版",
                   "同一作者的观点：2026 年 Q3 营收 5 亿元。", author="Alice"),
     ], now=NOW)
-    store = ClaimStore(corpus)
+    # These fixtures measure how independence is *counted*, so every planted link
+    # has to survive: the production evidence cap would truncate the set at
+    # `evidence_per_claim` and the curve would end up measuring the cap.
+    store = ClaimStore(corpus, evidence_limit=24)
     store.upsert_claims([Claim(id="cl_soft", item_id="mt:nl",
                                text="Q3 营收 5 亿元", status="linked")])
     store.add_evidence([
         EvidenceLink("cl_soft", "mt:nl", "clu_nl", "rss", 1.0),
         EvidenceLink("cl_soft", "mt:hn", "clu_hn", "hackernews", 1.0),
     ])
-    votes = store.evidence_votes("cl_soft")
+    votes = store.independence_votes("cl_soft")
     T = noisy_or(votes)
     corpus.close()
     return {
@@ -383,6 +389,9 @@ def print_table(results: Dict[str, Any]) -> None:
 
 
 def main() -> int:
+    from src._cli import force_utf8_output
+
+    force_utf8_output()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--branches", default="2,4,8",
                         help="comma-separated branch counts for the recompute ratio")

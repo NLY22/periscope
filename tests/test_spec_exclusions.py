@@ -121,6 +121,33 @@ def _read_config_doc() -> str:
     return CONFIG_DOC.read_text(encoding="utf-8")
 
 
+def test_the_pool_shape_is_announced_before_it_runs(tmp_path, caplog) -> None:
+    """The code half of §11's pool exclusion.
+
+    Upstream's fetcher is pool-shaped and stays, so this fork cannot assert the
+    machinery away - but it can say so before a run splits its accounts across
+    several cookie sets. The accidental case matters as much as the deliberate
+    one: a stale second export silently costs the user half their accounts.
+    """
+    import logging
+
+    from src.scrapers.twitter_playwright import _planned_cookie_files
+
+    for name in ("x_cookies_1.json", "x_cookies_stale.json"):
+        (tmp_path / name).write_text("[]", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        files = _planned_cookie_files(tmp_path, "x_cookies_*.json")
+    assert [p.name for p in files] == ["x_cookies_1.json", "x_cookies_stale.json"]
+    assert any("boundary is one" in r.getMessage() for r in caplog.records), caplog.text
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        single = _planned_cookie_files(tmp_path, "x_cookies_1.json")
+    assert [p.name for p in single] == ["x_cookies_1.json"]
+    assert not caplog.records, "one cookie set is the supported shape - it must not nag"
+
+
 def test_the_cookie_guide_does_not_sell_an_account_pool() -> None:
     """§11 excludes account pools; the inherited guide recommended one.
 

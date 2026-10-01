@@ -102,3 +102,215 @@ def test_the_export_queries_the_column_the_threshold_is_defined_over() -> None:
 
     score = source.split("def score_sheet")[1].split("def main")[0]
     assert "roc_thresholds(" in score, "scoring no longer fits thresholds"
+
+
+def three_class_rows():
+    """The same fixture plus `contested` examples - the class a labeler forgets."""
+    rows = labelled()["labels"]
+    rows += [
+        {"claim_id": f"v{i}", "machine_verdict": "contested", "human_verdict": "contested",
+         "machine_trust": 0.5, "independent_sources": 2}
+        for i in range(3)
+    ]
+    return sheet(rows)
+
+
+def test_a_missing_verdict_class_is_said_before_the_number_it_confuses(tmp_path: Path) -> None:
+    """macro-F1 averages over three fixed labels, so an absent class is not a
+    low score - it is an unreadable one, and the sheet above the fold looks
+    like a mediocre result."""
+    out = tmp_path / "r.json"
+    text = eval_claims.score_sheet(write(tmp_path, labelled()), out)
+
+    assert "不可解读" in text, text
+    assert "contested" in text.splitlines()[0]
+    assert "0.667" in text, "the ceiling it would hit at perfect agreement is the useful part"
+    assert text.index("不可解读") < text.index("macro-F1="), "the caveat must precede the number"
+
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["macro_f1_interpretable"] is False
+    assert report["class_coverage"] == {"supported": 6, "contested": 0, "unsupported": 6}
+
+
+def test_a_class_covering_label_batch_is_not_warned_about(tmp_path: Path) -> None:
+    """Prove the check is about coverage, not about the tool being pessimistic."""
+    out = tmp_path / "r.json"
+    text = eval_claims.score_sheet(write(tmp_path, three_class_rows()), out)
+
+    assert "不可解读" not in text, text
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["macro_f1_interpretable"] is True
+    assert all(v > 0 for v in report["class_coverage"].values())
+    assert report["macro_f1"] == pytest.approx(1.0, abs=1e-3), "perfect agreement on all three"
+
+
+def test_the_export_tells_the_labeler_about_class_coverage_up_front() -> None:
+    """The warning is useless if it only appears after 100 rows are labelled."""
+    source = (REPO_ROOT / "scripts" / "eval_claims.py").read_text(encoding="utf-8")
+    export = source.split("def export_sheet")[1].split("def score_sheet")[0]
+    assert "instructions += COVERAGE_NOTE" in export, (
+        "the sheet stopped carrying the coverage requirement"
+    )
+    assert export.index("instructions += COVERAGE_NOTE") > export.index("if blind:"), (
+        "the note must be appended after the blind/non-blind branch, so both get it"
+    )
+    assert "三个类别都要标到样本" in eval_claims.COVERAGE_NOTE
+    assert "0.667" in eval_claims.COVERAGE_NOTE, "the reason belongs on the sheet, not only in the docs"
+
+
+# ------------------------------------------------------------------- excerpts
+# The instructions told the labeler to judge from the excerpts in `evidence` -
+# and the sheet contained titles and URLs only, so the task as written could not
+# be done without opening every source by hand. `--tiering` was also decorative
+# in this script: parsed, never read.
+
+def _leak_item(corpus):
+    """Author paragraph plus a comment thread joined by the English marker that
+    `corpus/sections.py` never learned - this fork's founding leak."""
+    from datetime import datetime, timezone
+
+    from src.models import ContentItem, Section, SourceType
+
+    now = datetime(2026, 9, 29, tzinfo=timezone.utc)
+    item = ContentItem(
+        id="x:leak", source_type=SourceType.HACKERNEWS, title="t",
+        url="https://e.com/leak",
+        content="DeepSeek-V4 shipped in 2026-09.\n\n--- Top Comments ---\n\n"
+                "[alice]: the benchmark is rigged",
+        author="bob", published_at=now, fetched_at=now,
+        sections=[
+            Section(tier="primary", text="DeepSeek-V4 shipped in 2026-09."),
+            Section(tier="community", text="[alice]: the benchmark is rigged", author="alice"),
+        ],
+    )
+    corpus.add_items([item])
+    return item
+
+
+def test_both_arms_disagree_about_what_counts_as_author_text(tmp_path: Path) -> None:
+    from src.corpus.store import Corpus
+
+    corpus = Corpus(tmp_path / "arms.db")
+    _leak_item(corpus)
+    row = corpus._conn.execute(
+        "SELECT content, claimable FROM items WHERE id='x:leak'"
+    ).fetchone()
+
+    sections_arm = eval_claims.claimable_excerpt(row["content"], row["claimable"], "sections")
+    marker_arm = eval_claims.claimable_excerpt(row["content"], row["claimable"], "marker")
+
+    assert "rigged" not in sections_arm, sections_arm
+    assert "rigged" in marker_arm, "arm A must show the leak it is there to quantify"
+    assert "\n" not in marker_arm and len(marker_arm) <= eval_claims.EXCERPT_CHARS
+
+
+def test_scoring_under_a_different_arm_than_the_sheet_refuses_to_be_silent(
+    tmp_path: Path,
+) -> None:
+    payload = three_class_rows()
+    payload["tiering"] = "marker"
+    path = tmp_path / "marker-sheet.json"
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    out = tmp_path / "r.json"
+
+    text = eval_claims.score_sheet(path, out, None, "sections")
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert "两档不能共用同一份 ground truth" in text, text
+    assert report["arm_mismatch"] is True
+    assert text.index("两档不能共用") < text.index("n="), "the warning precedes the numbers"
+
+    matching = eval_claims.score_sheet(path, out, None, "marker")
+    assert "两档不能共用" not in matching, matching
+
+
+def test_the_tiering_flag_reaches_both_halves_of_the_pipeline() -> None:
+    """Guards against the flag going decorative again, which is how it shipped."""
+    source = (REPO_ROOT / "scripts" / "eval_claims.py").read_text(encoding="utf-8")
+    export = source.split("def export_sheet")[1].split("def score_sheet")[0]
+    score = source.split("def score_sheet")[1].split("def main")[0]
+    main = source.split("def main")[1]
+
+    assert "claimable_excerpt" in export, "the sheet stopped carrying excerpts"
+    assert '"tiering": tiering' in export, "the export no longer records its arm"
+    assert "sheet_arm" in score and "arm_mismatch" in score
+    assert main.count("args.tiering") == 2, "one half stopped honouring --tiering"
+
+
+# --------------------------------------------------------------- blind labelling
+# The non-blind shape was a documented caveat ("一致率因此偏乐观") plus an
+# instruction to blank two columns by hand. Anchored agreement is the number a
+# report would quote, so the supported path has to be the unanchored one.
+
+def score_file(path: Path, out: Path):
+    text = eval_claims.score_sheet(path, out)
+    return text, json.loads(out.read_text(encoding="utf-8"))
+
+
+def blind_payload(rows):
+    return {"instructions": "盲标", "blind": True, "labels": rows}
+
+
+def split_into_blind_pair(tmp_path: Path, payload, name: str = "blind.json"):
+    """Write what `--blind` would write: a sheet without machine columns."""
+    rows = [dict(r) for r in payload["labels"]]
+    machine = eval_claims.split_machine_columns(rows)
+    sheet_path = tmp_path / name
+    sheet_path.write_text(json.dumps(blind_payload(rows), ensure_ascii=False), encoding="utf-8")
+    sidecar = eval_claims.sidecar_path(sheet_path)
+    sidecar.write_text(json.dumps({"machine": machine}, ensure_ascii=False), encoding="utf-8")
+    return sheet_path, rows, machine
+
+
+def test_a_blind_sheet_carries_no_machine_columns_at_all(tmp_path: Path) -> None:
+    _, rows, machine = split_into_blind_pair(tmp_path, three_class_rows())
+    assert all("machine_verdict" not in r and "machine_trust" not in r for r in rows)
+    assert not any("machine_" in json.dumps(r, ensure_ascii=False) for r in rows), rows
+    assert machine and all("machine_verdict" in v for v in machine.values())
+
+
+def test_blind_scoring_reproduces_the_visible_numbers(tmp_path: Path) -> None:
+    """The sidecar must restore exactly what it took out - or the blind path is
+    quietly a different measurement, and the two are not comparable."""
+    visible_path = tmp_path / "visible.json"
+    visible_path.write_text(json.dumps(three_class_rows(), ensure_ascii=False), encoding="utf-8")
+    visible_text, visible = score_file(visible_path, tmp_path / "visible.out.json")
+    sheet_path, _, _ = split_into_blind_pair(tmp_path, three_class_rows())
+    blind_text, blind = score_file(sheet_path, tmp_path / "blind.out.json")
+
+    for key in ("n", "accuracy", "macro_f1", "class_coverage", "threshold_pairs", "thresholds_suggested"):
+        assert blind[key] == visible[key], key
+    assert blind["blind"] is True and visible["blind"] is False
+    assert "盲标（machine_* 由副表合入）" in blind_text, blind_text
+    assert "非盲标" in visible_text
+
+
+def test_a_blind_sheet_without_its_sidecar_fails_loudly(tmp_path: Path) -> None:
+    sheet_path, rows, _ = split_into_blind_pair(tmp_path, three_class_rows())
+    eval_claims.sidecar_path(sheet_path).unlink()
+
+    with pytest.raises(SystemExit) as raised:
+        eval_claims.score_sheet(sheet_path, tmp_path / "r.json")
+    assert "--machine" in str(raised.value)
+
+
+def test_an_unlabelled_sheet_is_not_mistaken_for_a_blind_one(tmp_path: Path) -> None:
+    """Both shapes lack `machine_verdict`, and only one of them has a sidecar.
+
+    Guessing from the columns alone turned "nobody has labelled this yet" into a
+    crash with a message about the wrong thing.
+    """
+    rows = [{"claim_id": f"c{i}", "human_verdict": None} for i in range(3)]
+    path = tmp_path / "empty.json"
+    path.write_text(json.dumps(sheet(rows), ensure_ascii=False), encoding="utf-8")
+
+    text = eval_claims.score_sheet(path, tmp_path / "r.json")
+    assert "无法计分" in text and "--machine" not in text, text
+
+
+def test_the_blind_option_is_reachable_from_the_command_the_docs_give() -> None:
+    source = (REPO_ROOT / "scripts" / "eval_claims.py").read_text(encoding="utf-8")
+    export = source.split("def export_sheet")[1].split("def score_sheet")[0]
+    main = source.split("def main")[1]
+    assert '"--blind"' in main and "blind=args.blind" in main
+    assert '"--machine"' in main and "args.machine" in main
+    assert "--blind" in export, "the non-blind instructions must point at the blind option"

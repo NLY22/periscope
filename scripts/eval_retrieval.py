@@ -28,6 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from src._cli import display_path, force_utf8_output  # noqa: E402
 from src.corpus.metrics import evaluate  # noqa: E402
 from src.corpus.retrieval import HybridRetriever  # noqa: E402
 from src.corpus.semantic import EmbeddingIndex  # noqa: E402
@@ -186,6 +187,7 @@ def markdown_table(rows: List[List[str]]) -> str:
 
 
 async def main() -> int:
+    force_utf8_output()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--top-k", type=int, default=10, help="rank depth scored")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
@@ -222,8 +224,8 @@ async def main() -> int:
             results["configs"].append({"name": config["name"], "settings": {
                 k: v for k, v in config.items() if k != "name"}, "metrics": metrics, "runs": runs})
         results["provenance"] = {
-            "fixture": str(FIXTURE.relative_to(REPO_ROOT)),
-            "queries": str(QUERIES.relative_to(REPO_ROOT)),
+            "fixture": display_path(FIXTURE, REPO_ROOT),
+            "queries": display_path(QUERIES, REPO_ROOT),
             "stub_legs": ["expansion-stub", "semantic-stub"],
             "note": (
                 "Stub legs prove plumbing, not model quality. Rerun with a real "
@@ -238,7 +240,7 @@ async def main() -> int:
     )
     if not args.json_only:
         print(markdown_table(table))
-        print(f"\n写入 {args.out.relative_to(REPO_ROOT)}")
+        print(f"\n写入 {display_path(args.out, REPO_ROOT)}")
     return 0
 
 

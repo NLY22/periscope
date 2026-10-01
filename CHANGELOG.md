@@ -120,6 +120,47 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 ---
 
+## 尚未合入（本轮，分支 `feat/labeling-coverage-guardrails`）
+
+以下几件事都属于"规则写在纸上，但机器不知道"的同类项（最后一条不是修缺陷，是把回路真跑一遍） —— 上一轮把 §11 变成了断言，这几轮把"断言"再往前推一格：**真跑起来时会拦、会说、会自证**。第四条最重：它是一条写在已合并 PR 正文里的机制，实际从未在生产路径跑过。
+
+- **标注管线不再能把覆盖度缺陷报成质量分**。`--score` 以前无条件打印 macro-F1，而它固定在三类标签上取平均：缺 `contested` 样本时**人机完全一致也只有 0.667**。现在缺类会**先**打印一句警告（含那个天花板数字）**再**打表，结果 JSON 里加 `class_coverage` 与 `macro_f1_interpretable`；`--export` 的说明里也写明三类都要标到样本，不等标完 100 条才发现。测试 3 条，含反向用例（三类齐全时不许出警告）。
+- **§11 的"多账号池"补上代码半边**。继承来的 `twitter_playwright` 是池形状的（这条上一轮已确认不能靠断言否认），而边界此前只在文档里。现在匹配到 >1 个 cookie 文件时，`_planned_cookie_files()` 在**开跑前**警告一句本 fork 的采集边界是一个账号，并说明账号列表会被切成几份 —— 顺带覆盖那个对单账号也成立的坑（留着过期旧导出＝多了个上下文）。**没有删除继承实现、没有改默认行为、单 cookie 集时不产生任何日志噪音**（反向用例钉住）。
+- **盲标从"自己动手遮列"变成一条开关**。文档原来写着"要盲标就把 `machine_verdict` / `machine_trust` 两列遮掉再读摘录" —— 而**被标注者看见的判定会锚定一致率**，这正是项目唯一缺的那块证据最容易被做废的地方。现在 `--export --blind` 把三列移出标注表、写进同名 `.machine.json` 副表（标注期间不用打开），`--score` 按 `claim_id` 自动合回来，报告与结果 JSON 都会写明这批**是不是盲标**，免责那句也跟着分支（盲标不再写"偏乐观"）。`--machine <path>` 可显式指定副表。
+  - 实现时踩到并被测试抓住的一处：`machine_verdict` 缺失有两种完全不同的原因 —— 盲标表，和**还没人标**的空表。第一版按列猜，把后者变成了崩溃；现在只有"表自己声明是盲标 / 副表真的存在 / 调用方指了副表"三种情况才去合表，并加了那条反向用例（`test_an_unlabelled_sheet_is_not_mistaken_for_a_blind_one`）。
+
+- **`supported` 的两道门接进了产品路径**（本轮最重的一条）。`trust.classify()` 与 `Thresholds(supported=0.55, same_family_publishers=3)` 一直存在、也有单测，`docs/` 与已合并的 !8 正文都把它写成"判定背后的机制" —— 但**没有任何生产代码调用它**：verdict 完全来自模型读摘录，门只在评测脚本里跑。后果不是"少了一道保险"，是**报告里那句"❌ 可信度不足（T=…）"在当时是一句假话**：它是模型的判断，却被写成聚合层的否决。现在 `grade_claim` 在模型给出 `supported` 后用同一套 `collapse_votes` + `classify` 复核，**只降不升**（摘录是否说同一件事仍归模型，有几个独立声音归算术），并在 `claims.verdict_source`（schema v5 附加列，老库 ALTER）记下判定来自谁；报告对被否决的那些改口成"🚫 未通过可信度门 · 模型原判 supported"。老行留 `NULL` —— 迁移不去假装知道 pre-gate 的 `supported` 能不能过门。
+  - 同时补上**阈值无处落地**这条：`docs/evaluation.md` 让用户"把校准值写进 `trust` 配置"，而仓库里根本没有那个配置块。现在 `analysis` 下多四个可选字段（`supported_min_trust` / `triage_gate_trust` / `same_family_prior` / `same_family_publishers`，默认全 `null` = 保持手工先验），`thresholds_from(config)` 生成门限，orchestrator 把它传给分析器 —— `--score` 拟出来的 θ 从此有一个真的去处。新字段未文档化时 `test_every_evidence_config_field_is_documented` 会红，这次也是它先抓到的。
+
+- **让这个判定走到所有读者面前**（同一轮的收尾，别只修写入侧）：`Claim` 多一个 `verdict_source` 字段并进 `to_dict()`，store 读取按列名取（本文件里有几处显式列表的 SELECT，不按名字取就会静默丢），`scripts/eval_claims.py --export` 每行带 `machine_verdict_source`（盲标时与其他 machine 列一起进副表），`--score` 在该字段存在时**按来源拆一致率**并写进 `by_verdict_source`。为什么值得做："人与模型一致、但被门否决"这一类，混起来看只是"系统 67% 对"，拆开看才是"门的阈值可能设严了"——这恰好是人评要回答的那个问题，之前它会被总平均埋掉。
+
+- **聚合面也要分得开**：`ClaimStore.stats()` 增加 `by_verdict_source`（`hz_corpus_stats` 直接把整个 dict 交给 agent，之前它只报 `by_verdict`，门否决的 `unsupported` 与模型自己说的 `unsupported` 在总数里是一个数）。**pre-gate 的老行计入 `unset` 而不是 `llm`** —— 没人知道那些是谁判的。顺手核实了两条读取通路：`hz_list_claims` / `hz_get_claim` 都走 `Claim.to_dict()`，所以上一提交加的字段自动到达，不必再补（这是查证，不是假设）。
+
+- **拟合阈值不再能烂在最后一步**：`hz_validate_config` / `periscope` 的配置校验现在会对着 `data/eval/claims_results.json` 回一句"标注已拟出 supported=0.71，而线上还在用 0.55"（`trust.unused_calibration`）。之前这条 loop 的失败方式是静默的：`--score` 写出建议、人读过、门继续用先验，没有任何东西会再想起来。检查放在校验里是因为**那已经是 agent 与 CLI 会调的那一下**，而不是某个没人跑的脚本。非盲标那批还会附上"偏乐观"。
+  - **顺手抓出我自己三提交前造的死把手**：`analysis.triage_gate_trust` 是给 `Thresholds.triage` 开的，而**运行期没有任何东西读 `Thresholds.triage`** —— 真正决定"要不要花一次模型调用"的门槛一直是 `analysis.triage_min_trust`。字段已删，拟合的 triage 就写进 `triage_min_trust`（`--score` 那句建议与配置文档同时改了）。**注意这条不是被"没人读"的扫描抓到的**：`thresholds_from()` 里确实 `getattr` 了那个名字，所以名字出现扫描会放行；抓到它的是去查 `.triage` 的**下游读取点**。因此新增两条断言各管一半：字段必须被读，且 `Thresholds.triage` 除 `roc_thresholds()` 产出外不得出现运行期读取点（否则就得重新讨论要不要配置它）。
+
+- **一条声明，一份证据集**（本轮最后一个接缝）。三个地方各自定了摘录上限：linker 按 `analysis.evidence_per_claim`（6）写入、`ClaimStore.evidence_for()` 默认**截到 8**、`eval_claims.py --export` **硬编码 6**；而 `evidence_votes()`（无聚类折叠、无上限）被 `scripts/eval_multiturn.py` 用来算已发布的灌水曲线 —— 也就是说**模型看到的、人标注的、和门算的，可能不是同一批摘录**。改法是把上限放到**写入处**：`add_evidence()` 插完后按分数裁到 `store.evidence_limit`，读侧一律不再自己截（`evidence_for(limit=None)`），死掉的 `evidence_votes()` 删除（它会绕过折叠规则，留着就是等着被人用错）。配置从 orchestrator 的两个构造点都传进去。
+  - **这条改动会自己动测量值，所以我重跑了 harness 而不是推理**：第一次重跑时 `independent_sources_before_p1` 那一行从 **5 变成 4** —— 因为生产上限把 9 条植入链接裁到 6 条，曲线两端被压平。这是**修复的副作用而不是发现**，所以 harness 的两个 fixture 现在显式用 `evidence_limit=24`，重跑后 `5` 回来、`noisy_or_trust=0.7998` 与全部判级结论**不变**（匿名条数在两种规则下都不投票，所以 T 本来就不受影响）。
+  - 顺带修掉一个"测试替工件打圆场"的老问题：`multiturn_results.json` 里存过生成的 `pending_request` id，两次跑必然不同，于是 `test_no_measurement_reads_the_wall_clock` 一直**先删掉这一列再比较**。现在记录的是"是否问了用户"（布尔），那条测试改成整份工件逐字节相等 —— 以后再有不确定的字段会直接红，而不是被一段 projection 放过。
+
+- **标注表里根本没有摘录，`--tiering` 在这个脚本里根本没有被用过**（本轮最尴尬的一条，因为它属于"人评"那半步唯一的入口）。说明写着"读 evidence 里的原文摘录，只按这些摘录判断"，而每行只有 `item_id / cluster_id / source_type / title / url` —— 标注者只能挨个开链接，或者凭标题猜。同时 `--tiering` 在 `eval_retrieval.py` 里是真接线（`build_corpus(..., tiering=)`），在 `eval_claims.py` 里**只有 argparse 那一行**，`args.tiering` 从未被读；文档还给过 `--tiering=sections` 的具体命令。现在：每行带 `claimable_excerpt`（复用 `ClaimAnalyzer._excerpt` 的同一套空白折叠与 400 字上限，所以人看到的**就是**模型看到的），`marker` 档按标记重切、于是人群文本泄漏在表里看得见；档位写进表与结果 JSON，两档混用时 `--score` 先警告再报数（"两档不能共用同一份 ground truth"）。
+  - 断言里带一个真夹具：作者正文 + `--- Top Comments ---` + `[alice]: the benchmark is rigged` —— `sections` 档的摘录**不含** "rigged"，`marker` 档**必须含**（那正是 A 档要量出来的泄漏）。另有一条"这个标志不能只是装饰"的静态断言：`args.tiering` 必须出现两次（导出与评分各一处），导出体里必须有 `claimable_excerpt` 与档位记录。
+
+- **成功之后的打印不该让命令失败**（本轮最后一条，也是同族）：两个评测脚本用 `Path.relative_to(REPO_ROOT)` 展示输出路径 —— `--sheet C:\Users\...\labels.json` 这类**仓库外**的路径会在**导出已经完成之后**抛 `ValueError: ... is not in the subpath of ...`。本机就是最常见的形状：仓库在 `D:`，临时目录在 `C:`。改成 `_cli.display_path()`（在里面就给相对路径，在外面就原样给绝对路径），并留一条静态断言：`scripts/` 里不许再出现 `relative_to(REPO_ROOT)`。顺手补另一处：从**还没跑过声明抽取**的语料库导表，以前是 `sqlite3.OperationalError: no such table: claims` 的裸 traceback，现在明说先跑 `uv run periscope --hours 24`。
+
+- **把整条人评回路跑通了一次**（不是修 bug，是补证据）。新增 `tests/test_labeling_loop.py`：在真语料库上建声明、连证据、评级，然后 `--export`（含盲标与两档）→ 填合成标签 → `--score` → 断言 `thresholds_suggested` 真出现、`class_coverage` 三类齐全、`by_verdict_source` 记的是 `llm`，最后**按建议配置**并断言 `unused_calibration` 从"警告"变成"闭嘴"。**结果：没有发现新缺陷** —— 但这条回路此前只有各段的单测，没有任何人从头走过一遍；2026-09-30 那次"工具已就位"翻车（§15.18）就是这个形状。所以这次把"跑通"写成断言而不是句子。
+
+- **把面板真在浏览器里点了一遍，当场抓到一处**：导入区的 `placeholder` 建议用户写 `"source_type": "forum"` —— 而 `forum` 是 `SourceSpec.kind`，端点只认 14 个 source type，照抄示例的人第一下就会吃一个 reject。已改成 `discourse`，并新增 `tests/test_panel_placeholder.py`：占位符里的词表词必须是真 source type、两套词表必须**不相交**（这正是容易混的原因）、可运行的 `data/export.example.json` 必须仍能导入。浏览器实测记录（本地 `127.0.0.1`，真 config + 真 SQLite，无模型降级态）：只校验 → `可读 1 条 · 有作者层 1 条（未写入）` 且坏条目按序号点名；入库 → `新入库 1`、列表刷新到 1 条、toast `导入完成：新增 1 条`。
+  - **同一条路径又抓出一个**：核查台（`#claims`）把被可信度门否决的声明渲染得**与模型自己判 `unsupported` 完全一样**，还带着模型的 90% 置信度 —— `/api/claims` 其实一路都带着 `verdict_source`（HTTP 层实测确认），是模板没用它。现在多一枚 `可信度门否决 · 模型原判 supported` 标记，并且**门否决的条目不再显示那个百分比**（置信度属于被推翻的那一方）。实测渲染：`无支撑 / 可信度门否决 · 模型原判 supported / 2 独立源`，`%` 不再出现；护栏 `test_the_claims_pane_says_who_made_a_vetoed_verdict`。**这次覆盖的是导入与核查台两条交互路径**；报告与草稿时间线的排版/样式仍未目测，别读成"整个面板测过了"。
+
+- **文档让你跑的那条命令，在中文 Windows 上会自己崩**（浏览器那两轮顺手撞出来的同类问题）：`scripts/eval_claims.py --score` 打印以 `⚠` 开头的缺类警告，而中文控制台默认 cp936 编不出这个字符 —— 于是**结果文件已经写好、终端却抛 `UnicodeEncodeError`**，看起来像工具坏了。这台机器就满足触发条件（本地 `PYTHONIOENCODING=gbk` 复现， traceback 指向 `main()` 里那句 print）。修法：`_cli.force_utf8_output()`（把 stdout/stderr 重配成 UTF-8 + `errors="replace"`），七个入口脚本全部在 `main()` 第一行调用；两条新断言守着 —— 一条真的开子进程、把控制台编码钉成 gbk 跑完整 `--score`（要求 exit 0 且结果文件在），一条静态扫 `scripts/` 里任何 `print(` 却忘了这个守卫的新脚本。顺带把上一轮 `relative_to` 那条同族问题一起收在这个文件里（`tests/test_cli_paths.py`）。
+
+配套：`docs/twitter-cookies.md` §4 补一句这个启动期警告是什么、要你做什么（删掉多余那份，不是多备几个号）；`docs/evaluation.md` 口径 ③ 改写为 `--blind` 的用法与"只有盲标出来的一致率适合被引用"，并写明 `machine_verdict_source` 与拆分读法；`docs/configuration.md` 补三个阈值字段、"设了就改判定"、拟合 triage 该放哪，以及校验会回这句；README 的 `analysis` 行补上三个阈值字段。**四处描述"两道门"的文档也一并跟上事实**（此前它们把一个未接线的函数写成判定机制）：README 能力表标出它跑在 `grade_claim` 并给出 `claims.verdict_source` 位置、`docs/architecture.md` 的 `claims` 行补上该列、`docs/retrieval.md` 写清降级规则与四个可覆盖阈值、`docs/evaluation.md` 第 3 点注明这条现在对产品路径也成立。
+
+**数据**：collected **994 → 1047**（+4 覆盖度与池形状，+5 盲标通路，+6 门接线与迁移，+5 判定来源的读取与拆分，+3 聚合面与 MCP 直传核实，+8 拟合阈值的校验与"死把手"两条断言，+4 证据集上限统一到写入处，+3 摘录入表与档位不共用 ground truth，+4 CLI 输出路径与裸库提示，+4 人评回路端到端，+3 面板示例词表，+1 核查台把"门否决"与"模型判的无支撑"分开，+2 控制台码页与仓外路径，+1 面板读取的 stats 键必须真存在于 payload（`meta.x ?? 0` 是台静默零机器）；`uv run pytest` exit=0）。逐文件对过账：1040 + 7 = 1047。中途一次 `--collect-only` 报过 1015，与逐文件账目差 1；重跑两次稳定 1014（`test_trust_gate_wired.py` 稳定 11 条），所以采用 1014。**那一次多出的 1 我没查明原因** —— 只记现象与"以复测为准"，不给一个没验证过的解释。（同一轮我还把"新增 4 条"算错过一次：实际 3 条，账目对上才发现是加法错，不是测试丢了。）
+
+---
+
 ## 已合入 `main`
 
 ### PR #2（2026-09-26）· 把 fork 与上游真正分开

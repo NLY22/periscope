@@ -39,6 +39,26 @@ def _get_proxy() -> str:
 PROXY = _get_proxy()
 
 
+def _planned_cookie_files(cookie_dir: Path, pattern: str) -> list[Path]:
+    """The cookie sets the fetch path will open a context for, in use order.
+
+    Matching more than one file is the pool shape upstream built and this fork
+    rules out (SECURITY.md, spec §11), and a stale second export trips it by
+    accident. The boundary was prose in the guide only; this is where the code
+    can say it out loud, once, before the run starts.
+    """
+    files = sorted(cookie_dir.glob(pattern))
+    if len(files) > 1:
+        logger.warning(
+            "%d cookie files matched %s in %s: the fetcher will open one browser context per "
+            "set and split the account list across them. This fork's collection boundary is one "
+            "account (see SECURITY.md and docs/twitter-cookies.md §4) - remove the stale export "
+            "or narrow cookie_file_pattern to a single file.",
+            len(files), pattern, cookie_dir,
+        )
+    return files
+
+
 def _load_browser_cookies(file_path: str) -> list[dict]:
     """Read browser-exported cookie JSON and convert to Playwright format."""
     if not Path(file_path).exists():
@@ -92,7 +112,7 @@ class TwitterPlaywrightScraper(BaseScraper):
 
         cookie_dir = Path(self.twitter_config.cookie_dir)
         pattern = self.twitter_config.cookie_file_pattern
-        cookie_files = sorted(cookie_dir.glob(pattern))
+        cookie_files = _planned_cookie_files(cookie_dir, pattern)
         if not cookie_files:
             logger.warning("No cookie files found matching %s in %s", pattern, cookie_dir)
             return []

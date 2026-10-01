@@ -97,17 +97,15 @@ def test_the_known_soft_spot_is_measured_not_narrated(tmp_path: Path) -> None:
 def test_no_measurement_reads_the_wall_clock(tmp_path: Path) -> None:
     """The repo bans wall-clock assertions; the harness must obey it too.
 
-    Only the generated request ids differ between runs — everything that is
-    reported as a number has to be reproducible.
+    This used to compare everything *except* `pending_request`, because the
+    artifact recorded a generated request id and no amount of re-running would
+    make those match. The harness now records whether a question was asked, so
+    the whole document is reproducible - and a future volatile field fails this
+    test instead of being excused by it.
     """
-    def projection(result: dict) -> list:
-        return [{k: v for k, v in row.items() if k != "pending_request"}
-                for row in result["rounds"]]
-
     first = asyncio.run(harness.measure_rounds(tmp_path / "a"))
     second = asyncio.run(harness.measure_rounds(tmp_path / "b"))
-    assert projection(first) == projection(second)
-    assert first["total_calls"] == second["total_calls"]
+    assert first == second, "two runs of the same fixture must produce one artifact"
 
 
 def test_trust_is_reproducible_once_the_clock_is_pinned(tmp_path: Path) -> None:

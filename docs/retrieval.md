@@ -44,7 +44,7 @@ trust = σ(bias + w·(源先验, 作者等级, 交叉支持, 可核验实体, �
 
 **独立信源数**不再是簇数：先按簇折叠重复内容（每簇只留信任最高的代表），再数不同的 `(source_type, publisher)`；**发布者解析不出来的条目不投票**。声明级信任 `T = 1 − Π(1 − trust_i·d_i)`（noisy-OR，同族第二个发布者折半），求和没有上界，足够多的低质源能把任何结论刷成 supported。
 
-两道门：分诊门（`analysis.triage_min_trust`，默认 `0` 即关闭）决定哪些声明值得花一次模型调用；判定门 `corpus.trust.classify` 要求**跨族宽度**或**同族 ≥3 个发布者**。因此一篇独立硬稿单独仍判 `unsupported` —— 这是有意为之，但阈值未经人工标注校准，见 [docs/evaluation.md](evaluation.md)。
+两道门：分诊门（`analysis.triage_min_trust`，默认 `0` 即关闭）决定哪些声明值得花一次模型调用；判定门 `corpus.trust.classify` 要求**跨族宽度**或**同族 ≥3 个发布者**，它跑在 `grade_claim` 里 —— 模型说 `supported` 而宽度/深度不够时会被降为 `unsupported`，`claims.verdict_source` 记下是谁判的（报告里是 🚫 未通过可信度门，模型原判 supported）。阈值可用 `analysis.supported_min_trust` 等四个字段覆盖，默认 `null` 即仍是手工先验。因此一篇独立硬稿单独仍判 `unsupported` —— 这是有意为之，但阈值未经人工标注校准，见 [docs/evaluation.md](evaluation.md)。
 
 ## 分层之后怎么还找得到（`src/corpus/retrieval.py`）
 

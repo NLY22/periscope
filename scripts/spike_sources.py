@@ -52,6 +52,9 @@ async def _run(source: str, kw: str, url: str) -> list:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from src._cli import force_utf8_output
+
+    force_utf8_output()  # probe output echoes page text, which is not ours to sanitize
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True, choices=("tieba", "xiaohongshu"))
     parser.add_argument("--kw", default="", help="keyword for tieba / xhs search page")
