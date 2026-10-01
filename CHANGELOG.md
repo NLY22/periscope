@@ -1,11 +1,11 @@
 # 变更记录
 
-本仓库**还没有发布过任何版本**：`pyproject.toml` 仍是 `0.1.0`，`git tag` 为空，roadmap 里"在 AtomGit 上发布 Release / 发到 PyPI"仍未做。所以这份记录不按语义化版本分节，只区分**已合入 `main`** 与**待合并的 PR**；版本号与打 tag 由维护者决定，不是文档能替它宣布的。
+本仓库**还没有发布过任何版本**：`pyproject.toml` 仍是 `0.1.0`，`git tag` 为空，roadmap 里"在 AtomGit 上发布 Release / 发到 PyPI"仍未做。所以这份记录不按语义化版本分节，只按**已合入 `main`** 与**尚未合入的分支**分节；版本号与打 tag 由维护者决定，不是文档能替它宣布的。
 
 每条都能自己核对：
 
 ```bash
-git log --oneline main..feat/p1-trust-independence      # 三个 PR 的全部提交（分支是堆叠的）
+git log --oneline 8be37ed..main                        # 本轮合并进入 main 的全部提交
 uv run pytest                                           # 全量
 uv run python scripts/eval_retrieval.py --tiering marker # 复现分层前的 A 档
 uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮次 / 灌水曲线
@@ -15,9 +15,18 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 ---
 
-## 待合并（四个 PR，按此顺序合：#3 → #4 → #5 → #6）
+## 已合入 main（2026-10-01）
 
-分支是堆叠的（`#6` base 是 `#5`，`#5` base 是 `#4`，`#4` base 是 `main`；`#3` 直接 base `main`），所以每合一个，下一个的 diff 会自动缩小。条目里**不写提交数** —— 它每推一次就变，要数就用上面那条命令；下面的 collected 数字是全量 `uv run pytest` 的结果。
+```
+!3 文档  → 7379a77     !4 P0 → 0c35e7a
+!7 P2    → ff5c8b8     !8 P1 → b9cf338   ← main 的头
+```
+
+合完后在本地 fast-forward 到 `main` 跑的全量是 **994 passed、exit=0**。
+
+**#5 与 #6 不是被合并的，是被取代的**：两者的 base 是当初堆叠分支用的旧分支，而平台的 PR 更新接口改 base 两次调用都未生效（回读 base 分支名仍是旧分支）；照原 base 合只会把内容落到已经进过 `main` 的分支头上。所以用**完全相同的 head** 新建 base 直接写 `main` 的 !7 / !8 合入，#5 / #6 各留一条说明评论后关闭。下面各节的条目仍按 **#3 / #4 / #5 / #6** 编号 —— 它们是当初的审阅单位，内容一字未改，只是换了个合入通道。
+
+条目里**不写提交数** —— 它每推一次就变，要数就用 `git log --oneline 8be37ed..HEAD`；下面的 collected 数字是全量 `uv run pytest` 的结果。
 
 ### #4 · P0：分层从字符串约定改为类型化字段
 
