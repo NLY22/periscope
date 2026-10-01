@@ -823,6 +823,7 @@ class HorizonPipelineService:
         self,
         payload: Any,
         tiering: str = "sections",
+        dry_run: bool = False,
         horizon_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
@@ -832,6 +833,10 @@ class HorizonPipelineService:
         (captcha, request signing, account pools are all excluded by design):
         the user exports what their own account can see, and the tiers arrive
         declared rather than guessed from text markers.
+
+        `dry_run` previews the import through the same validation as the write
+        and stores nothing -- the parity with the CLI's `--dry-run` and the
+        panel's 只校验 button is checked by `tests/test_mcp_parity.py`.
         """
         from ..corpus.ingest import IngestError, import_payload
 
@@ -840,7 +845,7 @@ class HorizonPipelineService:
             "corpus",
         )
         try:
-            return import_payload(corpus, payload, tiering=tiering)
+            return import_payload(corpus, payload, tiering=tiering, dry_run=dry_run)
         except IngestError as exc:
             raise HorizonMcpError(code="HZ_INVALID_INPUT", message=str(exc)) from exc
 

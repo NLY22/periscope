@@ -23,7 +23,7 @@ The MCP layer does not reimplement business logic. It reuses the existing fetch,
 | `hz_corpus_stats` | Evidence-corpus overview (items, clusters, claims, sessions) |
 | `hz_corpus_search` | Full-text search over everything ever collected (CJK-aware) |
 | `hz_corpus_recent` | Most recent corpus items, optionally one source |
-| `hz_corpus_import` | Ingest a user export (`{"items": [...]}`) with declared tiers |
+| `hz_corpus_import` | Ingest a user export (`{"items": [...]}`) with declared tiers; `dry_run` previews without storing |
 | `hz_list_claims` | Claims by pipeline status with verdicts, trust, `ungraded_reason` and independent-source counts |
 | `hz_get_claim` | One claim with its linked evidence rows and recorded contradictions |
 | `hz_research_start` | Open a long-session research task → cited report |
@@ -74,6 +74,8 @@ Rules that matter:
 The same file ships as [`data/export.example.json`](../../data/export.example.json), and the test suite parses it, so the example cannot drift from the implementation.
 
 Same payload on the CLI (`uv run python scripts/import_corpus.py --file export.json --data-dir data`, plus `--dry-run` to validate without opening a database) and on the panel, which has a section for it (`POST /api/import`, answering 400 only when nothing at all could be imported). The panel's 只校验 button sends the same body with `"dry_run": true`: it runs the identical validation loop and writes nothing, so what the preview counts is what the import would accept.
+
+**All three entries are one feature, checked as such** (`tests/test_mcp_parity.py`): each can preview (`dry_run` / `--dry-run` / 只校验), each delegates validation to `src/corpus/ingest.py` rather than re-implementing it, and `tiering` is exposed by the MCP tool and the CLI — the two places that reproduce ablation arms — and deliberately *not* by the panel, where offering `marker` would invite importing evidence under the weaker layering rule.
 
 ## Resources
 

@@ -454,6 +454,7 @@ async def hz_corpus_recent(
 async def hz_corpus_import(
     payload: dict[str, Any],
     tiering: str = "sections",
+    dry_run: bool = False,
     horizon_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
@@ -462,11 +463,14 @@ async def hz_corpus_import(
     Each item declares its own authorship tiers through `sections`, so crowd
     text from an export cannot become evidence. Use this for sources Periscope
     must not scrape; see `src/mcp/README.md` for the payload shape.
+
+    `dry_run=true` reports what would be accepted and which items are rejected,
+    without storing anything.
     """
 
     return await _run_tool(
         "hz_corpus_import",
-        lambda: service.corpus_import(payload=payload, tiering=tiering, horizon_path=horizon_path, config_path=config_path)
+        lambda: service.corpus_import(payload=payload, tiering=tiering, dry_run=dry_run, horizon_path=horizon_path, config_path=config_path)
     )
 
 
