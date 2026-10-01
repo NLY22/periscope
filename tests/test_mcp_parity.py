@@ -10,6 +10,7 @@ assert the knobs match and that nobody re-implements the validation on the side.
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
 from pathlib import Path
@@ -96,3 +97,65 @@ def test_mcp_guide_documents_the_preview() -> None:
     assert len(section) > 1, "the MCP guide stopped documenting the import tool"
     around = section[0] + section[1]
     assert "dry_run" in around, "hz_corpus_import's preview is undocumented in the MCP guide"
+
+
+def _unforwarded(source: str) -> list[str]:
+    """Declared `hz_*` parameters that never reach the service call."""
+    tree = ast.parse(source)
+    problems: list[str] = []
+    for node in tree.body:
+        if not isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
+            continue
+        if not node.name.startswith("hz_"):
+            continue
+        declared = [
+            a.arg for a in node.args.args if a.arg not in ("horizon_path", "config_path")
+        ]
+        reached: set[str] = set()
+        for call in ast.walk(node):
+            if not isinstance(call, ast.Call):
+                continue
+            func = call.func
+            if not (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)):
+                continue
+            if func.value.id not in {"service", "adapter"}:
+                continue
+            for keyword in call.keywords:
+                if keyword.arg:
+                    reached.add(keyword.arg)
+            for position, value in enumerate(call.args):
+                if position >= len(declared):
+                    continue
+                names = {n.id for n in ast.walk(value) if isinstance(n, ast.Name)}
+                if declared[position] in names:
+                    reached.add(declared[position])
+        if set(declared) - reached:
+            problems.append(f"{node.name}: {sorted(set(declared) - reached)}")
+    return problems
+
+
+def test_every_tool_wrapper_forwards_every_declared_parameter() -> None:
+    """A tool that accepts `dry_run` and never passes it is a silent no-op.
+
+    Found by suspicion rather than by a failure: the parity fix added a
+    parameter to the service, and nothing would have complained if the wrapper
+    kept its own copy while dropping it on the way through. Positional
+    forwarding counts (`hz_get_run_meta` calls `service.get_run_meta(run_id)`),
+    so the check looks for the name reaching the call, not for a keyword form.
+    """
+    offenders = _unforwarded(
+        (REPO_ROOT / "src" / "mcp" / "server.py").read_text(encoding="utf-8")
+    )
+    assert not offenders, f"tool parameters that never reach the service: {offenders}"
+
+
+def test_the_forwarding_check_distinguishes_keyword_positional_and_dropped() -> None:
+    ok_keyword = "async def hz_a(flag: bool) -> dict:\n    return service.a(flag=flag)\n"
+    ok_positional = "def hz_b(run_id: str) -> dict:\n    return service.b(run_id)\n"
+    dropped = (
+        'async def hz_c(dry_run: bool, tiering: str = "sections") -> dict:\n'
+        "    return service.c(tiering=tiering)\n"
+    )
+    assert _unforwarded(ok_keyword) == []
+    assert _unforwarded(ok_positional) == []
+    assert _unforwarded(dropped) == ["hz_c: ['dry_run']"]
