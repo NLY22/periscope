@@ -321,11 +321,18 @@ async function loadClaims(){
     if(!list.length){ el.innerHTML='<div class="empty">还没有声明。配置 AI key 并采集后，声明会被提取、链接证据并评级。</div>'; return }
     el.innerHTML=list.map(c=>{
       const v=V[c.verdict]||['待评','t-unsupported','v-none'];
+      // A gate veto is not the model changing its mind. Without this the pane
+      // shows `无支撑 · 90%` and the reader attributes the judgment - and the
+      // confidence - to a model that was overruled.
+      const gate=c.verdict_source==='trust_gate'
+        ?'<span class="tag v-none">可信度门否决 · 模型原判 supported</span>':'';
+      const conf=c.confidence!=null&&c.verdict_source!=='trust_gate'
+        ?`<span>· ${Math.round(c.confidence*100)}%</span>`:'';
       return `<div class="claim ${v[2]}" data-id="${esc(c.id)}">
         <div class="tx">${esc(c.text)}</div>
-        <div class="meta"><span class="tag ${v[1]}">${v[0]}</span>
+        <div class="meta"><span class="tag ${v[1]}">${v[0]}</span>${gate}
           <span class="big-sources">${c.independent_sources}</span><span>独立源</span>
-          ${c.confidence!=null?`<span>· ${Math.round(c.confidence*100)}%</span>`:''}</div>
+          ${conf}</div>
         <div class="evi" id="ev-${esc(c.id)}"></div></div>`;
     }).join('');
     el.querySelectorAll('.claim').forEach(node=>node.onclick=async()=>{

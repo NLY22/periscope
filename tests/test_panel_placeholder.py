@@ -65,3 +65,19 @@ def test_the_runnable_example_still_imports() -> None:
     payload = json.loads((REPO_ROOT / "data" / "export.example.json").read_text(encoding="utf-8"))
     items = parse_import_payload(payload)
     assert items and all(item.source_type in SOURCE_REGISTRY for item in items)
+
+
+def test_the_claims_pane_says_who_made_a_vetoed_verdict() -> None:
+    """Found by reading the rendered pane in a browser, not the endpoint.
+
+    `/api/claims` carried `verdict_source` all along, and the template ignored
+    it: a gate-demoted claim showed exactly what a model's own `unsupported`
+    shows, including the model's confidence percentage - crediting a label to
+    the thing that was overruled.
+    """
+    assert "verdict_source" in HTML, "the pane stopped distinguishing who decided"
+    assert "可信度门否决" in HTML and "模型原判 supported" in HTML
+    assert "c.verdict_source!=='trust_gate'" in HTML, (
+        "the model's confidence is printed for a verdict it no longer owns"
+    )
+
