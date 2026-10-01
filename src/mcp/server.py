@@ -513,6 +513,80 @@ async def hz_research_followup(
 
 
 @mcp.tool()
+async def hz_research_step(
+    session_id: str,
+    message: str | None = None,
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Advance a research session by ONE round and get back the delta.
+
+    The loop chooses a verb each round: deepen a branch, fold the message into
+    the question tree, finalise — or ask you for something only you can supply
+    (then `pending_request` is non-null and the session parks). Returns the
+    changed section ids and the new draft revision, not a whole re-rendered
+    tree, so a round costs only what it touched.
+    """
+
+    return await _run_tool(
+        "hz_research_step",
+        lambda: service.research_step(session_id=session_id, message=message, horizon_path=horizon_path, config_path=config_path),
+    )
+
+
+@mcp.tool()
+async def hz_research_draft(
+    session_id: str,
+    revision: int | None = None,
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Read the research document as a versioned draft: revision, origin
+    (render | user_edit | merge), and per-section state — locked, stale, and
+    the evidence item ids behind each section. Omit `revision` for the latest."""
+
+    return await _run_tool(
+        "hz_research_draft",
+        lambda: service.research_draft(session_id=session_id, revision=revision, horizon_path=horizon_path, config_path=config_path),
+    )
+
+
+@mcp.tool()
+async def hz_research_edit(
+    session_id: str,
+    section_id: str,
+    body: str,
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Rewrite one section as the author. Stored as its own revision and locked,
+    so a later recompute marks it stale instead of overwriting your prose."""
+
+    return await _run_tool(
+        "hz_research_edit",
+        lambda: service.research_edit(session_id=session_id, section_id=section_id, body=body, horizon_path=horizon_path, config_path=config_path),
+    )
+
+
+@mcp.tool()
+async def hz_research_answer(
+    session_id: str,
+    request_id: str,
+    answer: str = "",
+    skip: bool = False,
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Reply to a question the session asked (`skip: true` to decline), then the
+    loop continues. A parked session is not stuck: this is how you unpark it."""
+
+    return await _run_tool(
+        "hz_research_answer",
+        lambda: service.research_answer(session_id=session_id, request_id=request_id, answer=answer, skip=skip, horizon_path=horizon_path, config_path=config_path),
+    )
+
+
+@mcp.tool()
 async def hz_research_status(
     session_id: str,
     horizon_path: str | None = None,

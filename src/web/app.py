@@ -36,6 +36,21 @@ class FollowupRequest(BaseModel):
     message: str
 
 
+class StepRequest(BaseModel):
+    message: Optional[str] = None
+
+
+class SectionEditRequest(BaseModel):
+    section_id: str
+    body: str
+
+
+class AnswerRequest(BaseModel):
+    request_id: str
+    answer: str = ""
+    skip: bool = False
+
+
 class CollectRequest(BaseModel):
     hours: Optional[int] = None
 
@@ -205,6 +220,21 @@ def create_app(orchestrator: Any) -> FastAPI:
                 for t in session.store.turns(session_id, limit=200)
             ],
             "report": session.render_report(session_id),
+            "draft": _draft_payload(session, session_id),
+            "pending_requests": [
+                r.to_dict() for r in session.drafts.pending_requests(session_id)
+            ],
+        }
+
+    def _draft_payload(session, session_id: str) -> dict[str, Any]:
+        draft = session.drafts.latest(session_id)
+        if draft is None:
+            return {"revision": 0, "origin": None, "sections": []}
+        return {
+            "revision": draft.revision,
+            "origin": draft.origin,
+            "markdown": draft.markdown(),
+            "sections": [s.to_dict() for s in draft.sections],
         }
 
     @app.post("/api/research/start")
@@ -224,6 +254,61 @@ def create_app(orchestrator: Any) -> FastAPI:
             raise HTTPException(status_code=400, detail="message must not be empty")
         report = await session.followup(session_id, req.message.strip())
         return {"session_id": report.session_id, "markdown": report.markdown}
+
+    # -------------------------------------------------- P2: per-round drafting
+    @app.post("/api/research/{session_id}/step")
+    async def research_step(session_id: str, req: StepRequest) -> dict[str, Any]:
+        """Advance one round. Returns what moved, not just a whole report."""
+        session = _session_or_404(session_id)
+        result = await session.step(session_id, (req.message or "").strip())
+        return result.to_dict()
+
+    @app.get("/api/research/{session_id}/draft")
+    async def research_draft(session_id: str, revision: int = 0) -> dict[str, Any]:
+        session = _session_or_404(session_id)
+        payload = _draft_payload(session, session_id)
+        if revision:
+            draft = session.drafts.get(session_id, revision)
+            if draft is None:
+                raise HTTPException(status_code=404, detail="unknown draft revision")
+            payload = {
+                "revision": draft.revision,
+                "origin": draft.origin,
+                "markdown": draft.markdown(),
+                "sections": [s.to_dict() for s in draft.sections],
+            }
+        payload["revisions"] = session.drafts.revisions(session_id)
+        return payload
+
+    @app.patch("/api/research/{session_id}/draft/sections/{section_id}")
+    async def research_section_edit(
+        session_id: str, section_id: str, req: SectionEditRequest
+    ) -> dict[str, Any]:
+        """A user edit becomes its own revision and locks that section."""
+        session = _session_or_404(session_id)
+        try:
+            draft = session.edit_section(session_id, section_id, req.body)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {
+            "revision": draft.revision,
+            "origin": draft.origin,
+            "section": draft.section(section_id).to_dict(),
+        }
+
+    @app.post("/api/research/{session_id}/requests/{request_id}")
+    async def research_request_answer(
+        session_id: str, request_id: str, req: AnswerRequest
+    ) -> dict[str, Any]:
+        """Reply to (or skip) something the session asked, then continue."""
+        session = _session_or_404(session_id)
+        try:
+            result = await session.answer_request(
+                session_id, request_id, req.answer, skip=req.skip
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return result.to_dict()
 
     # ------------------------------------------------------------- collect
     @app.post("/api/collect")

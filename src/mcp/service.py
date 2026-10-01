@@ -903,6 +903,113 @@ class HorizonPipelineService:
             "planner_attached": session.llm_available,
         }
 
+    # --------------------------------------------------- P2: per-round verbs
+    async def research_step(
+        self,
+        session_id: str,
+        message: str | None = None,
+        horizon_path: str | None = None,
+        config_path: str | None = None,
+    ) -> dict[str, Any]:
+        session = self._require(
+            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            "research",
+        )
+        try:
+            result = await session.step(session_id, (message or "").strip())
+        except KeyError as exc:
+            raise HorizonMcpError(
+                code="HZ_SESSION_NOT_FOUND",
+                message=str(exc),
+                details={"session_id": session_id},
+            ) from exc
+        payload = result.to_dict()
+        payload["planner_attached"] = session.llm_available
+        return payload
+
+    def research_draft(
+        self,
+        session_id: str,
+        revision: int | None = None,
+        horizon_path: str | None = None,
+        config_path: str | None = None,
+    ) -> dict[str, Any]:
+        session = self._require(
+            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            "research",
+        )
+        draft = session.drafts.get(session_id, revision)
+        if draft is None:
+            raise HorizonMcpError(
+                code="HZ_SESSION_NOT_FOUND",
+                message=f"session {session_id} has no draft revision "
+                        f"{revision if revision is not None else 'yet'}.",
+                details={"session_id": session_id, "revision": revision},
+            )
+        return {
+            "revision": draft.revision,
+            "origin": draft.origin,
+            "markdown": draft.markdown(),
+            "sections": [s.to_dict() for s in draft.sections],
+            "revisions": session.drafts.revisions(session_id),
+        }
+
+    def research_edit(
+        self,
+        session_id: str,
+        section_id: str,
+        body: str,
+        horizon_path: str | None = None,
+        config_path: str | None = None,
+    ) -> dict[str, Any]:
+        if not body.strip():
+            raise HorizonMcpError(code="HZ_INVALID_INPUT", message="body must not be empty.")
+        session = self._require(
+            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            "research",
+        )
+        try:
+            draft = session.edit_section(session_id, section_id, body)
+        except KeyError as exc:
+            raise HorizonMcpError(
+                code="HZ_SESSION_NOT_FOUND",
+                message=str(exc),
+                details={"session_id": session_id, "section_id": section_id},
+            ) from exc
+        section = draft.section(section_id)
+        return {
+            "revision": draft.revision,
+            "origin": draft.origin,
+            "section": section.to_dict() if section else None,
+        }
+
+    async def research_answer(
+        self,
+        session_id: str,
+        request_id: str,
+        answer: str = "",
+        skip: bool = False,
+        horizon_path: str | None = None,
+        config_path: str | None = None,
+    ) -> dict[str, Any]:
+        session = self._require(
+            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            "research",
+        )
+        try:
+            result = await session.answer_request(
+                session_id, request_id, answer, skip=skip
+            )
+        except KeyError as exc:
+            raise HorizonMcpError(
+                code="HZ_SESSION_NOT_FOUND",
+                message=str(exc),
+                details={"session_id": session_id, "request_id": request_id},
+            ) from exc
+        payload = result.to_dict()
+        payload["planner_attached"] = session.llm_available
+        return payload
+
     def research_status(
         self,
         session_id: str,
@@ -925,6 +1032,17 @@ class HorizonPipelineService:
             "subquestions": [self._jsonable(s) for s in session.store.subquestions(session_id)],
             "turns": [self._jsonable(t) for t in session.store.turns(session_id, limit=50)],
             "report": session.render_report(session_id),
+            "draft": (
+                {
+                    "revision": draft.revision,
+                    "origin": draft.origin,
+                    "sections": [s.to_dict() for s in draft.sections],
+                }
+                if (draft := session.drafts.latest(session_id)) is not None else None
+            ),
+            "pending_requests": [
+                r.to_dict() for r in session.drafts.pending_requests(session_id)
+            ],
         }
 
     def research_list(
