@@ -3,7 +3,7 @@
 - 日期：2026-09-29（v4。v2 对照代码审计，v3 分层泄漏实测 + 贴吧可达性实测，v4 三期交付记录，见 §13、§14、§15）
 - 状态：P0 / P2 / P1 已实现并推送（§15）。剩余阻塞项只有维护者能做的两件：声明 verdict 的人工标注、S1/S2 探针的后两步
 - 范围：本仓库（`NLY22/periscope`，fork 自 `Thysrael/Horizon`）的两项能力扩展；不改动上游日报管线的行为
-- 本文所有行号于 2026-09-29 对照 `main`（`8be37ed`）核实；测试基线 697 collected（2026-09-29 本机复核 `uv run pytest --collect-only` = `697 tests collected in 1.81s`），三期 + 文档/UI/贡献者侧护栏 + §6.1 的导出入库通路 + §6 的可达性判别工具、以及 §8 的三张结构性图与图元护栏 + 6/7 号数据图与图像护栏 + 消融表逐格对齐 + 采集边界与全仓库符号网、导入面板、路由可达性、命令行标志与 DNS 注入接缝完成后 **979 collected 全绿**（逐轮增量见 §15 与 `CHANGELOG.md`）
+- 本文所有行号于 2026-09-29 对照 `main`（`8be37ed`）核实；测试基线 697 collected（2026-09-29 本机复核 `uv run pytest --collect-only` = `697 tests collected in 1.81s`），三期 + 文档/UI/贡献者侧护栏 + §6.1 的导出入库通路 + §6 的可达性判别工具、以及 §8 的三张结构性图与图元护栏 + 6/7 号数据图与图像护栏 + 消融表逐格对齐 + 采集边界与全仓库符号网、导入面板、路由可达性、命令行标志与 DNS 注入接缝完成后 **987 collected 全绿**（逐轮增量见 §15 与 `CHANGELOG.md`）
 - **v3 的两条实测结论推翻了 v2 的两个前提**，都记在 §14：① 分层污染不是"未来接新源才会发生"，而是**现役 3 个源正在污染** claim 链路；② 贴吧楼层页从本机不可达，**不能**作为 P0 的验证载体。
 
 ---
@@ -476,7 +476,7 @@ P1 两处都要改：
 10. **单平台研究会不会永远无法 supported**：noisy-OR + 同 source_type 内多 publisher 的折扣路径解决（§5.2 第 3-4 点）。
 11. **`time_basis=unknown` 会不会反复烧预算**：`id` 幂等入库 + 分析阶段跳过已见 id（§3.1）。
 12. **消融 A 档在 P0 之后还能不能测**：`--tiering=marker|sections` 开关（§5.4）。
-13. **迁移会不会改变上游日报的输出**：不会，而且必须测。`processing/content.py:split_content` 保留，`ContentItem.content` 仍由 sections 拼接而成（拼接产物里**不再**含标记字面量），所以 `split_content` 对迁移后的条目会走 `COMMENTS_MARKER not in content` 分支、把全文当 `main`。这正是日报侧想要的效果吗？—— 不是：日报侧原本靠标记剔除评论。所以 **`split_content` 必须同步改为读 `item.sections`**，否则日报会开始把评论当正文摘要。这是 §3.5"不动日报行为"的真正含义：行为不变，实现换轨。守护测试要覆盖两侧（claim 侧与日报侧）对同一条 Reddit 条目的一致性。
+13. **迁移会不会改变上游日报的输出**：不会，而且必须测。`processing/content.py:split_content` 保留，`ContentItem.content` 仍由 sections 拼接而成（拼接产物里**不再**含标记字面量），所以 `split_content` 对迁移后的条目会走 `COMMENTS_MARKER not in content` 分支、把全文当 `main`。这正是日报侧想要的效果吗？—— 不是：日报侧原本靠标记剔除评论。所以 **`split_content` 必须同步改为读 `item.sections`**，否则日报会开始把评论当正文摘要。这是 §3.5"不动日报行为"的真正含义：行为不变，实现换轨。守护测试要覆盖两侧（claim 侧与日报侧）对同一条 Reddit 条目的一致性。**（这条承诺当时并没有兑现：两侧各测各的，直到 2026-10-01 才补上真正的成对断言，见 §15.19。）**
 14. **现有测试是否钉住了错误行为**：`tests/test_twitter.py:589` 断言 `"--- Top Comments ---" in item.content`，钉的正是 §1.1 的泄漏。迁移必须**同时改这条断言**，否则 P0 会在"测试全绿"的假象下把泄漏固化。
 15. **贴吧/小红书在探针通过前不写抓取代码**：S1/S2 的结论是"能不能取到"，不是"要不要做"。在拿到可达通路之前，任何贴吧/小红书 scraper 代码都是猜的（§14）。
 
@@ -628,7 +628,7 @@ P0 / P2 / P1 三期已实现并推送。**本节只记三件事：验收实测�
 |---|---|---|
 | **P0** | `feat/p0-structured-sections` / PR #4 | §10 的六条全绿。`test_tier_guard.py` 先在 `main` 上跑红（HN 链接帖的 `claimable` 里是 `[stranger_b]: no it isnt`），失败输出留在 commit `20d7ff2`。collected **697 → 817** |
 | **P2** | `feat/p2-multiturn-drafts` / PR #5 | 三条全绿：3 轮且 `moves == [askuser, deepen, finalize]`；锁定节只标 `stale` 不覆盖；`Deepen(一条)` = **2** 次模型调用 vs 全树 **5** 次。collected **817 → 836** |
-| **P1** | `feat/p1-trust-independence` / PR #6 | §10 的 P1 六条里工程五条全绿（第六见人评）。`--tiering marker` 与 `docs/evaluation.md` 表格逐格一致，A 档仍可复现。§5.5 的客观量与 §8 的图表 6/7 由 `scripts/eval_multiturn.py` 产出（见 §15.4）。P2 的三条验收另有 UI 级证据（§15.6）。collected **836 → 859 → 862 → 871 → 882**（后两轮是文档一致性与面板重绘的护栏）；本分支后续几轮（§15.7–§15.18）把数字推到 **979** |
+| **P1** | `feat/p1-trust-independence` / PR #6 | §10 的 P1 六条里工程五条全绿（第六见人评）。`--tiering marker` 与 `docs/evaluation.md` 表格逐格一致，A 档仍可复现。§5.5 的客观量与 §8 的图表 6/7 由 `scripts/eval_multiturn.py` 产出（见 §15.4）。P2 的三条验收另有 UI 级证据（§15.6）。collected **836 → 859 → 862 → 871 → 882**（后两轮是文档一致性与面板重绘的护栏）；本分支后续几轮（§15.7–§15.19）把数字推到 **987** |
 
 ### 15.2 设计在实现中被改写的地方
 
@@ -861,3 +861,12 @@ spec 写下「用户侧导出 + 配一个 `hz_corpus_import` 入口」时，那�
 2. **这张表不是盲标**：标注者看得到 `machine_verdict` 与 `machine_trust`，所以一致率、以及由它拟出的阈值，都**偏乐观**。要盲标就先遮列。
 
 方法论上和 §15.16、§15.17 是同一句话的第三次应用：**"工具存在"不等于"你要它做的事会因此发生"**；能测的地方就把端到端跑一遍（这里跑的是 合成标注 → 阈值），不能测的地方（人评数据为零）就继续明说。全量 **979 passed**。
+
+### 15.19 按"§ 里点到的东西真存在、真被测"回查一遍，抓到两处（`052b098` + `53dc9f9`，PR #6）
+
+做法：把 §3–§7 反引号点到的机制名全量扫出来比对代码与 `tests/`，再逐条读 §9 的 15 处接缝自查，看它承诺的处理与守护是否真在。**先说结论的反面**：301 个 token 里 281 个真存在于代码，36 个没在测试里出现过名字 —— 但这 36 个绝大多数不是缺陷（`COALESCE` / `DISTINCT` 是 SQL 关键字，`HttpUrl` / `Literal` 是类型，`research_drafts` 这类表名是经由 store API 间接测的）。**"名字没出现" ≠ "行为没测"**，这句必须写在前面，否则这条统计本身就是又一次扫描器过度解读。逐条读完，真的两处：
+
+1. **配置到机器的最后一跳没人钉**：`analysis.triage_min_trust`  store 层的门槛行为有测试（`test_trust_p1.py`），但 `orchestrator` 把它交给 `ClaimAnalyzer` 那一跳没有 —— **如果在调用点写死 0.0，所有文档仍然全对、分诊门却已经死了**。新增 `test_triage_floor_reaches_the_analyzer_that_picks_claims`，同时钉住"默认 `0.0` = 门关闭"与"每次构造分析器都重读配置（不缓存）"。
+2. **§9.13 的承诺没兑现**：那条写着"守护测试要覆盖两侧（claim 侧与日报侧）对同一条 Reddit 条目的一致性"，实际只有各侧自己的测试。而 P0 的起因恰恰是两侧各自全绿却互不同意（日报认英文标记、claim 认五个中文标记）。新增两条成对断言：`split_item_content(item).main == claimable_of(item, "sections")`（回帖两侧都不进、但作为线索留在 `comments`），以及 HN 链接帖**两侧都为空**。已在 §9.13 原句后标注"当时未兑现"。
+
+顺手确认了不是缺陷的几处：`legacy_marker` 的 0.8 折扣有覆盖（5 个测试文件）；报告里 `⏳ 未评级` / `🏷️ 无可核验发布者` 的分支存在且被 `test_trust_p1.py`、`test_planner.py` 触及；`reset_budget()` 与 `invalidate_after()` 都有调用点且行为已被覆盖（**所以没有为凑数补测试**）；`src/scrapers/` 下确实没有任何贴吧/小红书抓取模块（§9.15 成立）。全量 **987 passed**。
