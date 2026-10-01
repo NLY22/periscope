@@ -32,7 +32,7 @@ DEFAULT_DB = REPO_ROOT / "data" / "corpus.db"
 DEFAULT_SHEET = REPO_ROOT / "data" / "eval" / "claims_labels.json"
 
 
-MACHINE_COLUMNS = ("machine_verdict", "machine_confidence", "machine_trust")
+MACHINE_COLUMNS = ("machine_verdict", "machine_verdict_source", "machine_confidence", "machine_trust")
 
 COVERAGE_NOTE = (
     "**三个类别都要标到样本**（supported / contested / unsupported）：macro-F1 在这三类上取平均，"
@@ -82,6 +82,7 @@ def export_sheet(db_path: Path, out_path: Path, blind: bool = False) -> int:
     try:
         rows = conn.execute(
             """SELECT c.id, c.text, c.claim_type, c.status, c.verdict,
+                      c.verdict_source,
                       c.confidence, c.trust, c.independent_sources, c.item_id,
                       i.title AS origin_title, i.url AS origin_url
                FROM claims c LEFT JOIN items i ON i.id = c.item_id
@@ -104,6 +105,10 @@ def export_sheet(db_path: Path, out_path: Path, blind: bool = False) -> int:
                     "origin": {"title": row["origin_title"], "url": row["origin_url"]},
                     "independent_sources": row["independent_sources"],
                     "machine_verdict": row["verdict"],
+                    # Whether the stored verdict is the model's or the trust
+                    # gate's veto. Mixed together they make one number that
+                    # answers neither "is the model right" nor "is the gate".
+                    "machine_verdict_source": row["verdict_source"],
                     "machine_confidence": row["confidence"],
                     "machine_trust": row["trust"],
                     "evidence": [dict(e) for e in evidence],
@@ -231,6 +236,23 @@ def score_sheet(sheet_path: Path, out_path: Path | None, machine_path: Path | No
     if skipped:
         lines.append(f"\n（未标注或机器未评级的条目 {skipped} 条，已排除）")
 
+    # The two question marks have to be separated: agreement over
+    # `machine_verdict` alone answers "does the combined system match a human",
+    # while the split shows whether the disagreement sits with the model reading
+    # excerpts or with the breadth gate standing behind it.
+    by_source: Dict[str, Dict[str, float]] = {}
+    sourced = [r for r in labeled if r.get("machine_verdict_source")]
+    if sourced:
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        for r in sourced:
+            groups.setdefault(r["machine_verdict_source"], []).append(r)
+        lines.append("")
+        lines.append("按判定来源拆分（llm = 模型原判定；trust_gate = 被可信度门否决后的值）：")
+        for name in sorted(groups):
+            sub = score_pairs([(r["human_verdict"], r["machine_verdict"]) for r in groups[name]])
+            by_source[name] = {"n": float(sub.n), "agreement": round(sub.accuracy, 4)}
+            lines.append(f"- {name}: n={sub.n}, agreement={sub.accuracy:.3f}")
+
     # Threshold fitting is the reason the labels exist; agreement alone would
     # leave θ_s / θ_triage hand-set and the project's open question open.
     pairs = [
@@ -275,6 +297,7 @@ def score_sheet(sheet_path: Path, out_path: Path | None, machine_path: Path | No
                     },
                     "macro_f1_interpretable": not absent,
                     "blind": blind,
+                    "by_verdict_source": by_source,
                     "threshold_pairs": len(pairs),
                     "thresholds_suggested": None if fitted is None else {
                         "supported": fitted.supported,

@@ -123,9 +123,11 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 - **`supported` 的两道门接进了产品路径**（本轮最重的一条）。`trust.classify()` 与 `Thresholds(supported=0.55, same_family_publishers=3)` 一直存在、也有单测，`docs/` 与已合并的 !8 正文都把它写成"判定背后的机制" —— 但**没有任何生产代码调用它**：verdict 完全来自模型读摘录，门只在评测脚本里跑。后果不是"少了一道保险"，是**报告里那句"❌ 可信度不足（T=…）"在当时是一句假话**：它是模型的判断，却被写成聚合层的否决。现在 `grade_claim` 在模型给出 `supported` 后用同一套 `collapse_votes` + `classify` 复核，**只降不升**（摘录是否说同一件事仍归模型，有几个独立声音归算术），并在 `claims.verdict_source`（schema v5 附加列，老库 ALTER）记下判定来自谁；报告对被否决的那些改口成"🚫 未通过可信度门（T=…，模型原判 supported）"。老行留 `NULL` —— 迁移不去假装知道 pre-gate 的 `supported` 能不能过门。
   - 同时补上**阈值无处落地**这条：`docs/evaluation.md` 让用户"把校准值写进 `trust` 配置"，而仓库里根本没有那个配置块。现在 `analysis` 下多四个可选字段（`supported_min_trust` / `triage_gate_trust` / `same_family_prior` / `same_family_publishers`，默认全 `null` = 保持手工先验），`thresholds_from(config)` 生成门限，orchestrator 把它传给分析器 —— `--score` 拟出来的 θ 从此有一个真的去处。新字段未文档化时 `test_every_evidence_config_field_is_documented` 会红，这次也是它先抓到的。
 
-配套：`docs/twitter-cookies.md` §4 补一句这个启动期警告是什么、要你做什么（删掉多余那份，不是多备几个号）；`docs/evaluation.md` 口径 ③ 改写为 `--blind` 的用法与"只有盲标出来的一致率适合被引用"；`docs/configuration.md` 补四个阈值字段与"设了就改判定"的说明。
+- **让这个判定走到所有读者面前**（同一轮的收尾，别只修写入侧）：`Claim` 多一个 `verdict_source` 字段并进 `to_dict()`，store 读取按列名取（本文件里有几处显式列表的 SELECT，不按名字取就会静默丢），`scripts/eval_claims.py --export` 每行带 `machine_verdict_source`（盲标时与其他 machine 列一起进副表），`--score` 在该字段存在时**按来源拆一致率**并写进 `by_verdict_source`。为什么值得做："人与模型一致、但被门否决"这一类，混起来看只是"系统 67% 对"，拆开看才是"门的阈值可能设严了"——这恰好是人评要回答的那个问题，之前它会被总平均埋掉。
 
-**数据**：collected **994 → 1009**（+4 覆盖度与池形状，+5 盲标通路，+6 门接线与迁移，其中一条替换了另一条）；全量 `uv run pytest` **1009 collected / 0 skip / exit=0**。
+配套：`docs/twitter-cookies.md` §4 补一句这个启动期警告是什么、要你做什么（删掉多余那份，不是多备几个号）；`docs/evaluation.md` 口径 ③ 改写为 `--blind` 的用法与"只有盲标出来的一致率适合被引用"，并写明 `machine_verdict_source` 与拆分读法；`docs/configuration.md` 补四个阈值字段与"设了就改判定"的说明。
+
+**数据**：collected **994 → 1015**（+4 覆盖度与池形状，+5 盲标通路，+6 门接线与迁移，+5 判定来源的读取与拆分；最后一次全量 `uv run pytest` exit=0）。**一条对账没合上的诚实记录**：本轮新增 5 条测试，`--collect-only` 总数从 1009 涨到 1015（+6），逐文件比对里只有 `test_trust_gate_wired.py` 从 6 涨到 11，剩下 **+1 我没能归因**（改动面只有 3 个文件，也无新的参数化 id 命中）。它不影响红绿，但数字既然写在这里就把差额一起写下。
 
 ---
 

@@ -78,6 +78,10 @@ class Claim:
     independent_sources: int = 0
     trust: Optional[float] = None
     ungraded_reason: Optional[str] = None
+    # Who decided `verdict`: the model, or the trust gate vetoing a model
+    # `supported`. Without this a demotion is indistinguishable from the model
+    # having changed its mind, and every downstream reader loses the fact.
+    verdict_source: Optional[str] = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -94,6 +98,7 @@ class Claim:
             "independent_sources": self.independent_sources,
             "trust": self.trust,
             "ungraded_reason": self.ungraded_reason,
+            "verdict_source": self.verdict_source,
             "created_at": self.created_at.isoformat(),
         }
 
@@ -482,6 +487,11 @@ CREATE INDEX IF NOT EXISTS idx_contra_b ON claim_contradictions(claim_b);
             time_scope=row["time_scope"],
             status=row["status"],
             verdict=row["verdict"],
+            # Explicit column lists exist in this file, so read by name when the
+            # row carries it rather than assuming every SELECT lists the column.
+            verdict_source=(
+                row["verdict_source"] if "verdict_source" in row.keys() else None
+            ),
             confidence=row["confidence"],
             independent_sources=row["independent_sources"],
             trust=row["trust"] if "trust" in row.keys() else None,
@@ -863,6 +873,7 @@ class ClaimAnalyzer:
                     )
         claim.status = "graded"
         claim.verdict = verdict
+        claim.verdict_source = source
         claim.confidence = confidence
         return claim
 

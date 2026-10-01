@@ -16,8 +16,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+import eval_claims  # noqa: E402
 
 from src.analysis.claims import Claim, ClaimAnalyzer, ClaimStore
 from src.corpus.store import Corpus
@@ -192,3 +200,105 @@ def test_an_old_claims_table_gains_the_column_without_losing_rows(tmp_path) -> N
         "SELECT verdict, verdict_source FROM claims WHERE id='claim:old'"
     ).fetchone()
     assert row["verdict"] == "supported" and row["verdict_source"] is None
+
+
+# ------------------------------------------------------------ the source travels
+# A veto that lives only in a column nobody selects is invisible exactly where
+# it matters: the store read, the JSON consumers, and the labeling sheet.
+
+def _demoted(tmp_path):
+    corpus = _corpus(tmp_path)
+    store = ClaimStore(corpus)
+    a = _item(corpus, "a", SourceType.HACKERNEWS, "writer-a")
+    b = _item(corpus, "b", SourceType.HACKERNEWS, "writer-b")
+    _claim_with_evidence(corpus, store, [(a, "c1"), (b, "c2")])
+    asyncio.run(ClaimAnalyzer(store=store, corpus=corpus, client=_Client(SUPPORTED))
+                .grade_claim(store.get_claim("claim:x")))
+    return corpus
+
+
+def _score(path: Path, out: Path):
+    text = eval_claims.score_sheet(path, out)
+    return text, json.loads(out.read_text(encoding="utf-8"))
+
+
+def test_the_source_survives_a_read_through_the_store(tmp_path) -> None:
+    _demoted(tmp_path)
+    claim = ClaimStore(Corpus(tmp_path / "gate.db")).get_claim("claim:x")
+
+    assert claim is not None and claim.verdict == "unsupported"
+    assert claim.verdict_source == "trust_gate", "the read path dropped the column"
+    assert claim.to_dict()["verdict_source"] == "trust_gate", "the JSON shape lost it"
+
+
+def test_the_labeling_sheet_says_who_made_the_machine_verdict(tmp_path) -> None:
+    _demoted(tmp_path)
+    sheet = tmp_path / "sheet.json"
+    assert eval_claims.export_sheet(tmp_path / "gate.db", sheet) >= 1
+
+    row = json.loads(sheet.read_text(encoding="utf-8"))["labels"][0]
+    assert row["machine_verdict"] == "unsupported"
+    assert row["machine_verdict_source"] == "trust_gate", (
+        "without this the eval measures the model and the gate as one thing"
+    )
+
+
+def test_blind_export_holds_the_source_back_with_the_other_machine_columns(
+    tmp_path,
+) -> None:
+    _demoted(tmp_path)
+    sheet = tmp_path / "blind_sheet.json"
+    eval_claims.export_sheet(tmp_path / "gate.db", sheet, blind=True)
+
+    payload = json.loads(sheet.read_text(encoding="utf-8"))
+    assert all(
+        "machine_verdict_source" not in r and "machine_trust" not in r
+        for r in payload["labels"]
+    ), "the rows, not the instructions text, are what must be held back"
+    sidecar = json.loads(
+        eval_claims.sidecar_path(sheet).read_text(encoding="utf-8"))["machine"]
+    assert any(v.get("machine_verdict_source") == "trust_gate" for v in sidecar.values())
+
+
+def _mixed_source_sheet() -> dict:
+    return {
+        "labels": [
+            {"claim_id": "a", "machine_verdict": "unsupported",
+             "machine_verdict_source": "trust_gate", "human_verdict": "supported",
+             "machine_trust": 0.60, "independent_sources": 2},
+            {"claim_id": "b", "machine_verdict": "supported",
+             "machine_verdict_source": "llm", "human_verdict": "supported",
+             "machine_trust": 0.80, "independent_sources": 3},
+            {"claim_id": "c", "machine_verdict": "unsupported",
+             "machine_verdict_source": "llm", "human_verdict": "unsupported",
+             "machine_trust": 0.10, "independent_sources": 2},
+        ]
+    }
+
+
+def test_scoring_splits_agreement_between_the_model_and_the_gate(tmp_path) -> None:
+    """Row `a` is the interesting one: human and model agreed, and the gate
+    overruled. One agreement number buries that under "the system is 67% right".
+    """
+    path = tmp_path / "mixed.json"
+    path.write_text(json.dumps(_mixed_source_sheet(), ensure_ascii=False), encoding="utf-8")
+    text, report = _score(path, tmp_path / "r.json")
+
+    assert "按判定来源拆分" in text, text
+    assert "trust_gate: n=1, agreement=0.000" in text, text
+    assert "llm: n=2, agreement=1.000" in text, text
+    assert report["by_verdict_source"]["trust_gate"]["n"] == 1
+    assert report["accuracy"] == round(2 / 3, 4), "the overall number stays as it was"
+
+
+def test_sheets_without_the_column_get_no_split_and_no_complaint(tmp_path) -> None:
+    rows = [
+        {k: v for k, v in r.items() if k != "machine_verdict_source"}
+        for r in _mixed_source_sheet()["labels"]
+    ]
+    path = tmp_path / "plain.json"
+    path.write_text(json.dumps({"labels": rows}, ensure_ascii=False), encoding="utf-8")
+    text, report = _score(path, tmp_path / "r.json")
+
+    assert "按判定来源拆分" not in text, text
+    assert report["by_verdict_source"] == {}
