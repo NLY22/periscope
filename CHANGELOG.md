@@ -77,6 +77,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 - 贡献者侧：`CONTRIBUTING.md` 的「先读」从三份变四份（`docs/architecture.md` 排第一），并加第 9 条硬约束 —— 改动 `Session.status` / `Move` 动词 / corpus 表 / 可达性判定 / 加宽阶梯 / 源族数量就得同步那张图，且**这条规则的预期是它会红**：这些名字都还在动，红了就画图，别删断言。
 
 **修复**
+- **标注工具并不能产出阈值，这条修了**：`roc_thresholds()` 一直有（也有单元测试），但 `scripts/eval_claims.py --score` **从没调用它**，而 `--export` 生成的标注表里**根本没有 `c.trust` 这一列** —— θ 是按 `T(claim)` 定义的，也就是说即便你今天标完 100 条，跑 `--score` 只会得到一致率与 macro-F1，阈值仍然是手工先验。文档当时写的是"工具已就位，缺的是标注本身"，这句**夸大了**。现在：导出的每行带 `machine_trust`（并说明它是被测对象、别改），`--score` 会用 `roc_thresholds()` 给出 `thresholds_suggested`（附在打印与 `claims_results.json` 里），带 T 值的标注不足两个类别时**明写"跳过"而不是编一个数**。新增 `tests/test_eval_claims_calibration.py`（4 条）覆盖整条路径。顺带把三个口径写进 `docs/evaluation.md`：建议≠生效值；**macro-F1 固定按三个标签取平均**（标注里没有 `contested` 时，完美一致也只有 0.667 —— 这条有断言钉住）；这张表不是盲标，一致率因此偏乐观。
 - 草稿章节的 `evidence_ids` / `subquestion_id` / `verdicts` **声明了但渲染路径从未填** → 面板每节显示"0 条证据"（实际引用三条），且 `MoveContext.contested_claims` 恒为空（选下一个动词的模型从来看不到矛盾）。`5f3862c`。
 - 面板在 start / 推一轮之后不重绘轮次状态（轮次时间线、可编辑章节、待回答卡片要刷新才出现），状态行硬编码 `· active` —— 浏览器实测抓到，端点级测试当时全绿。`905ab17`。
 - **套件会因机器的 DNS 而红，这条修掉了**：`src/url_security.py` 的 SSRF 校验会**真去解析**主机名（这是它该有的行为 —— 防的是把通知目标配成 `169.254.169.254`）。但在这台机器上，出站解析被网络拦截并把 `example.com` 一类主机名回答成 **RFC 2544 基准段 `198.18.0.x`**，而它不是 globally routable，于是"正确工作的安全检查"把 **20 条 webhook 测试**判红（外加一条按顺序才红的抽取测试）。2026-10-01 实测：`21 failed, 951 passed` → 修完 `972 passed`，连跑两次一致。
@@ -95,7 +96,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 - 消融表护栏：`docs/evaluation.md` 那张 A–F 六行的表与 `data/eval/results.json` **逐格**对齐（`recall@5` / `recall@10` / `precision@5` / `nDCG@10` / `MRR`，按四舍五入到三位小数比），行首字母还要对得上配置名；另断言文档里写的复现命令含 `results.json` 记录的那个 `tiering` 档位。这张表此前只被眼睛核过，而它是全项目被引用最多的数字 —— **最后一位偏移也要红**，所以带一条 tamper 用例证明它真的会红（改两个格子 → 恰好两条定位到行列的报告）。
 - 架构图护栏（`docs/architecture.md` 的三张图）：会话的 7 个状态、子问题的 3 个状态、turn 的 3 个角色、`Move` 的 4 个动词、corpus.db 的 12 张普通表 + 2 张 FTS5 虚表、6 种可达性判定、5 步加宽阶梯、源族数量**必须逐条出现在图里**，反向也必须成立（图里画不出代码没有的名字）；回读方式是 `typing.get_args(Move)` 与对 `CREATE TABLE` 的扫描，而不是把清单再抄一遍到测试里。护栏自带一条自检：用一个真不存在的名（`SOURCE_REGISTRY_V2`）验证它真的会红 —— 因为写图时我把 `SOURCE_REGISTRY` 当成臆造的旧名"修"过一次，它是真的（`src/models.py` 由 `SOURCE_SPECS` 派生）。
 
-**数据**：collected **836 → 975**（934 之后追加的 41 条是文档、架构图、两张数据图、消融表、采集边界、符号网、导入面板、路由可达性、命令行标志与三入口对称的护栏）；灌水抵抗实测 `independent_sources` 旧口径 4 → 新口径 1（旧口径下它本可进判级），`T=0.7998` 越过 `supported=0.55` 仍判 `unsupported`（缺跨族宽度，**设计意图，但未经人评检验**）；已知软肋量化：同一作者跨两个 `source_type` → 数成 2 个发布者对。
+**数据**：collected **836 → 979**（934 之后追加的 45 条是文档、架构图、两张数据图、消融表、采集边界、符号网、导入面板、路由可达性、命令行标志、三入口对称与阈值校准路径的护栏）；灌水抵抗实测 `independent_sources` 旧口径 4 → 新口径 1（旧口径下它本可进判级），`T=0.7998` 越过 `supported=0.55` 仍判 `unsupported`（缺跨族宽度，**设计意图，但未经人评检验**）；已知软肋量化：同一作者跨两个 `source_type` → 数成 2 个发布者对。
 
 ### #3 · 文档（spec v4 + 三期实现计划 + 交付记录）
 

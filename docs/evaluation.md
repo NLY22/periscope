@@ -148,6 +148,8 @@ uv run pytest tests/test_eval_multiturn.py tests/test_eval_charts.py   # 这些�
   ```
 
   口径是普通的 per-class precision / recall / F1 + macro-F1（`src/analysis/agreement.py`，含手算用例），另按 `independent_sources` 分 1 / 2 / 3+ 桶看人工一致率随源数怎么变 —— 这一条会同时证伪或证实"论坛回帖是否抬高独立源计数"。下一步需要的是 50–100 条人工标注，人评是主证据。
+
+  标完之后 `--score` 会**同时给出 θ 校准建议**（`supported` / `triage` 由带 `machine_trust` 的标注用 `roc_thresholds()` 网格搜 F1 最大点得到，写进 `data/eval/claims_results.json` 的 `thresholds_suggested`）。三个口径必须一起记住：**① 那是建议不是生效值**（写进 `trust` 配置之前线上仍是手工先验）；**② macro-F1 固定在三个标签上取平均**，标注里若没有 `contested` 样本，则该类的 F1 记 0，完美一致也只有 **0.667**（`tests/test_eval_claims_calibration.py` 就把这个数写死为断言），所以标注要三类都覆盖，引用时也要连着 accuracy 一起给；**③ 这张表不是盲标** —— 标注者看得到 `machine_verdict` 与 `machine_trust`，一致率因此偏乐观，要盲标就把那两列遮掉再读摘录。护栏：`tests/test_eval_claims_calibration.py`（4 条，含"没有 T 值时报告跳过校准而不是编一个阈值"）。
 - `unsupported` 与 FEVER 式 `not_enough_information` **不合并**：本流水线的 `unsupported` 指"存储的摘录无法确认"，更接近证据不足而非反驳，合并会悄悄改变数字的含义。
 - **报告骨架与引用核验不在这张表里**：`docs/retrieval.md` 描述的模板（背景调查 / 市场调研 / 方法探索）和 `src/corpus/citations.py` 的引用反解是结构性保证，不是排序指标，由测试验证而非消融表。
 - **这些 harness 不需要模型，也不需要额度**：三个脚本（`eval_retrieval` / `eval_claims` / `eval_multiturn`）都用替身规划器或词形替身，只有 `--expander llm` / `--embedder provider` 那条路才真花钱。镜像是 `--no-dev` 构建的但已包含 `scripts/`，所以容器里可直接跑：

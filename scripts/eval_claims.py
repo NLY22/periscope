@@ -26,6 +26,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.analysis.agreement import independence_buckets, score_pairs  # noqa: E402
+from src.corpus.trust import roc_thresholds  # noqa: E402
 
 DEFAULT_DB = REPO_ROOT / "data" / "corpus.db"
 DEFAULT_SHEET = REPO_ROOT / "data" / "eval" / "claims_labels.json"
@@ -43,7 +44,7 @@ def export_sheet(db_path: Path, out_path: Path) -> int:
     try:
         rows = conn.execute(
             """SELECT c.id, c.text, c.claim_type, c.status, c.verdict,
-                      c.confidence, c.independent_sources, c.item_id,
+                      c.confidence, c.trust, c.independent_sources, c.item_id,
                       i.title AS origin_title, i.url AS origin_url
                FROM claims c LEFT JOIN items i ON i.id = c.item_id
                WHERE c.status IN ('linked','graded')
@@ -66,6 +67,7 @@ def export_sheet(db_path: Path, out_path: Path) -> int:
                     "independent_sources": row["independent_sources"],
                     "machine_verdict": row["verdict"],
                     "machine_confidence": row["confidence"],
+                    "machine_trust": row["trust"],
                     "evidence": [dict(e) for e in evidence],
                     "human_verdict": None,
                     "human_note": "",
@@ -79,6 +81,8 @@ def export_sheet(db_path: Path, out_path: Path) -> int:
             "读 evidence 里的原文摘录，只按这些摘录判断：supported=独立说法一致；"
             "contested=至少一条实质性反驳；unsupported=摘录太泛或跑题，无法确认。"
             "填 human_verdict，不确定的留 null 并在 human_note 说明。"
+            "注意 machine_verdict / machine_trust 是**被测对象**，本表不是盲标 —— 一致率因此偏乐观，"
+            "要盲标就先把这两列遮掉再读摘录。machine_trust 是这条声明的 T 值，θ 校准要用它，别改。"
         ),
         "labels": claims,
     }
@@ -111,6 +115,28 @@ def score_sheet(sheet_path: Path, out_path: Path | None) -> str:
     if skipped:
         lines.append(f"\n（未标注或机器未评级的条目 {skipped} 条，已排除）")
 
+    # Threshold fitting is the reason the labels exist; agreement alone would
+    # leave θ_s / θ_triage hand-set and the project's open question open.
+    pairs = [
+        (float(r["machine_trust"]), r["human_verdict"] == "supported")
+        for r in labeled
+        if r.get("machine_trust") is not None
+    ]
+    fitted = roc_thresholds(pairs)
+    lines.append("")
+    if fitted is None:
+        lines.append(
+            f"θ 校准：跳过（带 T 值的标注 {len(pairs)} 条；还需至少两类标签）。"
+            "阈值仍是**手工先验**，别写成被拟合过的。"
+        )
+    else:
+        lines.append(
+            f"θ 校准建议（来自 {len(pairs)} 条带 T 值的标注）："
+            f"supported={fitted.supported:.2f}、triage={fitted.triage:.2f}。"
+            "这是**建议**：写进 `trust` 配置之前，线上阈值仍是手工先验；"
+            "且本表非盲标，一致率与由此得到的阈值都偏乐观。"
+        )
+
     if out_path:
         out_path.write_text(
             json.dumps(
@@ -126,6 +152,11 @@ def score_sheet(sheet_path: Path, out_path: Path | None) -> str:
                         k: {"n": v["n"], "agreement": round(v["agreement"], 4)} for k, v in buckets.items()
                     },
                     "excluded": skipped,
+                    "threshold_pairs": len(pairs),
+                    "thresholds_suggested": None if fitted is None else {
+                        "supported": fitted.supported,
+                        "triage": fitted.triage,
+                    },
                 },
                 ensure_ascii=False,
                 indent=2,
