@@ -928,3 +928,56 @@ def test_every_env_var_the_code_reads_is_documented() -> None:
     # api_key_env / password_env style names are config fields, not fixed vars.
     undoc = sorted(read - documented - {"OPENAI_API_KEY"})
     assert not undoc, f"env vars read by the code but documented nowhere: {undoc}"
+
+
+# ---------------------------------------------- deployment + asset pack surfaces
+COMPOSE = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+_COMPOSE_SERVICES = set(re.findall(r"^  ([a-z][a-z0-9-]+):\n", COMPOSE, re.M))
+
+
+def test_documented_compose_commands_name_real_services() -> None:
+    """`docker compose up -d periscope-web` is only a recipe if that service exists.
+
+    Nothing was wrong here when first checked -- which is the point of pinning
+    it: renaming a service would otherwise leave five doc lines quietly broken.
+
+    Only the name before the container's own `run <script>` counts as a service.
+    `docker compose run --rm --entrypoint uv periscope-collect run
+    periscope-wechat test` names one service and one console script, and reading
+    both as services is the same misattribution the flag check had to learn.
+    """
+    assert _COMPOSE_SERVICES == {"periscope-web", "periscope-collect"}
+    unknown = {}
+    for path in (README, CONFIG_DOC, CHANGELOG, REPO_ROOT / "docs" / "evaluation.md"):
+        for cmd in re.findall(r"docker compose [^\n`]{0,80}", _read(path)):
+            head = re.split(r"\s+run\s+periscope-", cmd)[0]
+            for service in re.findall(r"\bperiscope-[a-z][a-z0-9-]*\b", head):
+                if service not in _COMPOSE_SERVICES:
+                    unknown.setdefault(path.name, []).append(f"{service} in {cmd[:44]}")
+    assert not unknown, f"compose commands in docs name services the file lacks: {unknown}"
+
+
+def test_every_built_in_profile_is_listed_in_the_profile_guide() -> None:
+    """The guide's roster table is what a reader believes about what ships."""
+    on_disk = sorted(p.name for p in (REPO_ROOT / "profiles").iterdir() if p.is_dir())
+    guide = _read(REPO_ROOT / "docs" / "profiles.md")
+    lines = guide.split("## Built-in Profiles", 1)[1].splitlines()
+    listed: list[str] = []
+    for line in lines:
+        row = re.match(r"^\| `([a-z0-9-]+)` \|", line)
+        if row:
+            listed.append(row.group(1))
+        elif listed and line.strip() and not line.startswith("|"):
+            break  # the roster table ended; later tables are not the roster
+    assert sorted(listed) == on_disk, (
+        f"profiles guide lists {sorted(listed)}, repository ships {on_disk}"
+    )
+
+    for profile in on_disk:
+        files = {p.name for p in (REPO_ROOT / "profiles" / profile).iterdir()}
+        assert {"profile.json", "match.md", "analysis.md"} <= files, f"{profile} lacks a core file"
+    # The guide promises a four-file layout; it holds for every profile shipped.
+    assert "four-file layout" in guide
+    assert all(
+        (REPO_ROOT / "profiles" / p / "enrichment.md").exists() for p in on_disk
+    ), "a profile broke the documented layout, or the guide's wording needs the same care as this line"
