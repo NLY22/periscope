@@ -1,5 +1,7 @@
 # HorizonHub Product Design Document
 
+> **Status: an upstream proposal, not implemented.** This repository contains no HorizonHub code — no marketplace, no OAuth login flow, no recommendation service. It is kept here because the upstream project documents it as its ecosystem direction, and because the source-registry work in this fork (§3.2 of the design spec) shares its vocabulary. Do not cite this file as this project's architecture; the fork's actual structure is in [architecture.md](architecture.md). README labels the same thing as a proposal, and `tests/test_docs_match_code.py` checks that both labels survive.
+
 ## Positioning
 
 **One-sentence positioning**: The information source marketplace for the Horizon ecosystem—driven by real community usage data for discovery, recommendation, and quality assessment.

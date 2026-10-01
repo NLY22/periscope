@@ -451,6 +451,30 @@ async def hz_corpus_recent(
 
 
 @mcp.tool()
+async def hz_corpus_import(
+    payload: dict[str, Any],
+    tiering: str = "sections",
+    dry_run: bool = False,
+    horizon_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Import a user export ({"items": [...]}) into the evidence corpus.
+
+    Each item declares its own authorship tiers through `sections`, so crowd
+    text from an export cannot become evidence. Use this for sources Periscope
+    must not scrape; see `src/mcp/README.md` for the payload shape.
+
+    `dry_run=true` reports what would be accepted and which items are rejected,
+    without storing anything.
+    """
+
+    return await _run_tool(
+        "hz_corpus_import",
+        lambda: service.corpus_import(payload=payload, tiering=tiering, dry_run=dry_run, horizon_path=horizon_path, config_path=config_path)
+    )
+
+
+@mcp.tool()
 async def hz_list_claims(
     status: str = "graded",
     limit: int = 50,
@@ -458,7 +482,7 @@ async def hz_list_claims(
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Claims by pipeline status (extracted | linked | graded) with verdicts,
-    confidence and independent-source counts."""
+    confidence, trust, ungraded_reason and independent-source counts."""
 
     return await _run_tool(
         "hz_list_claims",

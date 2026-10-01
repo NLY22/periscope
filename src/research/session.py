@@ -472,6 +472,7 @@ class ResearchSession:
 
     # ----------------------------------------------------------------- draft
     _HEADING = re.compile(r"^## +(.+?)\s*$", re.MULTILINE)
+    _SUBHEADING = re.compile(r"^### +(.+?)\s*$", re.MULTILINE)
 
     @staticmethod
     def section_id(title: str) -> str:
@@ -529,7 +530,69 @@ class ResearchSession:
                 carried = DraftSection.from_dict(section.to_dict())
                 carried.stale = True
                 fresh.append(carried)
+        self._attach_lineage(session_id, fresh)
         return self.drafts.save(session_id, fresh, origin="render")
+
+    def _attach_lineage(self, session_id: str, sections: List[DraftSection]) -> None:
+        """Point each section at the branches it was rendered from.
+
+        Without this the draft is prose only: the panel's per-section evidence
+        count reads zero for a section that cites three items, and
+        `MoveContext.contested_claims` can never fire, so a contradiction stays
+        invisible to the very step that decides whether to ask about it.
+        """
+        branches = [
+            sq for sq in self.store.subquestions(session_id) if sq.status != "dropped"
+        ]
+        by_text: Dict[str, Any] = {}
+        for sq in branches:
+            by_text.setdefault(sq.text.strip(), sq)
+
+        cited = {item_id for sq in branches for item_id in sq.evidence_ids}
+        verdicts_by_item = self._verdicts_by_item(cited)
+
+        for section in sections:
+            members: List[Any] = []
+            direct = by_text.get(section.title.strip())
+            if direct is not None:
+                members.append(direct)
+            for match in self._SUBHEADING.finditer(section.body):
+                sq = by_text.get(match.group(1).strip())
+                if sq is not None and sq not in members:
+                    members.append(sq)
+            if not members:
+                continue
+            evidence: List[str] = []
+            for sq in members:
+                for item_id in sq.evidence_ids:
+                    if item_id not in evidence:
+                        evidence.append(item_id)
+            section.evidence_ids = evidence
+            section.subquestion_id = members[0].id if len(members) == 1 else None
+            section.verdicts = {
+                text: verdict
+                for item_id in evidence
+                for text, verdict in verdicts_by_item.get(item_id, {}).items()
+            }
+
+    def _verdicts_by_item(self, item_ids) -> Dict[str, Dict[str, str]]:
+        """Graded verdicts per item, for the sections that cite them."""
+        ids = list(item_ids)
+        if not ids:
+            return {}
+        placeholders = ",".join("?" * len(ids))
+        try:
+            rows = self.corpus._conn.execute(
+                f"SELECT item_id, text, verdict FROM claims "
+                f"WHERE item_id IN ({placeholders}) AND verdict IS NOT NULL",
+                tuple(ids),
+            ).fetchall()
+        except Exception:
+            return {}  # a corpus without the claim tables has no verdicts
+        out: Dict[str, Dict[str, str]] = {}
+        for row in rows:
+            out.setdefault(row["item_id"], {})[row["text"]] = row["verdict"]
+        return out
 
     def edit_section(self, session_id: str, section_id: str, body: str) -> Draft:
         """Record a user edit as its own revision and lock that section."""
@@ -1144,10 +1207,36 @@ class ResearchSession:
         if verdict_rows:
             lines.append("## 声明核查摘要")
             for v in verdict_rows:
-                tag = {"supported": "✅ 多源支持", "contested": "⚠️ 存在矛盾",
-                       "unsupported": "❓ 证据不足"}.get(v["verdict"], "🔗 已关联证据")
+                if v["verdict"] is None:
+                    # `unsupported` splits in two, and so does "not answered
+                    # yet": conflating them hides whether more searching would
+                    # help or only more trust would.
+                    reason = v.get("ungraded_reason") or "triage"
+                    tag = {
+                        "no_evidence": "🔍 证据不足",
+                        "no_linked_evidence": "🔍 证据不足",
+                        "no_identified_publisher": "🏷️ 无可核验发布者",
+                    }.get(reason, "⏳ 未评级（低于分诊门）")
+                    lines.append(
+                        f"- {tag}（独立信源 {v['independent_sources']}）：{v['text']}"
+                    )
+                    continue
+                if v["verdict"] == "unsupported":
+                    # graded, but the trust aggregate said the evidence does not
+                    # carry it — different finding from "we never found any"
+                    trust = v.get("trust")
+                    tag = (
+                        f"❌ 可信度不足（T={float(trust):.2f}）"
+                        if trust is not None else "❌ 可信度不足"
+                    )
+                else:
+                    tag = {"supported": "✅ 多源支持", "contested": "⚠️ 存在矛盾"}.get(
+                        v["verdict"], "🔗 已关联证据"
+                    )
+                trust = v.get("trust")
+                extra = f"，T={float(trust):.2f}" if trust is not None else ""
                 lines.append(
-                    f"- {tag}（独立信源 {v['independent_sources']}）：{v['text']}"
+                    f"- {tag}（独立信源 {v['independent_sources']}{extra}）：{v['text']}"
                 )
             lines.append("")
 
@@ -1163,16 +1252,26 @@ class ResearchSession:
         return "\n".join(lines).strip()
 
     def _session_claim_verdicts(self, subs: List[SubQuestion]) -> List[Dict[str, Any]]:
+        """Graded claims plus the un-graded ones, with the reason they are ungraded.
+
+        Before P1 a claim below the triage threshold stayed invisible: `verdict
+        IS NULL` and `independent_sources < 2` meant the report's filter dropped
+        it entirely, so a reader could not tell "no evidence exists" from
+        "evidence exists but was not graded". Both facts belong in the report.
+        """
         item_ids = {i for s in subs for i in s.evidence_ids}
         if not item_ids:
             return []
         placeholders = ",".join("?" * len(item_ids))
         try:
             rows = self.corpus._conn.execute(
-                f"""SELECT text, verdict, independent_sources FROM claims
-                    WHERE item_id IN ({placeholders})
-                      AND (status='graded' OR independent_sources >= 2)
-                    ORDER BY independent_sources DESC LIMIT 12""",
+                f"""SELECT text, verdict, independent_sources, trust,
+                          ungraded_reason,
+                          CASE WHEN status='graded' THEN 0 ELSE 1 END AS pending
+                   FROM claims
+                   WHERE item_id IN ({placeholders})
+                   ORDER BY pending, trust DESC NULLS LAST,
+                            independent_sources DESC LIMIT 12""",
                 tuple(item_ids),
             ).fetchall()
         except Exception:

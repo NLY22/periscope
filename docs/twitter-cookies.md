@@ -85,17 +85,21 @@ Keyword search (`sources.twitter.keywords`) is Apify-only. Playwright logs a war
 
 ---
 
-## 4. 多账号轮询（防封策略）
+## 4. 多个 cookie 文件：代码会做什么，本 fork 允许什么
 
-如果你有多个 X 账号，可以为每个账号导出 cookie，命名为：
+先说清楚两件事，因为上游这段文档把它们混在一起了。
+
+**代码会做的**（`src/scrapers/twitter_playwright.py`）：`cookie_dir` 下所有匹配 `cookie_file_pattern` 的文件会被排序后**逐个开一个浏览器上下文**，然后把配置的账号列表切成同样数量的队列分头抓，失败的一轮之后重试一次。每个上下文的 UA 里的 Chrome 版本号按序号递增。
+
+**本 fork 允许的**：**一个账号，你自己的账号，只取这个账号本来就能看到的内容。** 多账号池不是"稳定性配置"，而是本仓库写明不做的采集边界 —— 见 [SECURITY.md](../SECURITY.md) 的反爬边界与设计 spec §11（验证码打码、签名逆向、多账号池一律排除）。按这个边界，上面那段"每个上下文 UA 递增"属于反爬对抗的形态，**本 fork 不支持基于它的用法，也不会合并依赖它的改动**；如果你的目的就是把请求分散到多个账号上，这个项目不是合适的载体。
+
+有一个实际后果与是否只有一个账号无关：**过期的旧导出也会被当成第二个上下文**。比如 `data/x_cookies_1.json` 旁边留了一份 `x_cookies_stale.json`，代码会开两个上下文并把账号列表切成两半，旧那份预热失败，于是它分到的账号直接抓不到（日志里是 `Cookie #2 warm-up failed` 与 `page shows login gate`）。重新导出就覆盖原文件，别留第二份。
+
+单账号的正常配置就是一个文件：
 
 ```
-data/x_cookies_1.json   # 账号A
-data/x_cookies_2.json   # 账号B
-data/x_cookies_3.json   # 账号C
+data/x_cookies_1.json   # 你自己在浏览器里登录后的导出
 ```
-
-Horizon 会自动**轮询使用**这些 cookie，当一个账号触发限流时切换到下一个，大幅提升稳定性。
 
 ---
 
@@ -115,8 +119,8 @@ Playwright 会自动读取 `PROXY`、`https_proxy`、`http_proxy`、`all_proxy` 
 
 ⚠️ **Cookie 有有效期**：通常 1-4 周，过期后需要重新导出  
 ⚠️ **不要提交 Cookie 文件**：已加入 `.gitignore`，请妥善保管  
-⚠️ **账号安全**：建议使用**小号/备用号**，避免主账号风险  
-⚠️ **抓取频率**：每个账号间隔 5-10 秒，避免触发平台限流
+⚠️ **账号选择**：本 fork 的采集边界是"你自己的账号，只取它本来就能看到的内容"（第 4 节）。准备多个小号来分散封禁风险不在这个边界之内，也不是这份指南要帮你做的事  
+⚠️ **抓取频率**：每账号间隔 5-10 秒；被限流就停下来过一阵再跑，而不是把间隔调到最小或换账号重试
 
 ---
 
@@ -126,5 +130,5 @@ Playwright 会自动读取 `PROXY`、`https_proxy`、`http_proxy`、`all_proxy` 
 |------|------|------|
 | "No cookie files found" | cookie 文件名不匹配 | 检查 `cookie_file_pattern` 和实际文件名 |
 | "page shows login gate" | cookie 已过期 | 重新登录并导出最新 cookie |
-| "no GraphQL data intercepted" | 页面结构变化或被限流 | 等待几分钟后重试，或增加 cookie 数量 |
+| "no GraphQL data intercepted" | 页面结构变化或被限流 | 等几分钟再跑；**不要靠加 cookie 文件绕过**（见第 4 节的采集边界），先减少 `fetch_limit` 与账号数 |
 | Playwright 未安装 | 依赖缺失 | 运行 `uv sync --extra twitter && uv run playwright install chromium` |

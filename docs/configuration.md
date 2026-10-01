@@ -482,7 +482,7 @@ Requires an [Apify](https://apify.com) account. Set `APIFY_TOKEN` in your `.env`
 - `keywords` — independent X search queries fetched via Apify scweet `source_mode: "search"`. These search beyond the configured `users`; they do not filter those users' timelines. Playwright mode logs a warning and skips keyword fetching.
 - `fetch_limit` — in Apify mode, the requested tweet limit per actor run is `max(100, fetch_limit)`. All configured users share one profile run, and each non-empty keyword query starts a separate search run. This is not a total limit for the Twitter source.
 - `category` — optional tag for balanced digest grouping (applies to all tweets from this source)
-- `fetch_reply_text` — when `true`, fetch actual reply bodies for important tweets and append them under `--- Top Comments ---` so the AI can factor in community discussion. Disabled by default.
+- `fetch_reply_text` — when `true`, fetch actual reply bodies for important tweets and append them as `community` sections, so the AI digest can factor in community discussion while claim extraction and the independent-source count still see only the author's own text. Disabled by default.
 - `max_replies_per_tweet` — maximum reply lines to append per tweet (default: 3)
 - `max_tweets_to_expand` — cap on how many tweets get reply expansion per run, to control Apify credit usage (default: 10)
 - `reply_min_likes` — only include replies with at least this many likes (default: 0)
@@ -614,6 +614,84 @@ Chinese-community sources, all key-less and covered by tests:
 - **V2EX** — node topics and the hot list via the official API, replies inlined as discussion. `base_url` may point at a reachable mirror.
 - **Discourse** — the open-source forum engine behind thousands of communities: any number of `sites`, optionally narrowed by `tags` or `category`, latest topics with follow-up posts appended.
 
+## Evidence Layer (this fork)
+
+Everything above is upstream's daily-digest pipeline. These four blocks are what this fork adds on top: a corpus that remembers, a claim layer that checks, a research loop that iterates, and the retrieval policy that decides what counts as evidence.
+
+Note the strictness split, because it is easy to get wrong: `Section` and `ContentItem` (the tiering primitives) and the upstream blocks `processing` / `display` / `collection` / `digest` / the root `Config` are `extra="forbid"` — a typo there fails at load. The four evidence blocks below are **not** forbid, so a misspelled key inside them is silently ignored and the default is used instead. If a knob below seems to have no effect, check the spelling first.
+
+```json
+{
+  "corpus":    { "enabled": true, "path": "corpus.db",
+                 "cluster_max_distance": 3, "cluster_lookback_rows": 500 },
+  "analysis":  { "enabled": true, "max_claims_per_item": 5, "evidence_per_claim": 6,
+                 "grade_min_sources": 2, "triage_min_trust": 0.0, "grade_budget_per_run": 8,
+                 "extract_top_items": 12, "item_content_chars": 3500, "claimable_only": true },
+  "research":  { "enabled": true, "evidence_per_question": 8, "max_evidence_chars": 700,
+                 "planner_budget_per_invocation": 12, "claimable_only": true,
+                 "max_retrieval_rounds": 3, "min_evidence_for_answer": 3, "report_template": "auto" },
+  "retrieval": { "query_expansion": true, "expansion_max_terms": 4, "semantic": false,
+                 "embedding_model": "", "embedding_base_url": "", "embedding_api_key_env": "",
+                 "semantic_top_k": 30, "index_batch_size": 16, "on_demand_collection": false }
+}
+```
+
+### `corpus`
+
+| Key | Default | What it does |
+|---|---|---|
+| `enabled` | `true` | Store every collected item into SQLite. Off means the fork behaves like stateless upstream Horizon. |
+| `path` | `"corpus.db"` | Database file, relative to `--data-dir`. Shared by CLI, web panel and MCP. |
+| `cluster_max_distance` | `3` | SimHash Hamming cutoff for near-duplicate clustering; ≤3 is effectively the same text. This is the collapse that stops a recycled post from being counted twice. |
+| `cluster_lookback_rows` | `500` | Rows re-grouped per run — clusters are recomputed, not append-only. |
+
+Schema is versioned (`SCHEMA_VERSION = 4`) and migrations are idempotent `ALTER` + backfill: v2 added `items.claimable` + `claim_fts`, v3 added `locator` / `time_basis` / `sections_json`, v4 added `publisher` / `trust` / `trust_features_json`. An old database upgrades on open; backfilled tiers are recorded as `provenance="legacy_marker"` and discounted, so inferred history never claims the same confidence as declared history.
+
+### `analysis`
+
+| Key | Default | What it does |
+|---|---|---|
+| `enabled` | `true` | Turn claim extraction, evidence linking and grading on. Off leaves the corpus as pure searchable memory. |
+| `max_claims_per_item` | `5` | Cap on atomic claims distilled from one item. |
+| `evidence_per_claim` | `6` | Cap on linked evidence rows per claim. |
+| `grade_min_sources` | `2` | **Triage floor, not a verdict.** Below it a claim is never graded — which is why reports now list un-graded claims with a reason instead of dropping them. |
+| `triage_min_trust` | `0.0` | Second triage gate: only claims with aggregated `T ≥` this value get an LLM call. **`0.0` means the gate is off**, preserving pre-P1 behaviour; the threshold is a hand-set prior, not a fitted value (see `docs/evaluation.md`). |
+| `grade_budget_per_run` | `8` | LLM calls reserved for grading per run, on a rate-limited free tier. |
+| `extract_top_items` | `12` | Analyse at most this many *new* items per run — the widening loop re-fetches `time_basis="unknown"` items every cycle, and dedup only stops duplicate rows, not duplicate spend. |
+| `item_content_chars` | `3500` | Truncation for the extraction prompt. |
+| `claimable_only` | `true` | Claims may only come from author-written text. Turn off for the ablation arm-A comparison. |
+
+### `research`
+
+| Key | Default | What it does |
+|---|---|---|
+| `enabled` | `true` | Allow research sessions at all (CLI, panel and MCP all check it). |
+| `evidence_per_question` | `8` | Evidence rows fetched per sub-question. |
+| `max_evidence_chars` | `700` | Per-item excerpt budget. |
+| `planner_budget_per_invocation` | `12` | LLM calls available to the decomposition/answering loop before it falls back to deterministic behaviour. |
+| `claimable_only` | `true` | Crowd text is a lead, never evidence, in the retrieval the session does. |
+| `max_retrieval_rounds` | `3` | Widening steps per sub-question (`baseline → widen_terms → switch_source_family → rewrite_query → collect_keywords`). |
+| `min_evidence_for_answer` | `3` | Below this the loop keeps widening instead of answering. |
+| `report_template` | `"auto"` | Report skeleton: `auto` infers 背景调查 / 市场调研 / 方法探索 from the question, `flat` disables it. Timeline, disagreements and open questions are computed from stored data, never from the model. |
+
+### `retrieval`
+
+The lexical leg (FTS5 trigram BM25) is always on and free; everything below is a choice about spending.
+
+| Key | Default | What it does |
+|---|---|---|
+| `query_expansion` | `true` | Ask the model for the word forms the corpus would use (cross-lingual, aliases, entities, numbers). Costs one cached LLM call per sub-question, so repeating a question does not repeat the spend. |
+| `expansion_max_terms` | `4` | Cap on generated terms per query. |
+| `semantic` | `false` | Enable the vector leg. Off unless a model name is given: many hubs do not serve `/embeddings`, and a silent fallback beats an error every round. |
+| `embedding_model` | `""` | Model key the vector index is partitioned by — switching models does not mix vectors. |
+| `embedding_base_url` | `""` | OpenAI-compatible endpoint for embeddings; empty falls back to the configured AI provider. |
+| `embedding_api_key_env` | `""` | Name of the environment variable holding that endpoint's key. |
+| `semantic_top_k` | `30` | Depth fused into the lexical result list via RRF (BM25 scores and cosines are not comparable; ranks are). |
+| `index_batch_size` | `16` | Items embedded per request. |
+| `on_demand_collection` | `false` | Let a stuck sub-question trigger one live collection pass (GDELT / Google News) into the corpus. Off by default: it reaches the network mid-session, so it must be a choice. |
+
+Indexing happens inside `investigate()`, never in the daily pipeline — nobody should pay for vectors on a question no one asked. Full mechanism and measurements: [docs/retrieval.md](retrieval.md), [docs/evaluation.md](evaluation.md).
+
 ## Filtering
 
 Score filtering is configured under `processing.profile_settings` in the runtime
@@ -723,6 +801,20 @@ Example:
 - `${NAME}` is replaced only when `NAME` is a valid identifier like `LWN_KEY` or `HORIZON_AI_BASE_URL`.
 - Unset variables are left as `${NAME}` instead of becoming an empty string, so configuration mistakes fail loudly downstream.
 - Expansion is recursive through dicts, lists, and tuples; non-string values are left unchanged.
+
+## Process Environment Variables
+
+Besides the names you reference with `${...}` inside the config, the programs read four
+variables directly. They were previously undocumented even though one of them is named in
+an error message the MCP server prints — i.e. the software tells you to set a variable no
+guide mentioned.
+
+| Variable | Read by | Effect |
+|---|---|---|
+| `HORIZON_PATH` | `src/mcp/horizon_adapter.py` | Where the repository lives, used to locate the config and corpus when `horizon_path` is not passed to the tool. The MCP error `Horizon repository was not found. Pass horizon_path or set HORIZON_PATH.` refers to this. |
+| `HORIZON_MCP_SECRETS_PATH` | `src/mcp/horizon_adapter.py` | Explicit path to the MCP secrets file. If it is set but the file is missing, the server fails with `HZ_SECRETS_NOT_FOUND` rather than silently falling back. |
+| `HORIZON_API_URL` | `src/setup/presets.py` | Base URL of the profile-preset catalog (`/api/presets`). Defaults to `https://horizon1123.top`, **an upstream service this fork does not deploy** — point it at your own instance, or stay offline with the variable below. |
+| `HORIZON_OFFLINE` | `src/setup/presets.py`, `src/setup/wizard.py` | Set to `1` / `true` / `yes` to skip all network access in the wizard and preset loading; presets then come from the local files only. |
 
 ## Email Subscription
 
@@ -1031,18 +1123,16 @@ docker compose run --rm --entrypoint uv periscope-collect run periscope-wechat t
 
 ## Static Site
 
-Horizon writes generated summaries to `data/summaries/` (or `<data-dir>/summaries/` when `--data-dir` is set) and copies publishable Markdown into `docs/` for the GitHub Pages site. The repository includes a disabled daily workflow template at [`.github/workflows/daily-summary.yml.disabled`](../.github/workflows/daily-summary.yml.disabled). Configure it for your deployment and rename it to `daily-summary.yml` to enable scheduled generation.
+Horizon writes generated summaries to `data/summaries/` (or `<data-dir>/summaries/` when `--data-dir` is set) and copies publishable Markdown into `docs/`. The repo also carries upstream's GitHub automation — `.github/workflows/daily-summary.yml.disabled` (daily schedule template), `tests.yml`, and `deploy-docs.yml` (GitHub Pages publish) — and **none of it runs on this platform: AtomGit executes no GitHub-syntax workflows** (`check_tasks_num` is 0 on every pull request, checked). So do **not** rename `daily-summary.yml.disabled` and do not expect `docs/` to become a site; here `docs/` is plain Markdown in the repository.
 
-To use GitHub Pages, enable Pages for the repository and run the scheduled workflow or trigger it manually. The generated site is built from the `docs/` directory.
+What works instead on `NLY22/periscope`: schedule whatever can run a shell — `cron` / `systemd timer` around `uv run periscope --hours 24`, or `docker compose run --rm periscope-collect --hours 24` — and read the results from `data/summaries/`. The workflow files are kept because they would work if this repo were mirrored to GitHub (`deploy-docs.yml` publishes nothing here, since it never runs on AtomGit); replacing it with the platform's static hosting, or deleting it, is an open decision listed in the project status.
 
 ## MCP Server
 
-Horizon includes an MCP server for AI assistants and MCP-compatible clients.
+Periscope ships an MCP server for AI assistants and MCP-compatible clients: **27 tools**, covering the staged pipeline (`hz_validate_config`, `hz_fetch_items`, `hz_score_items`, `hz_filter_items`, `hz_enrich_items`, `hz_generate_summary`, `hz_run_pipeline`), the per-run artifacts (`hz_list_runs`, `hz_get_run_*`), the evidence layer (`hz_corpus_stats`, `hz_corpus_search`, `hz_corpus_recent`, `hz_corpus_import`, `hz_list_claims`, `hz_get_claim`) and the research loop (`hz_research_start`, `hz_research_followup`, `hz_research_step`, `hz_research_draft`, `hz_research_edit`, `hz_research_answer`, `hz_research_status`, `hz_research_list`).
 
 ```bash
 uv run periscope-mcp
 ```
-
-Available tools include `hz_validate_config`, `hz_fetch_items`, `hz_score_items`, `hz_filter_items`, `hz_enrich_items`, `hz_generate_summary`, and `hz_run_pipeline`.
 
 See [`src/mcp/README.md`](../src/mcp/README.md) for the full tool reference and [`src/mcp/integration.md`](../src/mcp/integration.md) for client setup.

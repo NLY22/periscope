@@ -1,0 +1,107 @@
+{
+  "_comment": [
+    "Example of a user export Periscope can ingest:",
+    "  uv run python scripts/import_corpus.py --file data/export.example.json --data-dir data --dry-run",
+    "  uv run python scripts/import_corpus.py --file data/export.example.json --data-dir data",
+    "Same payload on POST /api/import and hz_corpus_import.",
+    "Replace the example content with what your own account can already see.",
+    "Rules that matter: tier is declared, never inferred from text markers;",
+    "source_type must be one of the 14 registered families (it picks the",
+    "credibility prior and the independence 'family'); locator is the identity,",
+    "so re-importing this file twice adds nothing; provenance defaults to",
+    "manual_export (0.85) because Periscope did not fetch the page itself."
+  ],
+  "items": [
+    {
+      "source_type": "rss",
+      "title": "某笔记：V4 定价与长上下文实测",
+      "locator": "xhs:note:example0001",
+      "url": "https://example.com/note/example0001",
+      "author": "作者甲",
+      "published_at": "2026-09-20T00:00:00+00:00",
+      "metadata": {"source_label": "xiaohongshu", "exported_by": "browser-save"},
+      "sections": [
+        {
+          "tier": "primary",
+          "text": "官方定价是每百万 token 输入 2 元、输出 8 元，缓存命中按 1 元计。我把 512K token 的合同丢进去，检索召回比 32K 窗口下降约 8%。"
+        },
+        {
+          "tier": "community",
+          "author": "路人乙",
+          "text": "我觉得明明是 5 元，昨天充的时候就是这个价。"
+        },
+        {
+          "tier": "community",
+          "author": "路人丙",
+          "text": "+1，而且缓存命中好像不分级"
+        }
+      ]
+    },
+    {
+      "source_type": "discourse",
+      "title": "论坛帖：自托管 V4 的显存实测",
+      "locator": "forum:t/9911",
+      "author": "ops_dana",
+      "published_at": "2026-09-21T00:00:00+00:00",
+      "metadata": {"source_label": "self-hosted discourse"},
+      "sections": [
+        {
+          "tier": "primary",
+          "text": "671B 权重在 8×A100-80G 上跑 INT4，吞吐 11 token/s；8B 版本单卡 4090 可以跑，延迟 38ms。"
+        },
+        {
+          "tier": "primary",
+          "text": "注意：上面的数字是 fp16 KV cache 关掉的前提下测的。",
+          "asserted": false
+        },
+        {
+          "tier": "community",
+          "author": "guest_114",
+          "locator": "#5",
+          "text": "你们没测 batch>1 的情况吧，我们那边 batch=8 直接掉一半。"
+        }
+      ]
+    },
+    {
+      "source_type": "bilibili",
+      "title": "视频：V4 代码能力对比",
+      "locator": "bili:BVexample002",
+      "author": "UP-主评测君",
+      "published_at": "2026-09-22T00:00:00+00:00",
+      "metadata": {"source_label": "bilibili"},
+      "sections": [
+        {
+          "tier": "primary",
+          "provenance": "transcript",
+          "text": "口述内容：它在 HumanEval 上跑了 71 分，比上一代高 9 分；但错误恢复能力一般。"
+        },
+        {
+          "tier": "primary",
+          "provenance": "ocr",
+          "confidence": 0.62,
+          "text": "画面里出现的表格文字：HumanEval 71 / 上一代 62"
+        },
+        {
+          "tier": "community",
+          "author": "弹幕样本",
+          "text": "这期剪得太急了"
+        }
+      ]
+    },
+    {
+      "source_type": "reddit",
+      "title": "只作为线索的一条：论坛里流传的说法",
+      "locator": "reddit:t/example003",
+      "author": null,
+      "time_basis": "unknown",
+      "metadata": {"source_label": "imported lead only"},
+      "sections": [
+        {
+          "tier": "community",
+          "author": "anonymous_relay",
+          "text": "有人说 V4 马上要涨价。"
+        }
+      ]
+    }
+  ]
+}

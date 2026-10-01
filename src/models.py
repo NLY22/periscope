@@ -166,7 +166,9 @@ class ProcessingResult(BaseModel):
 
 
 TimeBasis = Literal["published", "crawled", "unknown"]
-SectionProvenance = Literal["author", "transcript", "ocr", "vlm", "legacy_marker"]
+SectionProvenance = Literal[
+    "author", "transcript", "ocr", "vlm", "legacy_marker", "manual_export"
+]
 
 
 class Section(BaseModel):
@@ -188,6 +190,19 @@ class Section(BaseModel):
     confidence: Optional[float] = Field(default=None, ge=0, le=1)
     locator: Optional[str] = None
     meta: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _vlm_never_asserts(self) -> "Section":
+        """A description of a picture is not something the author asserted.
+
+        spec §7 allows VLM captions as leads and forbids them from claim
+        extraction. Leaving that to each scraper would mean one forgotten
+        keyword argument turns a guessed caption into an atomic claim about the
+        world, so the exclusion lives in the type instead.
+        """
+        if self.provenance == "vlm" and self.asserted:
+            self.asserted = False
+        return self
 
 
 def sections_to_content(sections: List[Section]) -> str:
@@ -694,7 +709,10 @@ class AnalysisConfig(BaseModel):
     enabled: bool = True
     max_claims_per_item: int = 5
     evidence_per_claim: int = 6
-    grade_min_sources: int = 2  # >= N independent clusters before grading
+    grade_min_sources: int = 2  # >= N independent sources before grading
+    # P1 triage gate: T(claim) must clear this before an LLM call is spent on
+    # it. 0 disables the trust gate and reproduces the count-only predicate.
+    triage_min_trust: float = 0.0
     grade_budget_per_run: int = 8  # LLM calls reserved for grading
     extract_top_items: int = 12  # analyse at most this many new items/run
     item_content_chars: int = 3500

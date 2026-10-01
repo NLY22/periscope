@@ -342,6 +342,7 @@ class HorizonOrchestrator:
             grade_min_sources=self.config.analysis.grade_min_sources,
             content_chars=self.config.analysis.item_content_chars,
             claimable_only=self.config.analysis.claimable_only,
+            triage_min_trust=self.config.analysis.triage_min_trust,
         )
 
     def _get_optional_ai_client(self):

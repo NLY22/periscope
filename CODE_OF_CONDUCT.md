@@ -1,5 +1,7 @@
 # Contributor Covenant Code of Conduct
 
+> **本 fork 的适用范围：** 本页正文沿自上游 [Thysrael/Horizon](https://github.com/Thysrael/Horizon)，行为准则本身照用。唯一差别在下一节的联系方式：其中写的 **thysrael@gmail.com 是上游社区的执行渠道，不代表本 fork**。在本仓库（<https://atomgit.com/NLY22/periscope>）发生的事件，请通过该仓库页面的私信 / 联系维护者入口报告；把本 fork 的投诉发往上游邮箱不会得到处理。
+
 ## Our Pledge
 
 We as members, contributors, and leaders pledge to make participation in our

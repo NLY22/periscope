@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="430" viewBox="0 0 720 430" role="img" font-family="system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+<title>§8 图 7 · 局部重算 vs 全树重跑（单位是 LLM 调用数）</title>
+<rect width="720" height="430" fill="#ffffff"/>
+<text x="74" y="34" fill="#1f2937" font-size="21" font-weight="600">§8 图 7 · 局部重算 vs 全树重跑（单位是 LLM 调用数）</text>
+<text x="74" y="58" fill="#4b5563" font-size="14">同一个动词 Deepen，只是点名的分支数不同；比值 1.5 / 2.5 / 4.5。**没有延迟轴** —— 本仓库禁止挂钟断言</text>
+<line x1="74" y1="344.0" x2="694" y2="344.0" stroke="#e5e7eb" stroke-width="1"/>
+<text x="62" y="348.0" fill="#9ca3af" font-size="13" text-anchor="end">0</text>
+<line x1="74" y1="293.6" x2="694" y2="293.6" stroke="#e5e7eb" stroke-width="1"/>
+<text x="62" y="297.6" fill="#9ca3af" font-size="13" text-anchor="end">2</text>
+<line x1="74" y1="243.2" x2="694" y2="243.2" stroke="#e5e7eb" stroke-width="1"/>
+<text x="62" y="247.2" fill="#9ca3af" font-size="13" text-anchor="end">4</text>
+<line x1="74" y1="192.8" x2="694" y2="192.8" stroke="#e5e7eb" stroke-width="1"/>
+<text x="62" y="196.8" fill="#9ca3af" font-size="13" text-anchor="end">6</text>
+<line x1="74" y1="142.4" x2="694" y2="142.4" stroke="#e5e7eb" stroke-width="1"/>
+<text x="62" y="146.4" fill="#9ca3af" font-size="13" text-anchor="end">8</text>
+<line x1="74" y1="92.0" x2="694" y2="92.0" stroke="#e5e7eb" stroke-width="1"/>
+<text x="62" y="96.0" fill="#9ca3af" font-size="13" text-anchor="end">10</text>
+<line x1="74" y1="344.0" x2="694" y2="344.0" stroke="#1f2937" stroke-width="1.5"/>
+<line x1="74" y1="92" x2="74" y2="344.0" stroke="#1f2937" stroke-width="1.5"/>
+<line x1="74.0" y1="344.0" x2="74.0" y2="349.0" stroke="#1f2937" stroke-width="1.5"/>
+<text x="74.0" y="366.0" fill="#1f2937" font-size="13" text-anchor="middle">2</text>
+<line x1="280.7" y1="344.0" x2="280.7" y2="349.0" stroke="#1f2937" stroke-width="1.5"/>
+<text x="280.7" y="366.0" fill="#1f2937" font-size="13" text-anchor="middle">4</text>
+<line x1="694.0" y1="344.0" x2="694.0" y2="349.0" stroke="#1f2937" stroke-width="1.5"/>
+<text x="694.0" y="366.0" fill="#1f2937" font-size="13" text-anchor="middle">8</text>
+<text x="384.0" y="396" fill="#4b5563" font-size="14" text-anchor="middle">子问题分支数</text>
+<text x="20" y="218.0" fill="#4b5563" font-size="14" text-anchor="middle" transform="rotate(-90 20 218.0)">LLM 调用数</text>
+<polyline points="74.0,293.6 280.7,293.6 694.0,293.6" fill="none" stroke="#2563eb" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="74.0" cy="293.6" r="4.5" fill="#ffffff" stroke="#2563eb" stroke-width="2.5"/>
+<text x="74.0" y="281.6" fill="#2563eb" font-size="13" font-weight="600" text-anchor="middle">2</text>
+<circle cx="280.7" cy="293.6" r="4.5" fill="#ffffff" stroke="#2563eb" stroke-width="2.5"/>
+<text x="280.7" y="281.6" fill="#2563eb" font-size="13" font-weight="600" text-anchor="middle">2</text>
+<circle cx="694.0" cy="293.6" r="4.5" fill="#ffffff" stroke="#2563eb" stroke-width="2.5"/>
+<text x="694.0" y="281.6" fill="#2563eb" font-size="13" font-weight="600" text-anchor="middle">2</text>
+<polyline points="74.0,268.4 280.7,218.0 694.0,117.2" fill="none" stroke="#dc2626" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="74.0" cy="268.4" r="4.5" fill="#ffffff" stroke="#dc2626" stroke-width="2.5"/>
+<text x="74.0" y="256.4" fill="#dc2626" font-size="13" font-weight="600" text-anchor="middle">3</text>
+<circle cx="280.7" cy="218.0" r="4.5" fill="#ffffff" stroke="#dc2626" stroke-width="2.5"/>
+<text x="280.7" y="206.0" fill="#dc2626" font-size="13" font-weight="600" text-anchor="middle">5</text>
+<circle cx="694.0" cy="117.2" r="4.5" fill="#ffffff" stroke="#dc2626" stroke-width="2.5"/>
+<text x="694.0" y="105.2" fill="#dc2626" font-size="13" font-weight="600" text-anchor="middle">9</text>
+<line x1="74" y1="396" x2="100" y2="396" stroke="#2563eb" stroke-width="3" stroke-linecap="round"/>
+<circle cx="87" cy="396" r="4.5" fill="#ffffff" stroke="#2563eb" stroke-width="2.5"/>
+<text x="108" y="401" fill="#1f2937" font-size="14">只深被点名的 1 条</text>
+<line x1="374" y1="396" x2="400" y2="396" stroke="#dc2626" stroke-width="3" stroke-linecap="round"/>
+<circle cx="387" cy="396" r="4.5" fill="#ffffff" stroke="#dc2626" stroke-width="2.5"/>
+<text x="408" y="401" fill="#1f2937" font-size="14">深全部（整棵树重走）</text>
+<text x="74" y="420" fill="#9ca3af" font-size="12">来源 scripts/eval_multiturn.py；全树 = 1 + 分支数，深一条恒为 2（next_move + answer）</text>
+</svg>

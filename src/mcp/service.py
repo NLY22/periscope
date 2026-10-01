@@ -819,6 +819,36 @@ class HorizonPipelineService:
         rows = corpus.recent(limit=max(1, min(limit, 200)), source_type=source_type)
         return {"count": len(rows), "items": rows}
 
+    def corpus_import(
+        self,
+        payload: Any,
+        tiering: str = "sections",
+        dry_run: bool = False,
+        horizon_path: str | None = None,
+        config_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Ingest a user export into the shared corpus, tiers preserved.
+
+        This is the sanctioned path for sources Periscope must not scrape
+        (captcha, request signing, account pools are all excluded by design):
+        the user exports what their own account can see, and the tiers arrive
+        declared rather than guessed from text markers.
+
+        `dry_run` previews the import through the same validation as the write
+        and stores nothing -- the parity with the CLI's `--dry-run` and the
+        panel's 只校验 button is checked by `tests/test_mcp_parity.py`.
+        """
+        from ..corpus.ingest import IngestError, import_payload
+
+        corpus = self._require(
+            self._periscope_orchestrator(horizon_path, config_path).get_corpus(),
+            "corpus",
+        )
+        try:
+            return import_payload(corpus, payload, tiering=tiering, dry_run=dry_run)
+        except IngestError as exc:
+            raise HorizonMcpError(code="HZ_INVALID_INPUT", message=str(exc)) from exc
+
     def list_claims(
         self,
         status: str = "graded",

@@ -114,3 +114,126 @@ def test_unknown_session_404(client) -> None:
 
 def test_start_rejects_empty_question(client) -> None:
     assert client.post("/api/research/start", json={"question": "  "}).status_code == 400
+
+
+def test_panel_repaints_round_state_after_it_changes_the_session() -> None:
+    """A text guard on the panel script, found by actually clicking it.
+
+    Starting a session used to paint only the report, so the round timeline,
+    the editable sections and the pending-request card stayed empty until the
+    page was reloaded — the P2 surface was invisible in the one place it is
+    meant to be used. Verified in a browser against a seeded corpus: after the
+    fix, a start renders the draft, a round appends to the timeline, and an
+    edited section keeps its text and picks up 「上游已变 · 未覆盖」.
+    """
+    script = (REPO_ROOT / "src" / "web" / "static" / "index.html").read_text(encoding="utf-8")
+    ask_block = script.split("async function ask(kind){")[1].split("$('#askBtn').onclick")[0]
+    step_block = script.split("async function stepRound(msg){")[1].split("async function ask(")[0]
+
+    assert "await showSession(r.session_id)" in ask_block, (
+        "starting or following up must reload the whole round state, not just the report"
+    )
+    assert "await showSession(current)" in step_block, (
+        "a round can open a request; without a repaint the user never sees it"
+    )
+    assert "· active" not in script, (
+        "the status line must come from the server, not a hardcoded 'active'"
+    )
+
+
+# ------------------------------------------------------- the import affordance
+import re
+
+PANEL_HTML = (
+    Path(__file__).resolve().parents[1] / "src" / "web" / "static" / "index.html"
+)
+
+
+def test_panel_script_parses_when_handed_to_node(tmp_path) -> None:
+    """The panel is one `<script>`; a syntax error blanks the whole page.
+
+    There is no browser here to catch it, so the cheapest real parser wins:
+    `node --check`. Skipped when node is absent rather than pretending coverage.
+    """
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not on PATH")
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    scripts = re.findall(r"<script>(.*?)</script>", html, re.S)
+    assert scripts, "the panel lost its script block"
+    target = tmp_path / "panel.js"
+    target.write_text("\n".join(scripts), encoding="utf-8")
+    result = subprocess.run(
+        [node, "--check", str(target)], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_import_panel_reads_only_fields_the_endpoint_returns(client) -> None:
+    """A UI that reads `r.items_added` against a server returning `items_new`
+    shows an empty result forever, and every endpoint test still passes."""
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    block = html.split("async function doImport")[1].split("$('#importCheck')")[0]
+    used = set(re.findall(r"\br\.([a-z_]+)", block))
+    assert used, "the import handler stopped reading the response at all"
+
+    response = client.post("/api/import", json={
+        "items": [{
+            "title": "面板自检用的一条", "url": "https://example.com/panel-check",
+            "content": "作者写的正文里有一个可核验数字", "source_type": "rss",
+            "locator": "rss:example:panel-check",
+        }],
+        "dry_run": True,
+    })
+    assert response.status_code == 200, response.text
+    returned = set(response.json())
+    assert used <= returned, f"panel reads fields the endpoint does not return: {sorted(used - returned)}"
+
+
+# Route -> why the panel is allowed not to call it.
+API_ONLY_ROUTES = {
+    "/api/docs": "FastAPI's own Swagger page, not a data source for this panel",
+    "/api/collect/status": "the same state /api/stats already returns; kept for API clients",
+}
+
+
+def test_every_api_route_is_reachable_from_the_panel_or_declared_api_only(client) -> None:
+    """`POST /api/import` existed for weeks with no line of UI calling it.
+
+    A route nobody can reach is an affordance the docs promise and the panel
+    does not have, so reachability is checked against the served route table
+    rather than against a hand-kept list. The match is deliberately loose
+    (every literal chunk of the path must appear in the script, because
+    `${id}` template literals make exact matching impossible without parsing
+    JS): it can be fooled by a coincidental string, but it did catch the
+    missing import call, which is the failure this guards.
+    """
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    routes = sorted(
+        {
+            route.path
+            for route in client.app.routes
+            if getattr(route, "methods", None) and route.path.startswith("/api")
+        }
+    )
+    assert len(routes) >= 10, "the route table came back nearly empty"
+
+    unreachable = []
+    for path in routes:
+        if path in API_ONLY_ROUTES:
+            continue
+        chunks = [chunk for chunk in re.split(r"\{[a-z_]+\}", path) if chunk]
+        if not all(chunk in html for chunk in chunks):
+            unreachable.append(path)
+    assert not unreachable, f"routes no panel code calls and none declared API-only: {unreachable}"
+
+
+def test_api_only_exemptions_are_not_free_slots() -> None:
+    """An exemption list rots into a hiding place unless it has to stay small."""
+    html = PANEL_HTML.read_text(encoding="utf-8")
+    for path, reason in API_ONLY_ROUTES.items():
+        assert len(reason) > 25, f"{path} is exempted without a real reason"
+        assert path not in html, f"{path} is declared API-only but the panel does call it"

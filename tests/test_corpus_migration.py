@@ -1,4 +1,4 @@
-"""Schema v3: locator/time_basis/sections_json, backfilled on old databases."""
+"""Schema v4: locator, trust, publisher; v3 sections/time_basis/sections_json, backfilled on old databases."""
 
 import json
 import sqlite3
@@ -40,11 +40,11 @@ def make(idx: str, **overrides) -> ContentItem:
     return ContentItem(**base)
 
 
-def test_schema_version_is_three(tmp_path: Path) -> None:
+def test_schema_version_is_four(tmp_path: Path) -> None:
     corpus = Corpus(tmp_path / "c.db")
     try:
-        assert SCHEMA_VERSION == 3
-        assert corpus._conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert SCHEMA_VERSION == 4
+        assert corpus._conn.execute("PRAGMA user_version").fetchone()[0] == 4
     finally:
         corpus.close()
 
@@ -153,7 +153,7 @@ def test_migration_is_idempotent(tmp_path: Path) -> None:
     second = Corpus(path)
     try:
         assert second._conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 1
-        assert second._conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert second._conn.execute("PRAGMA user_version").fetchone()[0] == 4
     finally:
         second.close()
 
