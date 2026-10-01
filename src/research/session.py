@@ -1222,13 +1222,23 @@ class ResearchSession:
                     )
                     continue
                 if v["verdict"] == "unsupported":
-                    # graded, but the trust aggregate said the evidence does not
-                    # carry it — different finding from "we never found any"
+                    # graded, but not carried by the evidence. Two different
+                    # authors of that verdict: the model reading the excerpts,
+                    # or the trust gate vetoing a `supported` the model gave.
+                    # The second has to be visible, or the report credits the
+                    # model with a judgment it never made.
                     trust = v.get("trust")
-                    tag = (
-                        f"❌ 可信度不足（T={float(trust):.2f}）"
-                        if trust is not None else "❌ 可信度不足"
-                    )
+                    if v.get("verdict_source") == "trust_gate":
+                        tag = (
+                            f"🚫 未通过可信度门（T={float(trust):.2f}，模型原判 supported）"
+                            if trust is not None
+                            else "🚫 未通过可信度门（模型原判 supported）"
+                        )
+                    else:
+                        tag = (
+                            f"❌ 可信度不足（T={float(trust):.2f}）"
+                            if trust is not None else "❌ 可信度不足"
+                        )
                 else:
                     tag = {"supported": "✅ 多源支持", "contested": "⚠️ 存在矛盾"}.get(
                         v["verdict"], "🔗 已关联证据"
@@ -1266,7 +1276,7 @@ class ResearchSession:
         try:
             rows = self.corpus._conn.execute(
                 f"""SELECT text, verdict, independent_sources, trust,
-                          ungraded_reason,
+                          ungraded_reason, verdict_source,
                           CASE WHEN status='graded' THEN 0 ELSE 1 END AS pending
                    FROM claims
                    WHERE item_id IN ({placeholders})

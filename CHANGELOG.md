@@ -113,16 +113,19 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 ## 尚未合入（本轮，分支 `feat/labeling-coverage-guardrails`）
 
-三件事都属于"规则写在纸上，但机器不知道"的同类项 —— 上一轮把 §11 变成了断言，这轮把"断言"再往前推一格：**真跑起来时会拦、会说、会自证**。
+四件事都属于"规则写在纸上，但机器不知道"的同类项 —— 上一轮把 §11 变成了断言，这几轮把"断言"再往前推一格：**真跑起来时会拦、会说、会自证**。第四条最重：它是一条写在已合并 PR 正文里的机制，实际从未在生产路径跑过。
 
 - **标注管线不再能把覆盖度缺陷报成质量分**。`--score` 以前无条件打印 macro-F1，而它固定在三类标签上取平均：缺 `contested` 样本时**人机完全一致也只有 0.667**。现在缺类会**先**打印一句警告（含那个天花板数字）**再**打表，结果 JSON 里加 `class_coverage` 与 `macro_f1_interpretable`；`--export` 的说明里也写明三类都要标到样本，不等标完 100 条才发现。测试 3 条，含反向用例（三类齐全时不许出警告）。
 - **§11 的"多账号池"补上代码半边**。继承来的 `twitter_playwright` 是池形状的（这条上一轮已确认不能靠断言否认），而边界此前只在文档里。现在匹配到 >1 个 cookie 文件时，`_planned_cookie_files()` 在**开跑前**警告一句本 fork 的采集边界是一个账号，并说明账号列表会被切成几份 —— 顺带覆盖那个对单账号也成立的坑（留着过期旧导出＝多了个上下文）。**没有删除继承实现、没有改默认行为、单 cookie 集时不产生任何日志噪音**（反向用例钉住）。
 - **盲标从"自己动手遮列"变成一条开关**。文档原来写着"要盲标就把 `machine_verdict` / `machine_trust` 两列遮掉再读摘录" —— 而**被标注者看见的判定会锚定一致率**，这正是项目唯一缺的那块证据最容易被做废的地方。现在 `--export --blind` 把三列移出标注表、写进同名 `.machine.json` 副表（标注期间不用打开），`--score` 按 `claim_id` 自动合回来，报告与结果 JSON 都会写明这批**是不是盲标**，免责那句也跟着分支（盲标不再写"偏乐观"）。`--machine <path>` 可显式指定副表。
   - 实现时踩到并被测试抓住的一处：`machine_verdict` 缺失有两种完全不同的原因 —— 盲标表，和**还没人标**的空表。第一版按列猜，把后者变成了崩溃；现在只有"表自己声明是盲标 / 副表真的存在 / 调用方指了副表"三种情况才去合表，并加了那条反向用例（`test_an_unlabelled_sheet_is_not_mistaken_for_a_blind_one`）。
 
-配套：`docs/twitter-cookies.md` §4 补一句这个启动期警告是什么、要你做什么（删掉多余那份，不是多备几个号）；`docs/evaluation.md` 口径 ③ 改写为 `--blind` 的用法与"只有盲标出来的一致率适合被引用"。
+- **`supported` 的两道门接进了产品路径**（本轮最重的一条）。`trust.classify()` 与 `Thresholds(supported=0.55, same_family_publishers=3)` 一直存在、也有单测，`docs/` 与已合并的 !8 正文都把它写成"判定背后的机制" —— 但**没有任何生产代码调用它**：verdict 完全来自模型读摘录，门只在评测脚本里跑。后果不是"少了一道保险"，是**报告里那句"❌ 可信度不足（T=…）"在当时是一句假话**：它是模型的判断，却被写成聚合层的否决。现在 `grade_claim` 在模型给出 `supported` 后用同一套 `collapse_votes` + `classify` 复核，**只降不升**（摘录是否说同一件事仍归模型，有几个独立声音归算术），并在 `claims.verdict_source`（schema v5 附加列，老库 ALTER）记下判定来自谁；报告对被否决的那些改口成"🚫 未通过可信度门（T=…，模型原判 supported）"。老行留 `NULL` —— 迁移不去假装知道 pre-gate 的 `supported` 能不能过门。
+  - 同时补上**阈值无处落地**这条：`docs/evaluation.md` 让用户"把校准值写进 `trust` 配置"，而仓库里根本没有那个配置块。现在 `analysis` 下多四个可选字段（`supported_min_trust` / `triage_gate_trust` / `same_family_prior` / `same_family_publishers`，默认全 `null` = 保持手工先验），`thresholds_from(config)` 生成门限，orchestrator 把它传给分析器 —— `--score` 拟出来的 θ 从此有一个真的去处。新字段未文档化时 `test_every_evidence_config_field_is_documented` 会红，这次也是它先抓到的。
 
-**数据**：collected **994 → 1003**（+4 覆盖度与池形状，+5 盲标通路）；全量 `uv run pytest` **exit=0**。
+配套：`docs/twitter-cookies.md` §4 补一句这个启动期警告是什么、要你做什么（删掉多余那份，不是多备几个号）；`docs/evaluation.md` 口径 ③ 改写为 `--blind` 的用法与"只有盲标出来的一致率适合被引用"；`docs/configuration.md` 补四个阈值字段与"设了就改判定"的说明。
+
+**数据**：collected **994 → 1009**（+4 覆盖度与池形状，+5 盲标通路，+6 门接线与迁移，其中一条替换了另一条）；全量 `uv run pytest` **1009 collected / 0 skip / exit=0**。
 
 ---
 

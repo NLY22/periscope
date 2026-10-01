@@ -39,7 +39,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from ..ai.utils import parse_json_response
 from ..corpus.sections import claimable_of
 from ..corpus.store import Corpus
-from ..corpus.trust import Vote, distinct_publishers, noisy_or
+from ..corpus.trust import Thresholds, Vote, classify, distinct_publishers, noisy_or
 from ..models import ContentItem
 
 logger = logging.getLogger(__name__)
@@ -109,6 +109,26 @@ class EvidenceLink:
     score: float
 
 
+def collapse_votes(rows: Sequence[Any]) -> List[Vote]:
+    """One vote per near-duplicate cluster: the strongest item represents it.
+
+    Shared by the recompute pass and the grading-time gate so the two can never
+    disagree about what counts as an independent voice.
+    """
+    slot: Dict[str, Vote] = {}
+    for r in rows:
+        vote = Vote(
+            source_type=r["source_type"],
+            publisher=r["publisher"],
+            trust=float(r["trust"]) if r["trust"] is not None else 0.5,
+            cluster=r["cluster_id"] or r["item_id"],
+        )
+        previous = slot.get(vote.cluster)
+        if previous is None or vote.trust > previous.trust:
+            slot[vote.cluster] = vote          # the strongest item represents
+    return list(slot.values())
+
+
 class ClaimStore:
     """Claims and evidence links, stored inside the corpus database.
 
@@ -129,6 +149,7 @@ CREATE TABLE IF NOT EXISTS claims (
     independent_sources INTEGER NOT NULL DEFAULT 0,
     trust REAL,
     ungraded_reason TEXT,
+    verdict_source TEXT,
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_claims_item ON claims(item_id);
@@ -181,6 +202,8 @@ CREATE INDEX IF NOT EXISTS idx_contra_b ON claim_contradictions(claim_b);
             self._conn.execute("ALTER TABLE claims ADD COLUMN trust REAL")
         if "ungraded_reason" not in columns:
             self._conn.execute("ALTER TABLE claims ADD COLUMN ungraded_reason TEXT")
+        if "verdict_source" not in columns:
+            self._conn.execute("ALTER TABLE claims ADD COLUMN verdict_source TEXT")
         self._conn.commit()
 
     # ---------------------------------------------------------------- write
@@ -327,6 +350,22 @@ CREATE INDEX IF NOT EXISTS idx_contra_b ON claim_contradictions(claim_b);
         self._conn.commit()
         return True
 
+    def independence_votes(self, claim_id: str) -> List[Vote]:
+        """The claim's votes after the cluster collapse.
+
+        The grading-time gate needs the same view `recompute_independence`
+        builds in bulk; reading it per claim keeps one rule in one place rather
+        than reimplementing the collapse where a verdict is written.
+        """
+        rows = self._conn.execute(
+            """SELECT e.cluster_id, e.item_id, e.source_type,
+                      i.publisher, i.trust
+               FROM claim_evidence e JOIN items i ON i.id = e.item_id
+               WHERE e.claim_id=?""",
+            (claim_id,),
+        ).fetchall()
+        return collapse_votes(rows)
+
     def recompute_independence(self) -> int:
         """Set independent_sources, T(claim) and ungraded_reason per claim.
 
@@ -348,20 +387,11 @@ CREATE INDEX IF NOT EXISTS idx_contra_b ON claim_contradictions(claim_b);
                FROM claim_evidence e JOIN items i ON i.id = e.item_id"""
         ).fetchall()
         grouped: Dict[str, List[Vote]] = defaultdict(list)
-        per_claim_clusters: Dict[str, Dict[str, Vote]] = defaultdict(dict)
+        by_claim: Dict[str, List[Any]] = defaultdict(list)
         for r in rows:
-            vote = Vote(
-                source_type=r["source_type"],
-                publisher=r["publisher"],
-                trust=float(r["trust"]) if r["trust"] is not None else 0.5,
-                cluster=r["cluster_id"] or r["item_id"],
-            )
-            slot = per_claim_clusters[r["claim_id"]]
-            previous = slot.get(vote.cluster)
-            if previous is None or vote.trust > previous.trust:
-                slot[vote.cluster] = vote          # the strongest item represents
-        for claim_id, slot in per_claim_clusters.items():
-            grouped[claim_id] = list(slot.values())
+            by_claim[r["claim_id"]].append(r)
+        for claim_id, claim_rows in by_claim.items():
+            grouped[claim_id] = collapse_votes(claim_rows)
         updated = 0
         for claim_id, votes in grouped.items():
             count = distinct_publishers(votes)
@@ -613,6 +643,7 @@ class ClaimAnalyzer:
         content_chars: int = 3500,
         claimable_only: bool = True,
         triage_min_trust: Optional[float] = None,
+        thresholds: Optional[Thresholds] = None,
     ):
         self.store = store
         self.corpus = corpus
@@ -624,6 +655,9 @@ class ClaimAnalyzer:
         # claim's evidence clears this, not merely once N items mention it.
         # None keeps the pre-P1 count-only predicate (ablation arm A uses it).
         self.triage_min_trust = triage_min_trust
+        # Configured cut points, defaulting to the labelled hand priors. Passing
+        # nothing must not read as "calibrated": see `thresholds_from`.
+        self.thresholds = thresholds or Thresholds()
         self.content_chars = content_chars
         # Ablation knob for the evaluation harness: with False the pipeline
         # behaves like Phase C and treats comment/reply text as evidence.
@@ -794,8 +828,24 @@ class ClaimAnalyzer:
             confidence = max(0.0, min(1.0, float(parsed.get("confidence", 0.0))))
         except (TypeError, ValueError):
             confidence = 0.0
+        verdict = parsed["verdict"]
+        source = "llm"
+        if verdict == "supported":
+            # Storing T is pointless if nothing gates on it: a model that only
+            # ever reads excerpts can call a pile of same-family reposts
+            # "supported", which is the exact failure widening the sources
+            # invites. The gate may only demote - whether the excerpts *say* the
+            # same thing stays the model's call, how many independent voices
+            # stand behind it is arithmetic.
+            votes = self.store.independence_votes(claim.id)
+            if classify(
+                noisy_or(votes), votes, self.thresholds,
+                contradicted=bool(self.store.contradictions_for(claim.id)),
+            ) != "supported":
+                verdict, source = "unsupported", "trust_gate"
         self.store.set_status(
-            claim.id, "graded", verdict=parsed["verdict"], confidence=confidence
+            claim.id, "graded", verdict=verdict, confidence=confidence,
+            verdict_source=source,
         )
         # The pair has to be stored, not just coloured: "contested" without a
         # record of *what* it conflicts with is a label nobody can audit.
@@ -812,7 +862,7 @@ class ClaimAnalyzer:
                         [e["item_id"] for e in evidence],
                     )
         claim.status = "graded"
-        claim.verdict = parsed["verdict"]
+        claim.verdict = verdict
         claim.confidence = confidence
         return claim
 

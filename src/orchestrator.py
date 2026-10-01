@@ -13,6 +13,7 @@ from rich.console import Console
 from .console_icons import get_icons
 from .models import Config, ContentItem, SOURCE_SPECS
 from .corpus.sections import marker_sections_to_model
+from .corpus.trust import thresholds_from
 from .storage.manager import StorageManager, safe_output_path
 from .services.email import EmailManager
 from .services.webhook import WebhookNotifier
@@ -343,6 +344,7 @@ class HorizonOrchestrator:
             content_chars=self.config.analysis.item_content_chars,
             claimable_only=self.config.analysis.claimable_only,
             triage_min_trust=self.config.analysis.triage_min_trust,
+            thresholds=thresholds_from(self.config.analysis),
         )
 
     def _get_optional_ai_client(self):

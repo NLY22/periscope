@@ -713,6 +713,14 @@ class AnalysisConfig(BaseModel):
     # P1 triage gate: T(claim) must clear this before an LLM call is spent on
     # it. 0 disables the trust gate and reproduces the count-only predicate.
     triage_min_trust: float = 0.0
+    # The two deterministic `supported` gates (spec 5.2.2). `None` keeps the
+    # hand prior in `trust.Thresholds`; a number here is where a calibrated
+    # theta from `scripts/eval_claims.py --score` lands. Nothing is calibrated
+    # until the human labels exist, so configuring nothing must keep saying so.
+    supported_min_trust: Optional[float] = None
+    triage_gate_trust: Optional[float] = None
+    same_family_prior: Optional[float] = None
+    same_family_publishers: Optional[int] = None
     grade_budget_per_run: int = 8  # LLM calls reserved for grading
     extract_top_items: int = 12  # analyse at most this many new items/run
     item_content_chars: int = 3500

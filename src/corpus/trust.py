@@ -333,6 +333,26 @@ def classify(T: float, votes: Sequence[Vote], thresholds: Thresholds = Threshold
         else "unsupported"
 
 
+def thresholds_from(analysis) -> Thresholds:
+    """Overlay configured cut points on the hand priors.
+
+    Explicit rather than a dataclass merge so that "absent" and "zero" stay
+    different things: a `0.0` someone typed is a decision, `None` is not, and
+    the report has to be able to tell the two apart.
+    """
+    hand = Thresholds()
+    picks = {
+        "supported": getattr(analysis, "supported_min_trust", None),
+        "triage": getattr(analysis, "triage_gate_trust", None),
+        "same_family_prior": getattr(analysis, "same_family_prior", None),
+        "same_family_publishers": getattr(analysis, "same_family_publishers", None),
+    }
+    merged = {}
+    for name, value in picks.items():
+        merged[name] = value if value is not None else getattr(hand, name)
+    return Thresholds(**merged)
+
+
 def roc_thresholds(pairs: Sequence[tuple]) -> Optional[Thresholds]:
     """Pick (supported, triage) from labelled (trust, is_supported) pairs.
 
