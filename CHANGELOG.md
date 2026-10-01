@@ -127,7 +127,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 - **聚合面也要分得开**：`ClaimStore.stats()` 增加 `by_verdict_source`（`hz_corpus_stats` 直接把整个 dict 交给 agent，之前它只报 `by_verdict`，门否决的 `unsupported` 与模型自己说的 `unsupported` 在总数里是一个数）。**pre-gate 的老行计入 `unset` 而不是 `llm`** —— 没人知道那些是谁判的。顺手核实了两条读取通路：`hz_list_claims` / `hz_get_claim` 都走 `Claim.to_dict()`，所以上一提交加的字段自动到达，不必再补（这是查证，不是假设）。
 
-配套：`docs/twitter-cookies.md` §4 补一句这个启动期警告是什么、要你做什么（删掉多余那份，不是多备几个号）；`docs/evaluation.md` 口径 ③ 改写为 `--blind` 的用法与"只有盲标出来的一致率适合被引用"，并写明 `machine_verdict_source` 与拆分读法；`docs/configuration.md` 补四个阈值字段与"设了就改判定"的说明。
+配套：`docs/twitter-cookies.md` §4 补一句这个启动期警告是什么、要你做什么（删掉多余那份，不是多备几个号）；`docs/evaluation.md` 口径 ③ 改写为 `--blind` 的用法与"只有盲标出来的一致率适合被引用"，并写明 `machine_verdict_source` 与拆分读法；`docs/configuration.md` 补四个阈值字段与"设了就改判定"的说明。**四处描述"两道门"的文档也一并跟上事实**（此前它们把一个未接线的函数写成判定机制）：README 能力表标出它跑在 `grade_claim` 并给出 `claims.verdict_source` 位置、`docs/architecture.md` 的 `claims` 行补上该列、`docs/retrieval.md` 写清降级规则与四个可覆盖阈值、`docs/evaluation.md` 第 3 点注明这条现在对产品路径也成立。
 
 **数据**：collected **994 → 1017**（+4 覆盖度与池形状，+5 盲标通路，+6 门接线与迁移，+5 判定来源的读取与拆分，+3 聚合面与 MCP 直传核实；`uv run pytest` exit=0，79 个测试文件）。中途一次 `--collect-only` 报过 1015，与逐文件账目差 1；重跑两次稳定 1014（`test_trust_gate_wired.py` 稳定 11 条），所以采用 1014。**那一次多出的 1 我没查明原因** —— 只记现象与"以复测为准"，不给一个没验证过的解释。（同一轮我还把"新增 4 条"算错过一次：实际 3 条，账目对上才发现是加法错，不是测试丢了。）
 

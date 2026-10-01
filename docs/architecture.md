@@ -51,7 +51,7 @@ flowchart LR
 |---|---|---|---|
 | `items` | 普通 | `Corpus.add_items` | 条目本体 + `claimable` + `locator` / `time_basis` / `sections_json` / `publisher` / `trust` / `trust_features_json` |
 | `runs` | 普通 | `begin_run` / `finish_run` | 每轮采集的新增与总量，崩溃续跑靠它 |
-| `claims` | 普通 | `ClaimStore`（`ClaimAnalyzer` 调） | 原子声明 + `verdict` + `independent_sources` + `trust` + `ungraded_reason` |
+| `claims` | 普通 | `ClaimStore`（`ClaimAnalyzer` 调） | 原子声明 + `verdict` + `verdict_source`（这条判定来自模型还是可信度门） + `independent_sources` + `trust` + `ungraded_reason` |
 | `claim_evidence` | 普通 | `link_evidence` | 声明↔条目的关联，带 `cluster_id` 与 `source_type` |
 | `claim_contradictions` | 普通 | `record_contradiction` | 哪两条声明、靠哪些条目互相冲突 —— `contested` 的可查依据 |
 | `research_sessions` | 普通 | `ResearchStore` | 会话与其状态（含 `awaiting_user`） |

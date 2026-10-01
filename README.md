@@ -93,7 +93,7 @@ Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游�
 | 证据语料库：SQLite + FTS5 + 手写 SimHash 聚簇，跨运行累积 | （本 fork） | `src/corpus/store.py`、`src/corpus/simhash.py` |
 | 用户导出入库通路（取不到的源不靠抓取）| （本 fork） | `src/corpus/ingest.py`、`scripts/import_corpus.py`、`hz_corpus_import`、面板「导入你导出的内容」（`POST /api/import`，可先只校验）|
 | 证据分层：scraper **声明**的类型化 `Section`（作者亲写 vs 人群发言），独立信源计数只认前者 | （本 fork） | `src/models.py` 的 `Section`、`src/corpus/sections.py`、`items.claimable` + `claim_fts` |
-| 条目可信度与独立性：可拆解的 trust 分数、noisy-OR 聚合、两道门 | （本 fork） | `src/corpus/trust.py`、`items.trust` + `trust_features_json` |
+| 条目可信度与独立性：可拆解的 trust 分数、noisy-OR 聚合、两道门（跑在 `grade_claim`，判定来源可追） | （本 fork） | `src/corpus/trust.py`、`items.trust` + `trust_features_json`、`claims.verdict_source` |
 | 多轮共创：逐轮动词 + 带 revision/locked/stale 的草稿工件 + 向用户索取输入 | （本 fork） | `src/research/{moves,drafts}.py`、`research_drafts` / `research_requests` 表 |
 | 源注册表与抓取基础设施：per-host 令牌桶、可注入时钟、env/cookie 鉴权与过期检测 | （本 fork） | `src/sources/registry.py`、`src/scrapers/{throttle,auth}.py`、`SOURCE_SPECS` |
 | 取证检索：查询扩展 + 向量路 + RRF 融合 | （本 fork） | `src/corpus/retrieval.py`、`src/ai/{expand,embeddings}.py`、`src/corpus/semantic.py` |
