@@ -672,7 +672,7 @@ P0 / P2 / P1 三期已实现并推送。**本节只记三件事：验收实测�
 | 项 | 状态 | 谁能做 |
 |---|---|---|
 | 50–100 条声明 verdict 人评 → θ_s / θ_triage 校准 | **2026-10-01 之前这句是夸大的**：`--score` 从没调用 `roc_thresholds()`，而 `--export` 的表里没有 `c.trust`（θ 正是按 `T(claim)` 定义的）—— 标完也拿不到阈值。现已修好（`dd2d5cc`：导出带 `machine_trust`，`--score` 产出 `thresholds_suggested`，样本不足时明写跳过）。**数据仍为零，只差人来标。** | **只有维护者** |
-| S1 小红书探针 | 判别逻辑已做成工具（`scripts/spike_sources.py --source xiaohongshu --url … --online`，不加 `--online` 不发请求）。**第 1 步按定义不需要账号**，一条命令即可跑并落 `data/eval/reachability_results.json`；本轮我试着跑时出站请求被会话的权限层拦下，所以实际响应仍未记录（不许拿推测当结果）。第 2–3 步才需要登录态 cookie / Playwright | 第 1 步任何人（包括你）能跑；第 2–3 步只有维护者 |
+| S1 小红书探针 | 判别逻辑已做成工具（`scripts/spike_sources.py --source xiaohongshu --url … --online`，不加 `--online` 不发请求）。**第 1 步按定义不需要账号**，一条命令即可跑并落 `data/eval/reachability_results.json`；本轮我试着跑时出站请求被会话的权限层拦下，所以实际响应仍未记录（不许拿推测当结果）。**2026-10-01 补一条：两条出站路都被拦** —— 走 shell（curl / 脚本）被拦，改走已连接的浏览器工具导航 `https://www.xiaohongshu.com/explore` 同样被拦（判定为"本轮未请求的外部站点"）。所以这件事既不是"缺你的账号"，也不是"换条工具链就能跑"，而是要**你在自己的终端里跑一次**。第 2–3 步才需要登录态 cookie / Playwright | 第 1 步任何人（包括你）能跑；第 2–3 步只有维护者 |
 | S2 贴吧探针第 2–3 步 | 第 1 步的结论现在**可断言**：`tests/test_reachability_probe.py::test_the_tieba_probe_reproduces_the_recorded_conclusion` 用 §14.2 抄下来的响应体跑出 `list_only` + 楼层不可达（平台改版时这条测试会先红）。拿到楼层之前不进 P 序列 | 维护者决定是否投入 |
 | P3 图文 → 文本（OCR / VLM） | 条件执行，卡 S1 | 工程，等条件 |
 | 改名 `veriscope` | 未执行。上游后期也自名 Periscope，「Periscope」分不开。要动包名 + 6 个 `periscope-*` 入口 + Docker 服务名 + 文档全量引用，留一版别名 | 维护者决定 |
