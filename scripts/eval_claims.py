@@ -25,7 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.analysis.agreement import independence_buckets, score_pairs  # noqa: E402
+from src.analysis.agreement import LABELS, independence_buckets, score_pairs  # noqa: E402
 from src.corpus.trust import roc_thresholds  # noqa: E402
 
 DEFAULT_DB = REPO_ROOT / "data" / "corpus.db"
@@ -83,12 +83,28 @@ def export_sheet(db_path: Path, out_path: Path) -> int:
             "填 human_verdict，不确定的留 null 并在 human_note 说明。"
             "注意 machine_verdict / machine_trust 是**被测对象**，本表不是盲标 —— 一致率因此偏乐观，"
             "要盲标就先把这两列遮掉再读摘录。machine_trust 是这条声明的 T 值，θ 校准要用它，别改。"
+            "**三个类别都要标到样本**（supported / contested / unsupported）：macro-F1 在这三类上取平均，"
+            "没有样本的那类 F1 记 0，所以只标两类时即便人机完全一致也只有 0.667 —— "
+            "`--score` 会在缺类时明说这个数不可解读。"
         ),
         "labels": claims,
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     return len(claims)
+
+
+def missing_verdict_classes(agreement) -> List[str]:
+    """Which of the three verdicts the human never picked.
+
+    macro-F1 averages over the fixed three-label set, so an absent class is
+    scored 0 and perfect agreement silently reads as 0.667. Printing that number
+    without saying so would turn a coverage gap into a quality claim.
+    """
+    return [
+        label for label in LABELS
+        if agreement.per_label[label]["gold"] == 0
+    ]
 
 
 def score_sheet(sheet_path: Path, out_path: Path | None) -> str:
@@ -107,7 +123,19 @@ def score_sheet(sheet_path: Path, out_path: Path | None) -> str:
         ]
     )
 
-    lines = [agreement.table(), "", "按独立信源数分桶的人工一致率："]
+    # The warning goes above the table on purpose: the table is the part that
+    # gets copied into a report, and the number at its top is unreadable without
+    # this sentence.
+    absent = missing_verdict_classes(agreement)
+    lines = []
+    if absent:
+        lines.append(
+            f"⚠ 人工标签里缺 {'、'.join(absent)}：macro-F1 固定在这三类上取平均，缺的那类 F1 记 0，"
+            f"所以**即便人机完全一致也只有 {1 - len(absent) / 3:.3f}**。"
+            "下面那行的 macro-F1 不可解读，别引用；先补齐这三类的样本。"
+        )
+        lines.append("")
+    lines += [agreement.table(), "", "按独立信源数分桶的人工一致率："]
     for key in ("1", "2", "3+"):
         entry = buckets[key]
         lines.append(f"- {key} 源：n={int(entry['n'])}, agreement={entry['agreement']:.3f}")
@@ -152,6 +180,10 @@ def score_sheet(sheet_path: Path, out_path: Path | None) -> str:
                         k: {"n": v["n"], "agreement": round(v["agreement"], 4)} for k, v in buckets.items()
                     },
                     "excluded": skipped,
+                    "class_coverage": {
+                        label: int(agreement.per_label[label]["gold"]) for label in LABELS
+                    },
+                    "macro_f1_interpretable": not absent,
                     "threshold_pairs": len(pairs),
                     "thresholds_suggested": None if fitted is None else {
                         "supported": fitted.supported,
