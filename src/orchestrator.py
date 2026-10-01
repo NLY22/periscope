@@ -335,7 +335,7 @@ class HorizonOrchestrator:
         from .analysis import ClaimAnalyzer, ClaimStore
 
         return ClaimAnalyzer(
-            store=ClaimStore(corpus),
+            store=ClaimStore(corpus, evidence_limit=self.config.analysis.evidence_per_claim),
             corpus=corpus,
             client=self._get_optional_ai_client(),
             max_claims_per_item=self.config.analysis.max_claims_per_item,
@@ -425,7 +425,7 @@ class HorizonOrchestrator:
             return None
         from .analysis import ClaimStore
 
-        return ClaimStore(corpus)
+        return ClaimStore(corpus, evidence_limit=self.config.analysis.evidence_per_claim)
 
     def get_corpus(self):
         """Public accessor for the evidence corpus (None when disabled)."""

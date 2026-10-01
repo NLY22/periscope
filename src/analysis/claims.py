@@ -114,6 +114,9 @@ class EvidenceLink:
     score: float
 
 
+DEFAULT_EVIDENCE_LIMIT = 6
+
+
 def collapse_votes(rows: Sequence[Any]) -> List[Vote]:
     """One vote per near-duplicate cluster: the strongest item represents it.
 
@@ -186,8 +189,13 @@ CREATE INDEX IF NOT EXISTS idx_contra_a ON claim_contradictions(claim_a);
 CREATE INDEX IF NOT EXISTS idx_contra_b ON claim_contradictions(claim_b);
 """
 
-    def __init__(self, corpus: Corpus):
+    def __init__(self, corpus: Corpus, evidence_limit: int = DEFAULT_EVIDENCE_LIMIT):
         self._conn = corpus._conn
+        # One number for the whole claim's evidence set, enforced where the rows
+        # are written. The orchestrator feeds `analysis.evidence_per_claim` in;
+        # both of its `ClaimStore(corpus)` sites must do the same or the read
+        # side drifts back to this default.
+        self.evidence_limit = max(1, int(evidence_limit))
         self._migrate()
         self._conn.executescript(self._SCHEMA)
         self._conn.commit()
@@ -237,6 +245,18 @@ CREATE INDEX IF NOT EXISTS idx_contra_b ON claim_contradictions(claim_b);
                VALUES (?, ?, ?, ?, ?)""",
             [(l.claim_id, l.item_id, l.cluster_id, l.source_type, l.score) for l in links],
         )
+        # Trim where we write: links accumulate across runs, and if the cap only
+        # lived in each reader then the grader's prompt, the votes behind T, the
+        # panel and the labeling sheet would each see a different subset of the
+        # same claim's evidence.
+        for claim_id in {l.claim_id for l in links}:
+            self._conn.execute(
+                """DELETE FROM claim_evidence
+                   WHERE claim_id=? AND item_id NOT IN (
+                       SELECT item_id FROM claim_evidence WHERE claim_id=?
+                       ORDER BY score DESC LIMIT ?)""",
+                (claim_id, claim_id, self.evidence_limit),
+            )
         self._conn.commit()
 
     def set_status(self, claim_id: str, status: str, **fields: Any) -> None:
@@ -271,36 +291,25 @@ CREATE INDEX IF NOT EXISTS idx_contra_b ON claim_contradictions(claim_b);
         ).fetchall()
         return [self._row_to_claim(r) for r in rows]
 
-    def evidence_for(self, claim_id: str, limit: int = 8) -> List[Dict[str, Any]]:
-        rows = self._conn.execute(
-            """SELECT e.item_id, e.cluster_id, e.source_type, e.score,
-                      i.title, i.url, i.published_at
-               FROM claim_evidence e JOIN items i ON i.id = e.item_id
-               WHERE e.claim_id=? ORDER BY e.score DESC LIMIT ?""",
-            (claim_id, limit),
-        ).fetchall()
-        return [dict(r) for r in rows]
+    def evidence_for(self, claim_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """The claim's stored evidence, strongest first.
 
-    def evidence_votes(self, claim_id: str) -> List[Vote]:
-        """Linked items as trust votes, carrying the publisher that makes a vote count.
-
-        Kept separate so `independent_sources`, T and the verdict rule all read
-        exactly the same evidence rather than three queries that can drift.
+        No cap by default: `add_evidence` already keeps exactly
+        `evidence_limit` rows, so every reader - prompt, panel, MCP, labeling
+        sheet - sees the same set. A `limit` here would be a second, smaller
+        truth, which is what the old `limit: int = 8` did to a store configured
+        for more.
         """
-        rows = self._conn.execute(
-            """SELECT e.source_type, i.publisher, i.trust
-               FROM claim_evidence e JOIN items i ON i.id = e.item_id
-               WHERE e.claim_id=?""",
-            (claim_id,),
-        ).fetchall()
-        return [
-            Vote(
-                source_type=r["source_type"],
-                publisher=r["publisher"],
-                trust=float(r["trust"]) if r["trust"] is not None else 0.5,
-            )
-            for r in rows
-        ]
+        sql = """SELECT e.item_id, e.cluster_id, e.source_type, e.score,
+                        i.title, i.url, i.published_at
+                 FROM claim_evidence e JOIN items i ON i.id = e.item_id
+                 WHERE e.claim_id=? ORDER BY e.score DESC"""
+        params: List[Any] = [claim_id]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        rows = self._conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
 
     def sibling_claims(self, claim_id: str, limit: int = 8) -> List[Claim]:
         """Other claims resting on any of the same evidence.

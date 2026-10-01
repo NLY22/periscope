@@ -91,10 +91,15 @@ def export_sheet(db_path: Path, out_path: Path, blind: bool = False) -> int:
         ).fetchall()
         claims: List[Dict[str, Any]] = []
         for row in rows:
+            # No cap here on purpose: `add_evidence` keeps exactly
+            # `analysis.evidence_per_claim` rows per claim, so reading them all
+            # is what makes the sheet show the same excerpts the grader was
+            # given. A second number in this query would silently relabel a
+            # different evidence set than the one being graded.
             evidence = conn.execute(
                 """SELECT e.item_id, e.cluster_id, e.source_type, i.title, i.url
                    FROM claim_evidence e LEFT JOIN items i ON i.id = e.item_id
-                   WHERE e.claim_id=? ORDER BY e.score DESC LIMIT 6""",
+                   WHERE e.claim_id=? ORDER BY e.score DESC""",
                 (row["id"],),
             ).fetchall()
             claims.append(

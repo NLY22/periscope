@@ -502,7 +502,7 @@ uv run periscope-webhook --dry-run # 预览 Webhook 请求
 | `webhook` | Webhook 端点、平台适配、消息模板与投递语言 |
 | `wechat` | 微信投递开关、语言与分块大小 |
 | `corpus` | 证据语料库：`enabled`、`path`、`cluster_max_distance`、`cluster_lookback_rows` |
-| `analysis` | 声明核查：`max_claims_per_item`、`evidence_per_claim`、`grade_min_sources`、`triage_min_trust`（分诊门，默认 `0.0` = 关闭）、`grade_budget_per_run`、`extract_top_items`、`item_content_chars`、`claimable_only` |
+| `analysis` | 声明核查：`max_claims_per_item`、`evidence_per_claim`、`grade_min_sources`、`triage_min_trust`（分诊门，默认 `0.0` = 关闭）、`supported_min_trust` / `same_family_prior` / `same_family_publishers`（`supported` 判定门的阈值，默认全部 = 手工先验）、`grade_budget_per_run`、`extract_top_items`、`item_content_chars`、`claimable_only` |
 | `research` | 长会话研究：`evidence_per_question`、`max_evidence_chars`、`planner_budget_per_invocation`、`claimable_only`、`max_retrieval_rounds`、`min_evidence_for_answer`、`report_template`（`auto` / `flat` / 指定骨架） |
 | `retrieval` | 取证检索：`query_expansion`、`expansion_max_terms`、`semantic` + `embedding_model`/`embedding_base_url`/`embedding_api_key_env`、`semantic_top_k`、`index_batch_size`、`on_demand_collection` |
 

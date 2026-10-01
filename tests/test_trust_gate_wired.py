@@ -425,3 +425,62 @@ def test_validation_actually_calls_the_check() -> None:
     assert "unused_calibration(ctx.config.analysis" in body[:2500], (
         "config validation stopped checking whether a fitted theta is unused"
     )
+
+
+# ------------------------------------------------------- one evidence set per claim
+def _linked_store(tmp_path, cap: int, want: int):
+    corpus = Corpus(tmp_path / "cap.db")
+    store = ClaimStore(corpus, evidence_limit=cap)
+    origin = _item(corpus, "origin", SourceType.RSS, "writer-a")
+    store.upsert_claims([Claim(id="claim:c", item_id=origin.id, text="t")])
+    from src.analysis.claims import EvidenceLink
+
+    store.add_evidence([
+        EvidenceLink("claim:c", _item(corpus, f"e{i}", SourceType.RSS, f"w{i}").id,
+                     f"cl{i}", "rss", float(want - i))
+        for i in range(want)
+    ])
+    return corpus, store
+
+
+def test_the_stored_evidence_set_is_capped_where_it_is_written(tmp_path) -> None:
+    corpus, store = _linked_store(tmp_path, cap=3, want=7)
+
+    assert len(store.evidence_for("claim:c")) == 3
+    assert len(store.independence_votes("claim:c")) == 3, (
+        "the gate counted a different set than the prompt showed"
+    )
+    rows = corpus._conn.execute(
+        "SELECT score FROM claim_evidence WHERE claim_id='claim:c' ORDER BY score DESC"
+    ).fetchall()
+    assert [r["score"] for r in rows] == [7.0, 6.0, 5.0], "must keep the strongest"
+
+
+def test_no_reader_invents_its_own_evidence_cap() -> None:
+    """Three numbers used to disagree: the linker stored `evidence_per_claim`,
+    `evidence_for` cut at 8, and the labeling sheet at 6 - so a human labelled a
+    different excerpt set than the model was shown."""
+    claims = (REPO_ROOT / "src" / "analysis" / "claims.py").read_text(encoding="utf-8")
+    reader = claims.split("def evidence_for")[1].split("def independence_votes")[0]
+    assert "limit: Optional[int] = None" in reader, "a default read cap came back"
+    assert "evidence_votes" not in claims, (
+        "the non-collapsing vote reader came back; production collapses"
+    )
+    script = (REPO_ROOT / "scripts" / "eval_claims.py").read_text(encoding="utf-8")
+    assert "ORDER BY e.score DESC LIMIT" not in script.split("def export_sheet")[1], (
+        "the sheet capped excerpts again - it must show what is stored"
+    )
+
+
+def test_the_cap_comes_from_config_at_every_construction_site() -> None:
+    text = (REPO_ROOT / "src" / "orchestrator.py").read_text(encoding="utf-8")
+    assert text.count("evidence_limit=self.config.analysis.evidence_per_claim") == 2, (
+        "analyzer and read-side stores must share one configured cap"
+    )
+    assert "ClaimStore(corpus)" not in text, "a store fell back to the default cap"
+
+
+def test_the_default_cap_matches_the_documented_config_default() -> None:
+    from src.analysis.claims import DEFAULT_EVIDENCE_LIMIT
+
+    assert DEFAULT_EVIDENCE_LIMIT == AnalysisConfig().evidence_per_claim

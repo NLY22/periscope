@@ -653,7 +653,7 @@ Schema is versioned (`SCHEMA_VERSION = 4`) and migrations are idempotent `ALTER`
 |---|---|---|
 | `enabled` | `true` | Turn claim extraction, evidence linking and grading on. Off leaves the corpus as pure searchable memory. |
 | `max_claims_per_item` | `5` | Cap on atomic claims distilled from one item. |
-| `evidence_per_claim` | `6` | Cap on linked evidence rows per claim. |
+| `evidence_per_claim` | `6` | Cap on linked evidence rows per claim, enforced where the rows are written. Readers no longer set their own ceilings, so the grader's prompt, `hz_get_claim`, the panel and `eval_claims.py --export` all show the same set — three different caps used to live there (6 / 8 / 6), which meant a human labelled a different excerpt set than the model was shown. |
 | `grade_min_sources` | `2` | **Triage floor, not a verdict.** Below it a claim is never graded — which is why reports now list un-graded claims with a reason instead of dropping them. |
 | `triage_min_trust` | `0.0` | Second triage gate: only claims with aggregated `T ≥` this value get an LLM call. **`0.0` means the gate is off**, preserving pre-P1 behaviour; the threshold is a hand-set prior, not a fitted value (see `docs/evaluation.md`). |
 | `supported_min_trust` | `null` | T cut point for the `supported` gate. `null` keeps the code's hand prior (`0.55`). This is where a θ from `scripts/eval_claims.py --score` lands — **and until the human labels exist, no such fitted value exists**, so leaving it `null` is the honest setting. |
