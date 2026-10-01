@@ -32,8 +32,46 @@ DEFAULT_DB = REPO_ROOT / "data" / "corpus.db"
 DEFAULT_SHEET = REPO_ROOT / "data" / "eval" / "claims_labels.json"
 
 
-def export_sheet(db_path: Path, out_path: Path) -> int:
-    """Dump graded and linked claims into a labeling sheet, verdicts unfilled."""
+MACHINE_COLUMNS = ("machine_verdict", "machine_confidence", "machine_trust")
+
+COVERAGE_NOTE = (
+    "**三个类别都要标到样本**（supported / contested / unsupported）：macro-F1 在这三类上取平均，"
+    "没有样本的那类 F1 记 0，所以只标两类时即便人机完全一致也只有 0.667 —— "
+    "`--score` 会在缺类时明说这个数不可解读。"
+)
+
+BLIND_NOTE = (
+    "本表是**盲标**：machine_verdict / machine_confidence / machine_trust 不在表里，"
+    "它们在旁边的 .machine.json 里 —— 标完之前别打开那份文件，`--score` 会自己合回来。"
+    "盲标出来的一致率才是没被被测对象带偏的那一个。"
+)
+
+
+def sidecar_path(sheet_path: Path) -> Path:
+    return sheet_path.with_name(sheet_path.stem + ".machine.json")
+
+
+def split_machine_columns(claims: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Strip the measured verdicts out of `claims`, returning them by claim id.
+
+    In place, and it must be a pop rather than a copy: a sheet that still shows
+    `machine_verdict` is not blind, and it looks exactly as convincing as one
+    that never did.
+    """
+    machine: Dict[str, Dict[str, Any]] = {}
+    for claim in claims:
+        machine[claim["claim_id"]] = {k: claim.pop(k) for k in MACHINE_COLUMNS if k in claim}
+    return machine
+
+
+def export_sheet(db_path: Path, out_path: Path, blind: bool = False) -> int:
+    """Dump graded and linked claims into a labeling sheet, verdicts unfilled.
+
+    With `blind`, the machine columns are held out of the sheet entirely and
+    written to a sibling sidecar: agreement measured against a verdict the
+    labeler can see is anchored, and the docs had been telling the maintainer
+    to blank those columns by hand.
+    """
     if not db_path.exists():
         raise SystemExit(
             f"找不到语料库 {db_path}。先跑一次 `uv run periscope --hours 24` 采集，"
@@ -76,21 +114,42 @@ def export_sheet(db_path: Path, out_path: Path) -> int:
     finally:
         conn.close()
 
-    payload = {
-        "instructions": (
-            "读 evidence 里的原文摘录，只按这些摘录判断：supported=独立说法一致；"
-            "contested=至少一条实质性反驳；unsupported=摘录太泛或跑题，无法确认。"
-            "填 human_verdict，不确定的留 null 并在 human_note 说明。"
+    instructions = (
+        "读 evidence 里的原文摘录，只按这些摘录判断：supported=独立说法一致；"
+        "contested=至少一条实质性反驳；unsupported=摘录太泛或跑题，无法确认。"
+        "填 human_verdict，不确定的留 null 并在 human_note 说明。"
+    )
+    if blind:
+        instructions += BLIND_NOTE
+    else:
+        instructions += (
             "注意 machine_verdict / machine_trust 是**被测对象**，本表不是盲标 —— 一致率因此偏乐观，"
-            "要盲标就先把这两列遮掉再读摘录。machine_trust 是这条声明的 T 值，θ 校准要用它，别改。"
-            "**三个类别都要标到样本**（supported / contested / unsupported）：macro-F1 在这三类上取平均，"
-            "没有样本的那类 F1 记 0，所以只标两类时即便人机完全一致也只有 0.667 —— "
-            "`--score` 会在缺类时明说这个数不可解读。"
-        ),
-        "labels": claims,
-    }
+            "要盲标就加 `--blind`（machine_* 会移到旁边的 .machine.json，评分时自动合回来）。"
+            "machine_trust 是这条声明的 T 值，θ 校准要用它，别改。"
+        )
+    instructions += COVERAGE_NOTE
+
+    machine_map: Dict[str, Dict[str, Any]] = {}
+    if blind:
+        machine_map = split_machine_columns(claims)
+
+    payload = {"instructions": instructions, "blind": blind, "labels": claims}
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+    if blind:
+        sidecar_path(out_path).write_text(
+            json.dumps(
+                {
+                    "instructions": "盲标副表：标注完成之前不要打开。`--score` 会按 claim_id 合回来。",
+                    "machine": machine_map,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
     return len(claims)
 
 
@@ -107,13 +166,42 @@ def missing_verdict_classes(agreement) -> List[str]:
     ]
 
 
-def score_sheet(sheet_path: Path, out_path: Path | None) -> str:
+def _with_machine_fields(rows: List[Dict[str, Any]], path: Path) -> List[Dict[str, Any]]:
+    """Join a blind sheet back to its sidecar, by claim_id.
+
+    The labeler's own columns win on key collisions: the sidecar is input to
+    scoring, never a replacement for what was written down.
+    """
+    if not path.exists():
+        raise SystemExit(
+            f"这是一张盲标表（行里没有 machine_verdict），但找不到副表 {path}。"
+            "用 `--machine <path>` 指给它。"
+        )
+    table = json.loads(path.read_text(encoding="utf-8")).get("machine", {})
+    return [{**(table.get(row.get("claim_id")) or {}), **row} for row in rows]
+
+
+def score_sheet(sheet_path: Path, out_path: Path | None, machine_path: Path | None = None) -> str:
     payload = json.loads(sheet_path.read_text(encoding="utf-8"))
-    rows = payload["labels"] if isinstance(payload, dict) else payload
+    declared = payload if isinstance(payload, dict) else {}
+    rows = declared.get("labels", payload) if declared else payload
+
+    # "No machine columns" has two very different causes - a blind sheet, and an
+    # empty sheet nobody has labelled yet. Guessing from the columns alone once
+    # turned the second into a crash, so join only when the sheet says it is
+    # blind, the sidecar is actually there, or the caller pointed at one.
+    needs_join = bool(rows) and all("machine_verdict" not in r for r in rows)
+    sidecar = machine_path or sidecar_path(sheet_path)
+    blind = bool(declared.get("blind")) or (needs_join and sidecar.exists())
+    if needs_join and (declared.get("blind") or machine_path is not None or sidecar.exists()):
+        rows = _with_machine_fields(rows, sidecar)
 
     labeled = [r for r in rows if r.get("human_verdict") and r.get("machine_verdict")]
     if not labeled:
-        return "标注表里还没有同时具备 human_verdict 与 machine_verdict 的条目，无法计分。"
+        return (
+            "标注表里还没有同时具备 human_verdict 与 machine_verdict 的条目，无法计分。"
+            + ("（这是盲标表：用 `--machine` 指到 .machine.json 副表。）" if blind else "")
+        )
 
     agreement = score_pairs([(r["human_verdict"], r["machine_verdict"]) for r in labeled])
     buckets = independence_buckets(
@@ -162,7 +250,9 @@ def score_sheet(sheet_path: Path, out_path: Path | None) -> str:
             f"θ 校准建议（来自 {len(pairs)} 条带 T 值的标注）："
             f"supported={fitted.supported:.2f}、triage={fitted.triage:.2f}。"
             "这是**建议**：写进 `trust` 配置之前，线上阈值仍是手工先验；"
-            "且本表非盲标，一致率与由此得到的阈值都偏乐观。"
+            + ("本表是盲标（machine_* 由副表合入），一致率不因看见被测判定而偏乐观。"
+               if blind else
+               "且本表非盲标，一致率与由此得到的阈值都偏乐观。")
         )
 
     if out_path:
@@ -184,6 +274,7 @@ def score_sheet(sheet_path: Path, out_path: Path | None) -> str:
                         label: int(agreement.per_label[label]["gold"]) for label in LABELS
                     },
                     "macro_f1_interpretable": not absent,
+                    "blind": blind,
                     "threshold_pairs": len(pairs),
                     "thresholds_suggested": None if fitted is None else {
                         "supported": fitted.supported,
@@ -205,6 +296,15 @@ def main() -> int:
     parser.add_argument("--export", type=Path, default=None, metavar="DB", help="导出标注表")
     parser.add_argument("--sheet", type=Path, default=DEFAULT_SHEET)
     parser.add_argument("--score", type=Path, default=None, metavar="LABELS.json")
+    parser.add_argument(
+        "--blind", action="store_true",
+        help="导出时把 machine_verdict / machine_confidence / machine_trust 移到旁边的 .machine.json，"
+             "标注者看不到被测判定 —— 一致率与由此拟出的阈值才不因此偏乐观。",
+    )
+    parser.add_argument(
+        "--machine", type=Path, default=None, metavar="MACHINE.json",
+        help="评分时指定的盲标副表；默认取标注表同名的 .machine.json。",
+    )
     parser.add_argument("--out", type=Path, default=REPO_ROOT / "data" / "eval" / "claims_results.json")
     parser.add_argument(
         "--tiering", choices=("sections", "marker"), default="sections",
@@ -214,11 +314,14 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.export:
-        count = export_sheet(args.export, args.sheet)
+        count = export_sheet(args.export, args.sheet, blind=args.blind)
         print(f"已导出 {count} 条待标注声明 -> {args.sheet.relative_to(REPO_ROOT)}")
+        if args.blind:
+            print("盲标：machine_* 在 "
+                  f"{sidecar_path(args.sheet).relative_to(REPO_ROOT)}，标完再打开；--score 会自动合回来。")
         return 0
     if args.score:
-        print(score_sheet(args.score, args.out))
+        print(score_sheet(args.score, args.out, args.machine))
         return 0
     parser.print_help()
     return 1

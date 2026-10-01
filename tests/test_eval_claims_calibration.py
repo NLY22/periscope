@@ -148,5 +148,91 @@ def test_the_export_tells_the_labeler_about_class_coverage_up_front() -> None:
     """The warning is useless if it only appears after 100 rows are labelled."""
     source = (REPO_ROOT / "scripts" / "eval_claims.py").read_text(encoding="utf-8")
     export = source.split("def export_sheet")[1].split("def score_sheet")[0]
-    assert "三个类别都要标到样本" in export
-    assert "0.667" in export, "the reason has to be on the sheet, not only in the docs"
+    assert "instructions += COVERAGE_NOTE" in export, (
+        "the sheet stopped carrying the coverage requirement"
+    )
+    assert export.index("instructions += COVERAGE_NOTE") > export.index("if blind:"), (
+        "the note must be appended after the blind/non-blind branch, so both get it"
+    )
+    assert "三个类别都要标到样本" in eval_claims.COVERAGE_NOTE
+    assert "0.667" in eval_claims.COVERAGE_NOTE, "the reason belongs on the sheet, not only in the docs"
+
+
+# --------------------------------------------------------------- blind labelling
+# The non-blind shape was a documented caveat ("一致率因此偏乐观") plus an
+# instruction to blank two columns by hand. Anchored agreement is the number a
+# report would quote, so the supported path has to be the unanchored one.
+
+def score_file(path: Path, out: Path):
+    text = eval_claims.score_sheet(path, out)
+    return text, json.loads(out.read_text(encoding="utf-8"))
+
+
+def blind_payload(rows):
+    return {"instructions": "盲标", "blind": True, "labels": rows}
+
+
+def split_into_blind_pair(tmp_path: Path, payload, name: str = "blind.json"):
+    """Write what `--blind` would write: a sheet without machine columns."""
+    rows = [dict(r) for r in payload["labels"]]
+    machine = eval_claims.split_machine_columns(rows)
+    sheet_path = tmp_path / name
+    sheet_path.write_text(json.dumps(blind_payload(rows), ensure_ascii=False), encoding="utf-8")
+    sidecar = eval_claims.sidecar_path(sheet_path)
+    sidecar.write_text(json.dumps({"machine": machine}, ensure_ascii=False), encoding="utf-8")
+    return sheet_path, rows, machine
+
+
+def test_a_blind_sheet_carries_no_machine_columns_at_all(tmp_path: Path) -> None:
+    _, rows, machine = split_into_blind_pair(tmp_path, three_class_rows())
+    assert all("machine_verdict" not in r and "machine_trust" not in r for r in rows)
+    assert not any("machine_" in json.dumps(r, ensure_ascii=False) for r in rows), rows
+    assert machine and all("machine_verdict" in v for v in machine.values())
+
+
+def test_blind_scoring_reproduces_the_visible_numbers(tmp_path: Path) -> None:
+    """The sidecar must restore exactly what it took out - or the blind path is
+    quietly a different measurement, and the two are not comparable."""
+    visible_path = tmp_path / "visible.json"
+    visible_path.write_text(json.dumps(three_class_rows(), ensure_ascii=False), encoding="utf-8")
+    visible_text, visible = score_file(visible_path, tmp_path / "visible.out.json")
+    sheet_path, _, _ = split_into_blind_pair(tmp_path, three_class_rows())
+    blind_text, blind = score_file(sheet_path, tmp_path / "blind.out.json")
+
+    for key in ("n", "accuracy", "macro_f1", "class_coverage", "threshold_pairs", "thresholds_suggested"):
+        assert blind[key] == visible[key], key
+    assert blind["blind"] is True and visible["blind"] is False
+    assert "盲标（machine_* 由副表合入）" in blind_text, blind_text
+    assert "非盲标" in visible_text
+
+
+def test_a_blind_sheet_without_its_sidecar_fails_loudly(tmp_path: Path) -> None:
+    sheet_path, rows, _ = split_into_blind_pair(tmp_path, three_class_rows())
+    eval_claims.sidecar_path(sheet_path).unlink()
+
+    with pytest.raises(SystemExit) as raised:
+        eval_claims.score_sheet(sheet_path, tmp_path / "r.json")
+    assert "--machine" in str(raised.value)
+
+
+def test_an_unlabelled_sheet_is_not_mistaken_for_a_blind_one(tmp_path: Path) -> None:
+    """Both shapes lack `machine_verdict`, and only one of them has a sidecar.
+
+    Guessing from the columns alone turned "nobody has labelled this yet" into a
+    crash with a message about the wrong thing.
+    """
+    rows = [{"claim_id": f"c{i}", "human_verdict": None} for i in range(3)]
+    path = tmp_path / "empty.json"
+    path.write_text(json.dumps(sheet(rows), ensure_ascii=False), encoding="utf-8")
+
+    text = eval_claims.score_sheet(path, tmp_path / "r.json")
+    assert "无法计分" in text and "--machine" not in text, text
+
+
+def test_the_blind_option_is_reachable_from_the_command_the_docs_give() -> None:
+    source = (REPO_ROOT / "scripts" / "eval_claims.py").read_text(encoding="utf-8")
+    export = source.split("def export_sheet")[1].split("def score_sheet")[0]
+    main = source.split("def main")[1]
+    assert '"--blind"' in main and "blind=args.blind" in main
+    assert '"--machine"' in main and "args.machine" in main
+    assert "--blind" in export, "the non-blind instructions must point at the blind option"
