@@ -907,3 +907,24 @@ def test_the_flag_guard_resolves_shared_and_invented_options() -> None:
         for target, flags in synthetic.items()
     }
     assert missing == {"periscope": ["totally-made-up"]}
+
+
+def test_every_env_var_the_code_reads_is_documented() -> None:
+    """An env var the software tells you to set has to appear in a guide.
+
+    Found this by auditing the deployment surface: `HORIZON_PATH` is named in an
+    MCP error message ("Pass horizon_path or set HORIZON_PATH") while no document
+    mentioned it -- the same class of dead end as the RESEND_API_KEY case, where
+    the guide pointed at a variable .env.example did not carry.
+    """
+    read: set[str] = set()
+    for path in list((REPO_ROOT / "src").rglob("*.py")) + list((REPO_ROOT / "scripts").rglob("*.py")):
+        read.update(
+            re.findall(r'(?:getenv|environ\.get)\(\s*["\']([A-Z][A-Z0-9_]{2,})', _read(path))
+        )
+    documented = set(re.findall(
+        r"^([A-Z][A-Z0-9_]+)=", _read(REPO_ROOT / ".env.example"), re.M
+    )) | set(re.findall(r"`([A-Z][A-Z0-9_]{2,})`", _read(CONFIG_DOC)))
+    # api_key_env / password_env style names are config fields, not fixed vars.
+    undoc = sorted(read - documented - {"OPENAI_API_KEY"})
+    assert not undoc, f"env vars read by the code but documented nowhere: {undoc}"

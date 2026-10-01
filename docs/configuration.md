@@ -802,6 +802,20 @@ Example:
 - Unset variables are left as `${NAME}` instead of becoming an empty string, so configuration mistakes fail loudly downstream.
 - Expansion is recursive through dicts, lists, and tuples; non-string values are left unchanged.
 
+## Process Environment Variables
+
+Besides the names you reference with `${...}` inside the config, the programs read four
+variables directly. They were previously undocumented even though one of them is named in
+an error message the MCP server prints — i.e. the software tells you to set a variable no
+guide mentioned.
+
+| Variable | Read by | Effect |
+|---|---|---|
+| `HORIZON_PATH` | `src/mcp/horizon_adapter.py` | Where the repository lives, used to locate the config and corpus when `horizon_path` is not passed to the tool. The MCP error `Horizon repository was not found. Pass horizon_path or set HORIZON_PATH.` refers to this. |
+| `HORIZON_MCP_SECRETS_PATH` | `src/mcp/horizon_adapter.py` | Explicit path to the MCP secrets file. If it is set but the file is missing, the server fails with `HZ_SECRETS_NOT_FOUND` rather than silently falling back. |
+| `HORIZON_API_URL` | `src/setup/presets.py` | Base URL of the profile-preset catalog (`/api/presets`). Defaults to `https://horizon1123.top`, **an upstream service this fork does not deploy** — point it at your own instance, or stay offline with the variable below. |
+| `HORIZON_OFFLINE` | `src/setup/presets.py`, `src/setup/wizard.py` | Set to `1` / `true` / `yes` to skip all network access in the wizard and preset loading; presets then come from the local files only. |
+
 ## Email Subscription
 
 Email delivery is optional and disabled unless `email.enabled` is `true`. Horizon uses SMTP to send daily summaries and IMAP to check subscribe/unsubscribe requests.
