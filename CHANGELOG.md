@@ -127,7 +127,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 配套：`docs/twitter-cookies.md` §4 补一句这个启动期警告是什么、要你做什么（删掉多余那份，不是多备几个号）；`docs/evaluation.md` 口径 ③ 改写为 `--blind` 的用法与"只有盲标出来的一致率适合被引用"，并写明 `machine_verdict_source` 与拆分读法；`docs/configuration.md` 补四个阈值字段与"设了就改判定"的说明。
 
-**数据**：collected **994 → 1015**（+4 覆盖度与池形状，+5 盲标通路，+6 门接线与迁移，+5 判定来源的读取与拆分；最后一次全量 `uv run pytest` exit=0）。**一条对账没合上的诚实记录**：本轮新增 5 条测试，`--collect-only` 总数从 1009 涨到 1015（+6），逐文件比对里只有 `test_trust_gate_wired.py` 从 6 涨到 11，剩下 **+1 我没能归因**（改动面只有 3 个文件，也无新的参数化 id 命中）。它不影响红绿，但数字既然写在这里就把差额一起写下。
+**数据**：collected **994 → 1014**（+4 覆盖度与池形状，+5 盲标通路，+6 门接线与迁移，+5 判定来源的读取与拆分；`uv run pytest` exit=0）。中途一次 `--collect-only` 报过 1015，与逐文件账目差 1；重跑两次稳定 1014（`test_trust_gate_wired.py` 稳定 11 条），所以采用 1014。**那一次多出的 1 我没查明原因** —— 只记现象与"以复测为准"，不给一个没验证过的解释。
 
 ---
 
