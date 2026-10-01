@@ -20,7 +20,7 @@ import logging
 import sqlite3
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from .client import AIClient
 
@@ -104,11 +104,24 @@ class CachingAIClient(AIClient):
     concurrency introspection keeps working unchanged.
     """
 
-    def __init__(self, inner: AIClient, cache: ResponseCache, throttle_sec: float = 0.0):
+    def __init__(
+        self,
+        inner: AIClient,
+        cache: ResponseCache,
+        throttle_sec: float = 0.0,
+        clock: Callable[[], float] = time.monotonic,
+    ):
+        """`clock` is injectable so the spacing can be asserted exactly.
+
+        Reading the wall clock here and then asserting the resulting delay made
+        this test flaky on Windows: ~15ms clock granularity turned a 0.05s
+        window into a 0.035s request under full-suite load.
+        """
         self.inner = inner
         self.cache = cache
         self.config = getattr(inner, "config", None)
         self.throttle_sec = max(throttle_sec, 0.0)
+        self._clock = clock
         self.hits = 0
         self.misses = 0
         self._lock = asyncio.Lock()
@@ -155,10 +168,10 @@ class CachingAIClient(AIClient):
                 self.hits += 1
                 return cached
             if self.throttle_sec > 0:
-                wait = self._last_call + self.throttle_sec - time.monotonic()
+                wait = self._last_call + self.throttle_sec - self._clock()
                 if wait > 0:
                     await asyncio.sleep(wait)
-            self._last_call = time.monotonic()
+            self._last_call = self._clock()
             response = await self.inner.complete(
                 system, user, temperature=temperature, max_tokens=max_tokens
             )

@@ -11,6 +11,7 @@ from rich.console import Console
 
 from src.models import ContentItem, SourceType
 from src.orchestrator import FetchReport, HorizonOrchestrator, SourceFetchOutcome
+from src.sources.registry import SCRAPER_BINDINGS
 
 
 SINCE = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -74,9 +75,9 @@ def test_all_success_empty_has_normal_success_report(monkeypatch) -> None:
     orchestrator.config = SimpleNamespace(  # type: ignore[assignment]
         sources=make_sources(github=[object()]), extractors={}
     )
-    monkeypatch.setattr(
-        "src.orchestrator.GitHubScraper",
-        lambda config, client: StubScraper(),
+    monkeypatch.setitem(
+        SCRAPER_BINDINGS, "github",
+        lambda spec, config, client, ctx: StubScraper(),
     )
 
     items = asyncio.run(orchestrator.fetch_all_sources(SINCE))
@@ -97,13 +98,13 @@ def test_partial_failure_keeps_items_and_source_names(monkeypatch) -> None:
         ),
         extractors={},
     )
-    monkeypatch.setattr(
-        "src.orchestrator.GitHubScraper",
-        lambda config, client: StubScraper([kept]),
+    monkeypatch.setitem(
+        SCRAPER_BINDINGS, "github",
+        lambda spec, config, client, ctx: StubScraper([kept]),
     )
-    monkeypatch.setattr(
-        "src.orchestrator.HackerNewsScraper",
-        lambda config, client: StubScraper(error=ValueError("unavailable")),
+    monkeypatch.setitem(
+        SCRAPER_BINDINGS, "hackernews",
+        lambda spec, config, client, ctx: StubScraper(error=ValueError("unavailable")),
     )
 
     items = asyncio.run(orchestrator.fetch_all_sources(SINCE))

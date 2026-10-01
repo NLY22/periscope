@@ -196,7 +196,10 @@ def test_registry_uses_current_item_context_instead_of_model_supplied_exclusions
     )
     result = asyncio.run(ToolRegistry(tmp_path).execute(
         "tool-1", "background", "history_search", {"query": "Atlas", "before": "2099-01-01"},
-        current_item=SimpleNamespace(
+        current_item=ContentItem(
+            id="hist:1",
+            source_type=SourceType.RSS,
+            title="Current story",
             url="https://example.com/story",
             published_at=datetime(2026, 4, 2, tzinfo=timezone.utc),
         ),

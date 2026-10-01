@@ -282,8 +282,10 @@ def test_reddit_comments_use_old_reddit_first():
     ]
     assert len(items) == 1
     content = items[0].content or ""
-    assert "[alice (10 pts)]: first old comment" in content
-    assert "[bob (2 pts)]: second old comment" in content
+    assert "- @alice: first old comment" in content
+    assert "- @bob: second old comment" in content
+    community = [s for s in items[0].sections if s.tier == "community"]
+    assert [s.meta.get("score") for s in community] == [10, 2]
 
 
 def test_reddit_subreddits_are_fetched_sequentially():
@@ -315,3 +317,36 @@ def test_reddit_subreddits_are_fetched_sequentially():
         "LocalLLaMA",
         "MachineLearning",
     ]
+
+
+def test_rate_limited_get_survives_an_http_date_retry_after():
+    """Retry-After may legally be an HTTP-date; int() on it used to explode.
+
+    The old inline handler did `int(headers.get("Retry-After", 5))`, which
+    raises ValueError on the date form and turns a polite rate-limit notice
+    into a failed fetch. The shared Throttle falls back instead.
+    """
+    import httpx
+
+    from src.models import RedditConfig, RedditSubredditConfig
+    from src.scrapers.reddit import RedditScraper
+
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if len(seen) == 1:
+            return httpx.Response(
+                429, headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}
+            )
+        return httpx.Response(200, json={"kind": "Listing", "data": {"children": []}})
+
+    config = RedditConfig(
+        enabled=True, subreddits=[RedditSubredditConfig(subreddit="python")]
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    scraper = RedditScraper(config, client)
+    result = asyncio.run(scraper._reddit_get("https://oauth.reddit.com/x", {}))
+    asyncio.run(client.aclose())
+    assert len(seen) == 2
+    assert result == {"kind": "Listing", "data": {"children": []}}

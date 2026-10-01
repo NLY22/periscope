@@ -88,3 +88,99 @@ def test_persist_then_analyze_keeps_pipeline_survivable(tmp_path, monkeypatch) -
     items = [make_item("e", "err", "body")]
     orch.persist_to_corpus(items, NOW)  # swallowed
     asyncio.run(orch.analyze_claims(items))  # swallowed as well
+
+
+def test_analyze_claims_skips_items_the_corpus_has_already_seen(tmp_path, monkeypatch):
+    """A re-fetched item must not buy a second extraction pass.
+
+    An item whose source has no publish time has no `since` filter, so it
+    comes back every run. INSERT OR IGNORE stops the duplicate row, not the
+    duplicate spend.
+    """
+    orch = make_orchestrator(tmp_path, monkeypatch)
+    calls = []
+
+    class RecordingAnalyzer:
+        llm_calls = 0
+
+        class store:
+            @staticmethod
+            def stats():
+                return {"claims": 0, "multi_source": 0}
+
+        async def extract_claims(self, item):
+            calls.append(item.id)
+            return []
+
+        def link_all_pending(self):
+            return 0
+
+        async def grade_pending(self, max_calls):
+            return 0
+
+    monkeypatch.setattr(
+        HorizonOrchestrator, "_get_claim_analyzer", lambda self: RecordingAnalyzer()
+    )
+
+    def timeless(idx):
+        return ContentItem(
+            id=f"seen:{idx}", source_type=SourceType.V2EX, title=f"t{idx}",
+            url=f"https://e.com/{idx}", content=f"body {idx}",
+            published_at=None, fetched_at=NOW,
+        )
+
+    first, second = timeless("1"), timeless("2")
+    assert first.time_basis == "unknown"
+
+    orch.persist_to_corpus([first, second], NOW)
+    asyncio.run(orch.analyze_claims([first, second]))
+    assert sorted(calls) == ["seen:1", "seen:2"]
+
+    calls.clear()
+    orch.persist_to_corpus([first, second], NOW)      # nothing new is stored
+    asyncio.run(orch.analyze_claims([first, second]))
+    assert calls == []
+
+    calls.clear()
+    third = timeless("3")
+    orch.persist_to_corpus([first, third], NOW)       # only `third` is new
+    asyncio.run(orch.analyze_claims([first, third]))
+    assert calls == ["seen:3"]
+
+    orch._get_corpus().close()
+
+
+def test_linking_and_grading_still_run_when_nothing_is_new(tmp_path, monkeypatch):
+    """Filtering extraction must not skip the free, resumable stages."""
+    orch = make_orchestrator(tmp_path, monkeypatch)
+    ran = []
+
+    class RecordingAnalyzer:
+        llm_calls = 0
+
+        class store:
+            @staticmethod
+            def stats():
+                return {"claims": 0, "multi_source": 0}
+
+        async def extract_claims(self, item):
+            ran.append(("extract", item.id))
+            return []
+
+        def link_all_pending(self):
+            ran.append(("link",))
+            return 0
+
+        async def grade_pending(self, max_calls):
+            ran.append(("grade",))
+            return 0
+
+    monkeypatch.setattr(
+        HorizonOrchestrator, "_get_claim_analyzer", lambda self: RecordingAnalyzer()
+    )
+
+    asyncio.run(orch.analyze_claims([make_item("ghost", "t", "b")]))
+    assert ("link",) in ran
+    assert ("grade",) in ran
+    assert not [r for r in ran if r[0] == "extract"]
+    orch._get_corpus().close()

@@ -33,6 +33,18 @@ uv run pytest tests/test_eval_metrics.py         # 指标实现 + harness 的行
 3. **放宽词条换覆盖、丢精度**（C）：recall@10 满格，但 recall@5 `0.675`、precision@5 `0.600` 全表最低。所以 F3 的加宽阶梯把它排在第二位且有轮次预算，不是无脑放宽。
 4. **语义路（E）在 19 条的小语料上只是"补漏"**：recall@10 `0.967`。它的价值要到语料上万条时才显现，现在的数字只能证明接线正确。
 
+## 分层的实现方式（P0 之后变了）
+
+上面那张表的 B 行（"A+证据分层"）是在**标记反解**的实现上测出来的：`src/corpus/sections.py` 扫 5 个精确中文字符串（`【评论区 Top】` 等），把条目正文切成作者层 / 人群层，只有作者层进 `claimable` 列、被 `claim_fts` 索引、参与证据关联与独立源计数。
+
+P0 把判据换成了 scraper **声明**的类型化字段 `ContentItem.sections`（`Section(tier=…, author=…, provenance=…, asserted=…)`）。对评测有三点影响：
+
+1. **这张表的数字仍然成立，但口径要说清。** A/B 两行测的是同一个 fixture（`data/eval/corpus_fixture.json`，其中人群文本用中文标记拼接），marker 路径与 sections 路径在这份语料上切出的层是一样的。要复现 A/B 行请用 `--tiering=marker`，该路径被显式保留。
+2. **marker 路径不能读英文标记，而这一点对解读 A 行是实质性的。** `reddit.py`、`hackernews.py`、`twitter.py` 拼接的是 `--- Top Comments ---`，不在那 5 个中文标记里。所以在 P0 之前，这三个源的人群文本**整段**被当作作者亲写进入 `claimable`（HN 链接帖最坏：正文 100% 是评论）。当前 fixture 不含这类条目，因此表里的数字没有反映这个泄漏；换句话说，**B 行"分层买到的准度"是被低估的下界**，把噪声源真正接进来以后差距只会更大。这是 P0 的验收测试（`tests/test_tier_guard.py`）先在 `main` 上跑红的原因。
+3. **老库的层是推断出来的，不是声明的。** schema v3 之前的行在打开数据库时由 marker 路径重建，并统一打上 `provenance="legacy_marker"`。引用这些行时不要说"分层问题已彻底修复"——老数据的层仍来自字符串约定。
+
+另有两处与评测口径直接相关的实现变化：`independent_sources` 的计数逻辑**未变**（P1 才改），`claimable_only` 消融开关**未变**；变的是它读的是 sections 而非标记。日报侧的 `processing/content.py:split_content` 保留，新增 `split_item_content` 优先读 sections，以保证日报与取证两条链路对同一条目切出同样的层。
+
 ## 已知不足
 
 - **样本量**：19 条 / 5 问，够验证机制方向和回归，不够当论文级结论；扩充路径是接真实 `corpus.db` 抽样 + 人工标注。

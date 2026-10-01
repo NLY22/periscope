@@ -101,14 +101,17 @@ def test_throttle_spaces_upstream_calls(cache, monkeypatch) -> None:
     from src.ai import cache as cache_module
 
     requested: list[float] = []
+    now = {"t": 1000.0}  # starts past the `_last_call` sentinel, so the first
+                        # call of a run is never spaced — as with a real clock.
 
     async def fake_sleep(delay, *args, **kwargs):
         requested.append(delay)
+        now["t"] += delay
 
     monkeypatch.setattr(cache_module.asyncio, "sleep", fake_sleep)
 
     inner = FakeInner("x")
-    client = CachingAIClient(inner, cache, throttle_sec=0.05)
+    client = CachingAIClient(inner, cache, throttle_sec=0.05, clock=lambda: now["t"])
 
     async def two_prompts():
         await client.complete("s", "one")
@@ -117,7 +120,9 @@ def test_throttle_spaces_upstream_calls(cache, monkeypatch) -> None:
     asyncio.run(two_prompts())
 
     assert inner.calls == 2 and client.misses == 2
-    assert requested == [pytest.approx(0.05, abs=0.005)]
+    # rel, not abs: the only remaining slop is binary float representation of
+    # `1000.05 - 1000`, never how long the OS took to wake up.
+    assert requested == [pytest.approx(0.05, rel=1e-9)]
 
     # a hit must not be spaced at all: the throttle is for the upstream, not us
     asyncio.run(client.complete("s", "one"))

@@ -32,10 +32,10 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from ..models import ContentItem
-from .sections import claimable_text
+from .sections import claimable_of, claimable_text, marker_sections_to_model
 from .simhash import cluster_pairs, fingerprint
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _MASK64 = (1 << 64) - 1
 
@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS items (
     fetched_at TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
     claimable TEXT NOT NULL DEFAULT '',
+    locator TEXT NOT NULL DEFAULT '',
+    time_basis TEXT NOT NULL DEFAULT 'published',
+    sections_json TEXT NOT NULL DEFAULT '[]',
     metadata_json TEXT NOT NULL DEFAULT '{}',
     fingerprint INTEGER NOT NULL,
     cluster_id TEXT,
@@ -143,6 +146,7 @@ class Corpus:
         # column *before* _SCHEMA creates claim_fts over it, otherwise the
         # index is built against a missing column and the file corrupts.
         legacy = self._backfill_legacy_layers()
+        legacy = self._backfill_v3_identity() or legacy
         self._conn.executescript(_SCHEMA)
         if legacy:
             # External-content FTS tables are never auto-populated for rows
@@ -173,6 +177,45 @@ class Corpus:
         self._conn.executemany(
             "UPDATE items SET claimable=? WHERE rowid=?",
             [(claimable_text(r["content"]), r["rowid"]) for r in rows],
+        )
+        self._conn.commit()
+        return True
+
+    def _backfill_v3_identity(self) -> bool:
+        """Add locator/time_basis/sections_json to a pre-v3 database.
+
+        Rows written before structured sections existed get their sections
+        reconstructed by the legacy marker scan and stamped `legacy_marker`,
+        so a reader can tell an inferred tier from a declared one.
+        """
+        if not self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='items'"
+        ).fetchone():
+            return False
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(items)")}
+        if "locator" in columns:
+            return False
+        self._conn.execute("ALTER TABLE items ADD COLUMN locator TEXT NOT NULL DEFAULT ''")
+        self._conn.execute(
+            "ALTER TABLE items ADD COLUMN time_basis TEXT NOT NULL DEFAULT 'published'"
+        )
+        self._conn.execute(
+            "ALTER TABLE items ADD COLUMN sections_json TEXT NOT NULL DEFAULT '[]'"
+        )
+        rows = self._conn.execute("SELECT rowid, url, content FROM items").fetchall()
+        self._conn.executemany(
+            "UPDATE items SET locator=?, sections_json=? WHERE rowid=?",
+            [
+                (
+                    r["url"],
+                    json.dumps(
+                        [s.model_dump() for s in marker_sections_to_model(r["content"])],
+                        ensure_ascii=False,
+                    ),
+                    r["rowid"],
+                )
+                for r in rows
+            ],
         )
         self._conn.commit()
         return True
@@ -214,12 +257,15 @@ class Corpus:
                     item.id,
                     item.source_type.value,
                     item.title,
-                    str(item.url),
+                    item.locator,
                     item.author,
                     item.published_at.astimezone(timezone.utc).isoformat(),
                     item.fetched_at.astimezone(timezone.utc).isoformat(),
                     content,
-                    claimable_text(content),
+                    claimable_of(item),
+                    item.locator,
+                    item.time_basis,
+                    json.dumps([s.model_dump() for s in item.sections], ensure_ascii=False),
                     json.dumps(_jsonable(item.metadata), ensure_ascii=False),
                     _as_signed64(fingerprint(text_for_fp)),
                     run_id,
@@ -229,13 +275,30 @@ class Corpus:
         self._conn.executemany(
             """INSERT OR IGNORE INTO items
                (id, source_type, title, url, author, published_at, fetched_at,
-                content, claimable, metadata_json, fingerprint, run_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                content, claimable, locator, time_basis, sections_json,
+                metadata_json, fingerprint, run_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         self._conn.commit()
         after = self._conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
         return int(after - before)
+
+    def known_ids(self, ids: Iterable[str]) -> set:
+        """Which of `ids` are already stored.
+
+        Keeps a re-fetched, time-unknown item from being analysed again:
+        `INSERT OR IGNORE` stops duplicate rows, but nothing else stops
+        duplicate LLM spend.
+        """
+        wanted = [i for i in ids if i]
+        if not wanted:
+            return set()
+        placeholders = ",".join("?" * len(wanted))
+        rows = self._conn.execute(
+            f"SELECT id FROM items WHERE id IN ({placeholders})", wanted
+        ).fetchall()
+        return {r["id"] for r in rows}
 
     # ---------------------------------------------------------------- read
     # Columns each search tier is allowed to look at. Closed set on purpose:
@@ -435,6 +498,11 @@ class Corpus:
                 d["metadata"] = json.loads(d.pop("metadata_json"))
             except (json.JSONDecodeError, TypeError):
                 d["metadata"] = {}
+        if "sections_json" in d:
+            try:
+                d["sections"] = json.loads(d.pop("sections_json"))
+            except (json.JSONDecodeError, TypeError):
+                d["sections"] = []
         return d
 
     def close(self) -> None:

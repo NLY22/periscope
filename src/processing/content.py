@@ -1,7 +1,10 @@
 """Select bounded source content for profile-driven AI stages."""
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:  # annotation only; models is imported by nearly everything
+    from ..models import ContentItem
 
 
 COMMENTS_MARKER = "--- Top Comments ---"
@@ -14,13 +17,42 @@ class ContentParts:
 
 
 def split_content(content: str | None) -> ContentParts:
-    """Separate source content from appended community comments."""
+    """Separate source content from appended community comments.
+
+    Legacy path, kept for items that predate typed sections and for the
+    `--tiering=marker` ablation arm. New callers must use
+    `split_item_content`, or the digest will quietly start summarising
+    strangers' replies as soon as a scraper stops writing the marker.
+    """
     if not content:
         return ContentParts(main="", comments="")
     if COMMENTS_MARKER not in content:
         return ContentParts(main=content.strip(), comments="")
     main, comments = content.split(COMMENTS_MARKER, 1)
     return ContentParts(main=main.strip(), comments=comments.strip())
+
+
+def split_item_content(item: "ContentItem") -> ContentParts:
+    """Separate an item's author layer from its crowd layer.
+
+    Prefers the typed sections a migrated scraper declares. Falls back to the
+    marker scan for items that predate sections, so the digest path and the
+    claim path cannot drift apart again the way they did when only one of them
+    knew about "--- Top Comments ---".
+    """
+    if item.sections:
+        main = "\n\n".join(
+            s.text.strip()
+            for s in item.sections
+            if s.tier == "primary" and s.asserted and s.text.strip()
+        ).strip()
+        comments = "\n\n".join(
+            (f"- @{s.author}: {s.text.strip()}" if s.author else s.text.strip())
+            for s in item.sections
+            if s.tier == "community" and s.text.strip()
+        ).strip()
+        return ContentParts(main=main, comments=comments)
+    return split_content(item.content)
 
 
 def select_content(

@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from ..ai.utils import parse_json_response
-from ..corpus.sections import claimable_text
+from ..corpus.sections import claimable_of
 from ..corpus.store import Corpus
 from ..models import ContentItem
 
@@ -440,12 +440,12 @@ class ClaimAnalyzer:
     # ---------------------------------------------------------- 1. extract
     async def extract_claims(self, item: ContentItem) -> List[Claim]:
         """Distill one item into persisted claims ([] when no LLM/no text)."""
-        body = self._author_text(item.content)
+        body = self._author_text(item)
         if not body or self.client is None:
             return []
         user = (
             f"标题: {item.title}\n"
-            f"来源: {item.source_type.value} ({item.url})\n"
+            f"来源: {item.source_type.value} ({item.citation_url})\n"
             f"发布时间: {item.published_at.date()}\n\n"
             f"正文:\n{body[: self.content_chars]}"
         )
@@ -621,14 +621,15 @@ class ClaimAnalyzer:
             graded += 1
         return graded
 
-    def _author_text(self, content: Optional[str]) -> str:
-        """Author-written text of an item body.
+    def _author_text(self, item: ContentItem) -> str:
+        """Author-written text of an item.
 
         A reply in a comment thread is somebody's opinion, not the item's
         assertion; feeding it to extraction turns crowd noise into claims.
         """
-        text = content or ""
-        return claimable_text(text) if self.claimable_only else text.strip()
+        if not self.claimable_only:
+            return (item.content or "").strip()
+        return claimable_of(item)
 
     def _excerpt(self, item_id: str, chars: int = 400) -> str:
         row = self.corpus._conn.execute(

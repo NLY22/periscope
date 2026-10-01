@@ -549,7 +549,7 @@ class WebhookNotifier:
                             "item_profile": group.profile_id,
                             "item_profile_name": group.name,
                             "item_title": view_item.title,
-                            "item_url": str(view_item.item.url),
+                            "item_url": view_item.item.citation_url,
                             "item_score": (
                                 view_item.score if view_item.score != "?" else ""
                             ),

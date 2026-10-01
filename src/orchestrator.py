@@ -11,26 +11,14 @@ import httpx
 from rich.console import Console
 
 from .console_icons import get_icons
-from .models import Config, ContentItem
+from .models import Config, ContentItem, SOURCE_SPECS
+from .corpus.sections import marker_sections_to_model
 from .storage.manager import StorageManager, safe_output_path
 from .services.email import EmailManager
 from .services.webhook import WebhookNotifier
 from .services.wechat import WeChatNotifier
-from .scrapers.github import GitHubScraper
-from .scrapers.hackernews import HackerNewsScraper
-from .scrapers.rss import RSSScraper
-from .scrapers.reddit import RedditScraper
-from .scrapers.telegram import TelegramScraper
 from .scrapers.twitter import TwitterScraper
-from .scrapers.twitter_playwright import TwitterPlaywrightScraper
-from .scrapers.openbb import OpenBBScraper
-from .scrapers.ossinsight import OSSInsightScraper
-from .scrapers.gdelt import GDELTScraper
-from .scrapers.google_news import GoogleNewsScraper
-from .scrapers.bilibili import BilibiliScraper
-from .scrapers.v2ex import V2EXScraper
-from .scrapers.discourse import DiscourseScraper
-from .scrapers.youtube import YouTubeScraper
+from .sources.registry import SCRAPER_BINDINGS, BuildContext, build_throttle, is_enabled
 from .ai.client import create_ai_client
 from .ai.analyzer import ContentAnalyzer
 from .ai.summarizer import DailySummarizer
@@ -86,6 +74,21 @@ def _deduplication_url_key(url: str) -> tuple[str, str, str, str, Optional[int],
         path,
         "&".join(query_parts),
     )
+
+
+def _deduplication_item_key(item: ContentItem) -> tuple:
+    """Identity key for cross-source deduplication.
+
+    URL locators go through the existing seven-field normalisation so that
+    tracking parameters and default ports keep collapsing as before. A
+    non-URL locator (an app-only id, a note id) has no host or query to
+    normalise, so it is compared verbatim under a distinct tag — a shape
+    that can never collide with a URL key.
+    """
+    locator = item.locator or (str(item.url) if item.url else "")
+    if "://" in locator:
+        return _deduplication_url_key(locator)
+    return ("locator", locator)
 
 
 @dataclass
@@ -179,6 +182,11 @@ class HorizonOrchestrator:
     """Orchestrates the complete workflow for content aggregation and analysis."""
 
     icons = get_icons()
+
+    #: Ids stored by the most recent persist_to_corpus. Class-level so that an
+    #: orchestrator built via __new__ — which several tests do — never hits an
+    #: AttributeError before the first run has happened.
+    last_new_item_ids: frozenset = frozenset()
 
     def __init__(
         self,
@@ -277,17 +285,23 @@ class HorizonOrchestrator:
 
     def persist_to_corpus(
         self, items: List[ContentItem], since: datetime
-    ) -> None:
+    ) -> frozenset:
         """Store fetched items in the evidence corpus (best-effort).
 
         Corpus failures must never break the daily pipeline, so errors are
         reported and swallowed; the run simply behaves like stateless Horizon.
+
+        Returns the ids that were newly stored. `_get_corpus` caches its
+        instance, so this must not close the corpus.
         """
-        corpus = None
+        self.last_new_item_ids = frozenset()
         try:
             corpus = self._get_corpus()
             if corpus is None:
-                return
+                return frozenset()
+            candidate_ids = [item.id for item in items]
+            already = corpus.known_ids(candidate_ids)
+            new_ids = frozenset(i for i in candidate_ids if i not in already)
             run_id = corpus.begin_run(since)
             new_count = corpus.add_items(items, run_id)
             corpus.recompute_clusters(
@@ -299,14 +313,17 @@ class HorizonOrchestrator:
                 items_new=new_count,
                 items_total_seen=len(items),
             )
+            self.last_new_item_ids = new_ids
             self.console.print(
                 f"{self.icons['fetched']} Corpus: +{new_count} new items "
                 f"({corpus.stats()['items']} total)\n"
             )
+            return new_ids
         except Exception as exc:
             self.console.print(
                 f"[yellow]Corpus persistence failed (pipeline continues): {exc}[/yellow]\n"
             )
+            return frozenset()
 
     # ------------------------------------------------------------- analysis
     def _get_claim_analyzer(self):
@@ -510,16 +527,21 @@ class HorizonOrchestrator:
     async def analyze_claims(self, items: List[ContentItem]) -> None:
         """Run the correctness loop over freshly fetched items (best-effort).
 
-        Budgets: extraction touches only the top N new items; grading gets
-        its own call budget and only ever sees claims with enough
-        independent sources. Unfinished claims persist and resume next run.
+        Budgets: extraction touches only the top N items that are new to the
+        corpus; grading gets its own call budget and only ever sees claims with
+        enough independent sources. Unfinished claims persist and resume next
+        run — so linking and grading still run when nothing is new.
         """
         try:
             analyzer = self._get_claim_analyzer()
             if analyzer is None:
                 return
+            # Only extraction costs LLM budget, so only extraction is limited
+            # to items the corpus has not seen. A source with no publish time
+            # re-delivers the same ids every run.
+            fresh = [i for i in items if i.id in self.last_new_item_ids]
             ranked = sorted(
-                items,
+                fresh,
                 key=lambda i: (i.processing.analysis.score or 0.0) if i.processing and i.processing.analysis else 0.0,
                 reverse=True,
             )
@@ -758,87 +780,20 @@ class HorizonOrchestrator:
             List[ContentItem]: All fetched items
         """
         self.last_fetch_report = None
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            ctx = BuildContext(
+                extractors=self.config.extractors,
+                throttle=build_throttle(),
+            )
             tasks = []
-
-            # GitHub sources
-            if self.config.sources.github:
-                github_scraper = GitHubScraper(self.config.sources.github, client)
-                tasks.append(self._fetch_with_progress("GitHub", github_scraper, since))
-
-            # Hacker News
-            if self.config.sources.hackernews.enabled:
-                hn_scraper = HackerNewsScraper(self.config.sources.hackernews, client)
-                tasks.append(self._fetch_with_progress("Hacker News", hn_scraper, since))
-
-            # RSS feeds
-            if self.config.sources.rss:
-                from .extractors import ExtractorRegistry
-                rss_scraper = RSSScraper(
-                    self.config.sources.rss,
-                    client,
-                    ExtractorRegistry(self.config.extractors),
-                )
-                tasks.append(self._fetch_with_progress("RSS Feeds", rss_scraper, since))
-
-            # Reddit
-            if self.config.sources.reddit.enabled:
-                reddit_scraper = RedditScraper(self.config.sources.reddit, client)
-                tasks.append(self._fetch_with_progress("Reddit", reddit_scraper, since))
-
-            # Telegram
-            if self.config.sources.telegram.enabled:
-                telegram_scraper = TelegramScraper(self.config.sources.telegram, client)
-                tasks.append(self._fetch_with_progress("Telegram", telegram_scraper, since))
-
-            # Twitter (Apify or Playwright mode)
-            if self.config.sources.twitter and self.config.sources.twitter.enabled:
-                tw_cfg = self.config.sources.twitter
-                if tw_cfg.mode == "playwright":
-                    twitter_scraper = TwitterPlaywrightScraper(tw_cfg)
-                else:
-                    twitter_scraper = TwitterScraper(tw_cfg, client)
-                tasks.append(self._fetch_with_progress("Twitter", twitter_scraper, since))
-
-            # OpenBB (financial news / filings via the OpenBB Platform SDK)
-            if self.config.sources.openbb and self.config.sources.openbb.enabled:
-                openbb_scraper = OpenBBScraper(self.config.sources.openbb, client)
-                tasks.append(self._fetch_with_progress("OpenBB", openbb_scraper, since))
-
-            # OSS Insight trending repos
-            if self.config.sources.ossinsight and self.config.sources.ossinsight.enabled:
-                oss_scraper = OSSInsightScraper(self.config.sources.ossinsight, client)
-                tasks.append(self._fetch_with_progress("OSS Insight", oss_scraper, since))
-
-            # GDELT 2.0 DOC API (key-less global news)
-            if self.config.sources.gdelt and self.config.sources.gdelt.enabled:
-                gdelt_scraper = GDELTScraper(self.config.sources.gdelt, client)
-                tasks.append(self._fetch_with_progress("GDELT", gdelt_scraper, since))
-
-            # Google News RSS (key-less news search)
-            if self.config.sources.google_news and self.config.sources.google_news.enabled:
-                gn_scraper = GoogleNewsScraper(self.config.sources.google_news, client)
-                tasks.append(self._fetch_with_progress("Google News", gn_scraper, since))
-
-            # Bilibili popular videos + top comments
-            if self.config.sources.bilibili and self.config.sources.bilibili.enabled:
-                bili_scraper = BilibiliScraper(self.config.sources.bilibili, client)
-                tasks.append(self._fetch_with_progress("Bilibili", bili_scraper, since))
-
-            # V2EX topics + replies
-            if self.config.sources.v2ex and self.config.sources.v2ex.enabled:
-                v2ex_scraper = V2EXScraper(self.config.sources.v2ex, client)
-                tasks.append(self._fetch_with_progress("V2EX", v2ex_scraper, since))
-
-            # Discourse forum family (any number of instances)
-            if self.config.sources.discourse and self.config.sources.discourse.enabled:
-                dc_scraper = DiscourseScraper(self.config.sources.discourse, client)
-                tasks.append(self._fetch_with_progress("Discourse", dc_scraper, since))
-
-            # YouTube channels via official public atom feeds
-            if self.config.sources.youtube and self.config.sources.youtube.enabled:
-                yt_scraper = YouTubeScraper(self.config.sources.youtube, client)
-                tasks.append(self._fetch_with_progress("YouTube", yt_scraper, since))
+            for spec in SOURCE_SPECS:
+                source_config = getattr(self.config.sources, spec.config_field, None)
+                if not is_enabled(source_config, spec):
+                    continue
+                scraper = SCRAPER_BINDINGS[spec.key](spec, source_config, client, ctx)
+                if scraper is None:
+                    continue
+                tasks.append(self._fetch_with_progress(spec.label, scraper, since))
 
             # Fetch all concurrently
             outcomes = await asyncio.gather(*tasks)
@@ -941,7 +896,7 @@ class HorizonOrchestrator:
                 )
             else:
                 requested_profile = (item.profile or "auto").strip() or "auto"
-            key = (*_deduplication_url_key(str(item.url)), requested_profile)
+            key = (*_deduplication_item_key(item), requested_profile)
             url_groups.setdefault(key, []).append(item)
 
         merged = []
@@ -964,10 +919,24 @@ class HorizonOrchestrator:
                     if mk not in primary.metadata or not primary.metadata[mk]:
                         primary.metadata[mk] = mv
 
-                # Append content (e.g., comments from another source)
+                # Append the other source's material. When either side carries
+                # typed sections, merge those and let `content` be re-derived:
+                # concatenating strings would desync the two, and the
+                # concatenated tail would land in `claimable` untiered.
                 if item is not primary and item.content:
-                    if primary.content and item.content not in primary.content:
-                        primary.content = (primary.content or "") + f"\n\n--- From {item.source_type.value} ---\n" + item.content
+                    if primary.sections or item.sections:
+                        if not primary.sections:
+                            primary.sections.extend(
+                                marker_sections_to_model(primary.content)
+                            )
+                        primary.sections.extend(
+                            list(item.sections) or marker_sections_to_model(item.content)
+                        )
+                        primary.rebuild_content()
+                    elif primary.content and item.content not in primary.content:
+                        primary.content = (primary.content or "") + (
+                            f"\n\n--- From {item.source_type.value} ---\n" + item.content
+                        )
 
             primary.metadata["merged_sources"] = all_sources
             merged.append(primary)
@@ -1338,7 +1307,7 @@ class HorizonOrchestrator:
             f"{len(twitter_items)} Twitter items..."
         )
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             if tw_cfg.mode == "playwright":
                 self.console.print(
                     "   [yellow]Reply expansion not yet supported in Playwright mode.[/yellow]"
@@ -1348,8 +1317,8 @@ class HorizonOrchestrator:
             expanded = []
             for item in twitter_items:
                 try:
-                    reply_lines = await scraper.fetch_replies_for_item(item)
-                    if TwitterScraper.append_discussion_content(item, reply_lines):
+                    reply_sections = await scraper.fetch_replies_for_item(item)
+                    if TwitterScraper.append_discussion_sections(item, reply_sections):
                         expanded.append(item)
                         self.console.print(
                             f"   {self.icons['discussion']} {len(reply_lines)} replies "
