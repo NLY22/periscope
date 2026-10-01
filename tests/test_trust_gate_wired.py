@@ -29,7 +29,7 @@ import eval_claims  # noqa: E402
 
 from src.analysis.claims import Claim, ClaimAnalyzer, ClaimStore
 from src.corpus.store import Corpus
-from src.corpus.trust import Thresholds, thresholds_from
+from src.corpus.trust import Thresholds, thresholds_from, unused_calibration
 from src.models import AnalysisConfig, ContentItem, SourceType
 
 NOW = datetime(2026, 9, 29, 12, 0, tzinfo=timezone.utc)
@@ -333,4 +333,95 @@ def test_the_service_hands_the_whole_stats_dict_to_the_agent() -> None:
     body = text.split("def corpus_stats")[1].split("def corpus_search")[0]
     assert 'stats["claims"] = claim_store.stats()' in body, (
         "the MCP layer stopped forwarding the claim stats dict wholesale"
+    )
+
+
+# --------------------------------------------------------------- no inert knobs
+def _fields_without_readers(fields: list[str]) -> list[str]:
+    import re
+
+    readers = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (REPO_ROOT / "src").rglob("*.py")
+        if path.name != "models.py" and "__pycache__" not in path.parts
+    )
+    return [name for name in fields if not re.search(rf"\b{re.escape(name)}\b", readers)]
+
+
+def test_no_analysis_config_field_is_unread() -> None:
+    """A knob nothing reads is worse than no knob: it looks like a decision."""
+    assert _fields_without_readers(list(AnalysisConfig.model_fields)) == []
+
+
+def test_that_scan_is_not_vacuous() -> None:
+    assert _fields_without_readers(["supported_min_trust", "nonexistent_knob_42"]) == [
+        "nonexistent_knob_42"
+    ]
+
+
+def test_fitted_triage_has_no_runtime_reader_so_no_config_field_may_set_it() -> None:
+    """The honest version of the claim above.
+
+    `triage_gate_trust` did have a reader - `thresholds_from()` copied it into
+    `Thresholds.triage` - so a name-occurrence scan alone would have passed it.
+    What made it inert is that nothing *downstream* ever looks at
+    `Thresholds.triage`; the live floor is `analysis.triage_min_trust`. That
+    half is what this pins, and it is the reason the field was deleted instead
+    of documented.
+    """
+    import re
+
+    assert "triage_gate_trust" not in AnalysisConfig.model_fields
+    consumers = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (REPO_ROOT / "src").rglob("*.py")
+        if path.name not in {"models.py", "trust.py"}
+        and "__pycache__" not in path.parts
+    )
+    reads = re.findall(r"\.(?:thresholds|t)\.triage\b|\bthresholds\.triage\b", consumers)
+    assert not reads, f"`Thresholds.triage` gained a runtime reader; revisit: {reads}"
+    assert "triage=round(triage, 2)" in (REPO_ROOT / "src" / "corpus" / "trust.py").read_text(
+        encoding="utf-8"
+    ), "roc_thresholds still produces it, which is exactly why this needs watching"
+
+
+def fitted(supported: float, triage: float, blind: bool = True) -> dict:
+    return {
+        "blind": blind,
+        "thresholds_suggested": {"supported": supported, "triage": triage},
+    }
+
+
+def test_a_fitted_theta_that_is_not_applied_says_so() -> None:
+    note = unused_calibration(AnalysisConfig(), fitted(0.71, 0.12))
+    assert note is not None
+    assert "0.71" in note and "0.55" in note, "both numbers, not just 'stale'"
+    assert "0.12" in note and "analysis.triage_min_trust" in note
+    assert "偏乐观" not in note, "a blind batch does not carry that caveat"
+
+
+def test_matching_configuration_produces_no_warning() -> None:
+    """The check must shut up once the loop is closed, or people start ignoring
+    validation output."""
+    config = AnalysisConfig(supported_min_trust=0.71, triage_min_trust=0.12)
+    assert unused_calibration(config, fitted(0.71, 0.12)) is None
+
+
+def test_the_warning_names_the_optimism_of_a_non_blind_batch() -> None:
+    note = unused_calibration(AnalysisConfig(), fitted(0.71, 0.12, blind=False))
+    assert note is not None and "偏乐观" in note
+
+
+def test_no_labels_means_no_claim_about_calibration() -> None:
+    assert unused_calibration(AnalysisConfig(), None) is None
+    assert unused_calibration(AnalysisConfig(), {"thresholds_suggested": None}) is None
+
+
+def test_validation_actually_calls_the_check() -> None:
+    """Same shape as the triage-floor pin: the function existing is not the
+    wiring; the call site is."""
+    text = (REPO_ROOT / "src" / "mcp" / "service.py").read_text(encoding="utf-8")
+    body = text.split("async def validate_config")[1]
+    assert "unused_calibration(ctx.config.analysis" in body[:2500], (
+        "config validation stopped checking whether a fitted theta is unused"
     )

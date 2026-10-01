@@ -127,9 +127,12 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 - **聚合面也要分得开**：`ClaimStore.stats()` 增加 `by_verdict_source`（`hz_corpus_stats` 直接把整个 dict 交给 agent，之前它只报 `by_verdict`，门否决的 `unsupported` 与模型自己说的 `unsupported` 在总数里是一个数）。**pre-gate 的老行计入 `unset` 而不是 `llm`** —— 没人知道那些是谁判的。顺手核实了两条读取通路：`hz_list_claims` / `hz_get_claim` 都走 `Claim.to_dict()`，所以上一提交加的字段自动到达，不必再补（这是查证，不是假设）。
 
-配套：`docs/twitter-cookies.md` §4 补一句这个启动期警告是什么、要你做什么（删掉多余那份，不是多备几个号）；`docs/evaluation.md` 口径 ③ 改写为 `--blind` 的用法与"只有盲标出来的一致率适合被引用"，并写明 `machine_verdict_source` 与拆分读法；`docs/configuration.md` 补四个阈值字段与"设了就改判定"的说明。**四处描述"两道门"的文档也一并跟上事实**（此前它们把一个未接线的函数写成判定机制）：README 能力表标出它跑在 `grade_claim` 并给出 `claims.verdict_source` 位置、`docs/architecture.md` 的 `claims` 行补上该列、`docs/retrieval.md` 写清降级规则与四个可覆盖阈值、`docs/evaluation.md` 第 3 点注明这条现在对产品路径也成立。
+- **拟合阈值不再能烂在最后一步**：`hz_validate_config` / `periscope` 的配置校验现在会对着 `data/eval/claims_results.json` 回一句"标注已拟出 supported=0.71，而线上还在用 0.55"（`trust.unused_calibration`）。之前这条 loop 的失败方式是静默的：`--score` 写出建议、人读过、门继续用先验，没有任何东西会再想起来。检查放在校验里是因为**那已经是 agent 与 CLI 会调的那一下**，而不是某个没人跑的脚本。非盲标那批还会附上"偏乐观"。
+  - **顺手抓出我自己三提交前造的死把手**：`analysis.triage_gate_trust` 是给 `Thresholds.triage` 开的，而**运行期没有任何东西读 `Thresholds.triage`** —— 真正决定"要不要花一次模型调用"的门槛一直是 `analysis.triage_min_trust`。字段已删，拟合的 triage 就写进 `triage_min_trust`（`--score` 那句建议与配置文档同时改了）。**注意这条不是被"没人读"的扫描抓到的**：`thresholds_from()` 里确实 `getattr` 了那个名字，所以名字出现扫描会放行；抓到它的是去查 `.triage` 的**下游读取点**。因此新增两条断言各管一半：字段必须被读，且 `Thresholds.triage` 除 `roc_thresholds()` 产出外不得出现运行期读取点（否则就得重新讨论要不要配置它）。
 
-**数据**：collected **994 → 1017**（+4 覆盖度与池形状，+5 盲标通路，+6 门接线与迁移，+5 判定来源的读取与拆分，+3 聚合面与 MCP 直传核实；`uv run pytest` exit=0，79 个测试文件）。中途一次 `--collect-only` 报过 1015，与逐文件账目差 1；重跑两次稳定 1014（`test_trust_gate_wired.py` 稳定 11 条），所以采用 1014。**那一次多出的 1 我没查明原因** —— 只记现象与"以复测为准"，不给一个没验证过的解释。（同一轮我还把"新增 4 条"算错过一次：实际 3 条，账目对上才发现是加法错，不是测试丢了。）
+配套：`docs/twitter-cookies.md` §4 补一句这个启动期警告是什么、要你做什么（删掉多余那份，不是多备几个号）；`docs/evaluation.md` 口径 ③ 改写为 `--blind` 的用法与"只有盲标出来的一致率适合被引用"，并写明 `machine_verdict_source` 与拆分读法；`docs/configuration.md` 补三个阈值字段、"设了就改判定"、拟合 triage 该放哪，以及校验会回这句。**四处描述"两道门"的文档也一并跟上事实**（此前它们把一个未接线的函数写成判定机制）：README 能力表标出它跑在 `grade_claim` 并给出 `claims.verdict_source` 位置、`docs/architecture.md` 的 `claims` 行补上该列、`docs/retrieval.md` 写清降级规则与四个可覆盖阈值、`docs/evaluation.md` 第 3 点注明这条现在对产品路径也成立。
+
+**数据**：collected **994 → 1025**（+4 覆盖度与池形状，+5 盲标通路，+6 门接线与迁移，+5 判定来源的读取与拆分，+3 聚合面与 MCP 直传核实，+8 拟合阈值的校验与"死把手"两条断言；`uv run pytest` exit=0）。最后一次逐文件对过：1017 + 8 = 1025。中途一次 `--collect-only` 报过 1015，与逐文件账目差 1；重跑两次稳定 1014（`test_trust_gate_wired.py` 稳定 11 条），所以采用 1014。**那一次多出的 1 我没查明原因** —— 只记现象与"以复测为准"，不给一个没验证过的解释。（同一轮我还把"新增 4 条"算错过一次：实际 3 条，账目对上才发现是加法错，不是测试丢了。）
 
 ---
 

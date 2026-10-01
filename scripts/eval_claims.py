@@ -271,7 +271,8 @@ def score_sheet(sheet_path: Path, out_path: Path | None, machine_path: Path | No
         lines.append(
             f"θ 校准建议（来自 {len(pairs)} 条带 T 值的标注）："
             f"supported={fitted.supported:.2f}、triage={fitted.triage:.2f}。"
-            "这是**建议**：写进 `trust` 配置之前，线上阈值仍是手工先验；"
+            "这是**建议**：要生效就设 `analysis.supported_min_trust` 与 "
+            "`analysis.triage_min_trust`（后者 0.0 = 分诊门关闭），在那之前线上阈值仍是手工先验；"
             + ("本表是盲标（machine_* 由副表合入），一致率不因看见被测判定而偏乐观。"
                if blind else
                "且本表非盲标，一致率与由此得到的阈值都偏乐观。")

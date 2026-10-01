@@ -657,11 +657,11 @@ Schema is versioned (`SCHEMA_VERSION = 4`) and migrations are idempotent `ALTER`
 | `grade_min_sources` | `2` | **Triage floor, not a verdict.** Below it a claim is never graded — which is why reports now list un-graded claims with a reason instead of dropping them. |
 | `triage_min_trust` | `0.0` | Second triage gate: only claims with aggregated `T ≥` this value get an LLM call. **`0.0` means the gate is off**, preserving pre-P1 behaviour; the threshold is a hand-set prior, not a fitted value (see `docs/evaluation.md`). |
 | `supported_min_trust` | `null` | T cut point for the `supported` gate. `null` keeps the code's hand prior (`0.55`). This is where a θ from `scripts/eval_claims.py --score` lands — **and until the human labels exist, no such fitted value exists**, so leaving it `null` is the honest setting. |
-| `triage_gate_trust` | `null` | Same, for the second cut point `Thresholds.triage` (hand prior `0.30`). |
+| 拟合出的 `triage` 该放哪 | — | 放上面的 `triage_min_trust`。`Thresholds.triage` 在运行期**没有读取点**（只有 `roc_thresholds()` 产出它、报告打印它），所以不为它开第二个配置字段 —— 一个没人读的把手比没有把手更坏。 |
 | `same_family_prior` | `null` | Source prior a single-family claim must reach for depth to substitute for breadth (hand prior `0.40`). |
 | `same_family_publishers` | `null` | Distinct publishers within one family that count as deep corroboration (hand prior `3`). |
 
-These four are not cosmetic: `grade_claim` runs the gates against the stored votes, so setting them changes verdicts on the product path. When the gate vetoes a model's `supported`, the claim is stored as `unsupported` with `verdict_source='trust_gate'` and the report says 🚫 未通过可信度门（模型原判 supported） rather than pretending the model changed its mind.
+These three are not cosmetic: `grade_claim` runs the gates against the stored votes, so setting them changes verdicts on the product path. When the gate vetoes a model's `supported`, the claim is stored as `unsupported` with `verdict_source='trust_gate'` and the report says 🚫 未通过可信度门（模型原判 supported） rather than pretending the model changed its mind. `hz_validate_config` 还会对着 `data/eval/claims_results.json` 回一句：如果标注已经拟出阈值而配置仍是旧值，它会说"拟合值没被用上"。
 | `grade_budget_per_run` | `8` | LLM calls reserved for grading per run, on a rate-limited free tier. |
 | `extract_top_items` | `12` | Analyse at most this many *new* items per run — the widening loop re-fetches `time_basis="unknown"` items every cycle, and dedup only stops duplicate rows, not duplicate spend. |
 | `item_content_chars` | `3500` | Truncation for the extraction prompt. |
