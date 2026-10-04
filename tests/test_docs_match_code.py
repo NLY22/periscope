@@ -832,6 +832,18 @@ def _git(*args: str) -> int:
     ).returncode
 
 
+def _git_out(*args: str) -> str:
+    """git's stdout as text, decoded UTF-8 on purpose.
+
+    `text=True` would decode with the OS locale -- on a Chinese Windows that is
+    cp936, and merge subjects containing non-ASCII bytes raise UnicodeDecodeError
+    inside the subprocess reader thread. The repo's own text is UTF-8, so ask for
+    it explicitly.
+    """
+    done = subprocess.run(["git", *args], cwd=str(REPO_ROOT), capture_output=True)
+    return done.stdout.decode("utf-8", errors="replace")
+
+
 def _ref_exists(ref: str) -> bool:
     return _git("rev-parse", "--verify", "--quiet", ref) == 0
 
@@ -874,8 +886,9 @@ def test_the_changelog_merge_state_matches_git() -> None:
     This is the check that would have caught last round's stale wording by
     itself: a section still titled 尚未合入 after its branch landed in `main`.
     The heading is what a reader scans first, so the heading is what has to be
-    true. Its counterpart is equally cheap: merge something without recording
-    the revision, and main's head has no 已合入 heading to point at.
+    true. Its counterpart is equally cheap: merge a pull request without ever
+    writing it down, and main's history carries a "!N merge" subject that the
+    changelog cannot match.
     """
     def problems(text: str) -> list[str]:
         found: list[str] = []
@@ -895,31 +908,34 @@ def test_the_changelog_merge_state_matches_git() -> None:
     text = _read(REPO_ROOT / "CHANGELOG.md")
     assert not problems(text), "; ".join(problems(text))
 
-    def recorded_merges(document: str) -> set[str]:
-        return {
-            rev
-            for heading in re.findall(r"^## (.+)$", document, re.M)
-            if "已合入" in heading
-            for rev in _doc_revisions(heading)
-        }
+    def recorded_pulls(document: str) -> set[str]:
+        # Both notations occur: recent sections write `!12`, the September ones
+        # write `PR #1` / `#4 · P0`. The rule only asks that the number appear --
+        # a number that shows up by coincidence would let an unrecorded merge
+        # through, which is a weaker claim than "sha recorded" but a *satisfiable*
+        # one, and it still caught !13 on the day it was written.
+        return set(re.findall(r"[!#](\d+)", document))
 
-    # Recording the merge is part of merging it. If `main` moved and no 已合入
-    # heading carries that revision, the file is describing an older repository
-    # while reading like it is current -- which is how "待合并" wording survived
-    # a whole round last time.
+    # What has to be true is not "main's sha is written down" -- the merge commit
+    # a PR produces is unknowable while its changelog entry is being written, so
+    # that form could never be satisfied by the commit that fixes it. The stable
+    # claim is about the pull request number, which the platform puts into every
+    # merge subject ("!12 merge <branch> into main").
     anchor = "main" if _ref_exists("main") else "origin/main"
-    head = subprocess.run(
-        ["git", "rev-parse", "--short=7", anchor], cwd=str(REPO_ROOT),
-        capture_output=True, text=True
-    ).stdout.strip()
-    assert head, "git gave no revision for main, so this check would pass vacuously"
-    assert head in recorded_merges(text), (
-        f"main is at {head}, but no 已合入 heading records it"
+    landed = _git_out("log", "--format=%s", anchor)
+    merged = set(re.findall(r"^!(\d+) merge", landed, re.M))
+    assert merged, "no '!N merge' subjects on main, so this check would pass vacuously"
+    unrecorded = sorted(merged - recorded_pulls(text), key=int)
+    assert not unrecorded, (
+        f"pull requests that landed without a changelog entry: {unrecorded}"
     )
-    # The check is a set membership over the file, not a tautology: hide that
-    # heading and the same assertion must stop holding.
-    hidden = "\n".join(line for line in text.splitlines() if head not in line)
-    assert head not in recorded_merges(hidden)
+
+    # The removal has to take effect: drop the newest landed number from the file
+    # and it must stop being recorded. Proves this is a set difference over the
+    # document, not a statement that is true because nothing was ever checked.
+    newest = max(merged, key=int)
+    stripped = "\n".join(line for line in text.splitlines() if f"!{newest}" not in line)
+    assert newest in recorded_pulls(text) and newest not in recorded_pulls(stripped)
 
     # Both directions have to bite, and the proof cannot lean on the file's
     # current state: the first version of this proof searched the real CHANGELOG
