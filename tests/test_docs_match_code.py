@@ -705,6 +705,7 @@ _EXTERNAL_IDENTIFIERS = {
     "HEAD", "HEAD~1", "main",      # git refs quoted in contribution docs
     "cron",                        # the scheduler this platform can actually offer
     "check_tasks_num",             # an AtomGit API response field we quote
+    "update_repository",           # an AtomGit MCP tool name, not repo code
     "MyExtractor", "MyExtractorConfig",  # placeholder class in the extractor how-to
     "F12",                         # a keyboard key, not code
     "llama3.1",                    # a model name a user would type
