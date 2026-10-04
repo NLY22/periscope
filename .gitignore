@@ -3,6 +3,10 @@ __pycache__/
 *.pyc
 data/config.json
 data/summaries/
+# a real run's database and the local, model-specific ablation outputs; the
+# committed data/eval/results.json is the one docs/evaluation.md is pinned to
+data/*.db
+data/eval/results.*.json
 .env
 .pytest_cache/
 nohup.out
