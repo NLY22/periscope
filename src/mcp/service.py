@@ -1,4 +1,4 @@
-"""Application service for staged Horizon pipeline execution."""
+"""Application service for staged Periscope pipeline execution."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from rich.console import Console
 
 from ..processing import ProfileRegistry
-from .errors import HorizonMcpError
-from .horizon_adapter import (
+from .errors import McpError
+from .pipeline_adapter import (
     apply_source_filter,
     dicts_to_items,
     get_enabled_sources,
@@ -25,7 +25,7 @@ from .horizon_adapter import (
     make_orchestrator,
     make_storage,
     resolve_config_path,
-    resolve_horizon_path,
+    resolve_periscope_path,
 )
 from .run_store import RunStore
 from ..services.webhook import WebhookNotifier
@@ -105,13 +105,13 @@ def _get_fetch_report(orchestrator: Any) -> dict[str, Any] | None:
 class PipelineContext:
     """Resolved execution context per call."""
 
-    horizon_path: Path
+    periscope_path: Path
     config_path: Path
     runtime: Any
     config: Any
 
 
-class HorizonPipelineService:
+class PipelineService:
     """High-level staged pipeline service."""
 
     def __init__(
@@ -156,8 +156,8 @@ class HorizonPipelineService:
         try:
             meta = self.run_store.load_meta(run_id)
         except FileNotFoundError as exc:
-            raise HorizonMcpError(
-                code="HZ_RUN_NOT_FOUND",
+            raise McpError(
+                code="PS_RUN_NOT_FOUND",
                 message=f"run_id={run_id} does not exist.",
                 details={"run_id": run_id},
             ) from exc
@@ -172,18 +172,18 @@ class HorizonPipelineService:
         """Read staged item payload (JSON)."""
 
         if max_items <= 0:
-            raise HorizonMcpError(code="HZ_INVALID_INPUT", message="max_items must be greater than 0.")
+            raise McpError(code="PS_INVALID_INPUT", message="max_items must be greater than 0.")
         try:
             items = self.run_store.load_items(run_id, stage)
         except ValueError as exc:
-            raise HorizonMcpError(
-                code="HZ_INVALID_STAGE",
+            raise McpError(
+                code="PS_INVALID_STAGE",
                 message=str(exc),
                 details={"stage": stage},
             ) from exc
         except FileNotFoundError as exc:
-            raise HorizonMcpError(
-                code="HZ_STAGE_NOT_FOUND",
+            raise McpError(
+                code="PS_STAGE_NOT_FOUND",
                 message=f"run_id={run_id} is missing stage artifact: {stage}",
                 details={"run_id": run_id, "stage": stage},
             ) from exc
@@ -202,8 +202,8 @@ class HorizonPipelineService:
         try:
             markdown = self.run_store.load_summary(run_id, language)
         except FileNotFoundError as exc:
-            raise HorizonMcpError(
-                code="HZ_SUMMARY_NOT_FOUND",
+            raise McpError(
+                code="PS_SUMMARY_NOT_FOUND",
                 message=f"run_id={run_id} is missing summary for language={language}.",
                 details={"run_id": run_id, "language": language},
             ) from exc
@@ -215,19 +215,19 @@ class HorizonPipelineService:
 
     def get_effective_config(
         self,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
         sources: list[str] | None = None,
     ) -> dict[str, Any]:
         """Return effective config after optional source filtering."""
 
         ctx, selected_sources, unknown_sources = self._build_context(
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
             sources=sources,
         )
         return {
-            "horizon_path": str(ctx.horizon_path),
+            "periscope_path": str(ctx.periscope_path),
             "config_path": str(ctx.config_path),
             "selected_sources": selected_sources,
             "unknown_sources": unknown_sources,
@@ -236,13 +236,13 @@ class HorizonPipelineService:
 
     async def validate_config(
         self,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
         sources: list[str] | None = None,
         check_env: bool = True,
     ) -> dict[str, Any]:
         ctx, selected_sources, unknown_sources = self._build_context(
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
             sources=sources,
         )
@@ -293,7 +293,7 @@ class HorizonPipelineService:
                     missing_env.append(ctx.config.webhook.url_env)
 
         return {
-            "horizon_path": str(ctx.horizon_path),
+            "periscope_path": str(ctx.periscope_path),
             "config_path": str(ctx.config_path),
             "ai": {
                 "provider": ctx.config.ai.provider.value,
@@ -329,15 +329,15 @@ class HorizonPipelineService:
         self,
         hours: int = 24,
         run_id: str | None = None,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
         sources: list[str] | None = None,
     ) -> dict[str, Any]:
         if hours <= 0:
-            raise HorizonMcpError(code="HZ_INVALID_INPUT", message="hours must be greater than 0.")
+            raise McpError(code="PS_INVALID_INPUT", message="hours must be greater than 0.")
 
         ctx, selected_sources, unknown_sources = self._build_context(
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
             sources=sources,
         )
@@ -361,7 +361,7 @@ class HorizonPipelineService:
 
         self.run_store.save_items(run_id, "raw", items_to_dicts(merged_items))
         meta_updates = {
-            "horizon_path": str(ctx.horizon_path),
+            "periscope_path": str(ctx.periscope_path),
             "config_path": str(ctx.config_path),
             "hours": hours,
             "since": since.isoformat(),
@@ -392,18 +392,18 @@ class HorizonPipelineService:
         self,
         run_id: str,
         source_stage: str = "raw",
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         items, ctx = self._load_stage_items(
             run_id=run_id,
             stage=source_stage,
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
         )
 
         if not items:
-            raise HorizonMcpError(code="HZ_EMPTY_INPUT", message="No items available for scoring.")
+            raise McpError(code="PS_EMPTY_INPUT", message="No items available for scoring.")
 
         orchestrator = self._orchestrator(ctx)
         scored_items = await orchestrator.analyze_items(items)
@@ -436,13 +436,13 @@ class HorizonPipelineService:
         threshold: float | None = None,
         source_stage: str = "scored",
         topic_dedup: bool = True,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         items, ctx = self._load_stage_items(
             run_id=run_id,
             stage=source_stage,
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
         )
 
@@ -504,18 +504,18 @@ class HorizonPipelineService:
         self,
         run_id: str,
         source_stage: str = "filtered",
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         items, ctx = self._load_stage_items(
             run_id=run_id,
             stage=source_stage,
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
         )
 
         if not items:
-            raise HorizonMcpError(code="HZ_EMPTY_INPUT", message="No items available for enrichment.")
+            raise McpError(code="PS_EMPTY_INPUT", message="No items available for enrichment.")
 
         orchestrator = self._orchestrator(ctx)
         enrichment_result = await orchestrator.enrich_items(items)
@@ -563,15 +563,15 @@ class HorizonPipelineService:
         run_id: str,
         language: str = "zh",
         source_stage: str | None = None,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
-        save_to_horizon_data: bool = False,
+        save_to_periscope_data: bool = False,
     ) -> dict[str, Any]:
         stage = source_stage or self._pick_summary_stage(run_id)
         items, ctx = self._load_stage_items(
             run_id=run_id,
             stage=stage,
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
         )
 
@@ -591,7 +591,7 @@ class HorizonPipelineService:
 
         run_summary_path = self.run_store.save_summary(run_id, language, summary)
         published_path = None
-        if save_to_horizon_data:
+        if save_to_periscope_data:
             storage = make_storage(ctx.runtime, ctx.config_path)
             published_path = storage.save_daily_summary(date_str, summary, language=language)
 
@@ -622,16 +622,16 @@ class HorizonPipelineService:
         hours: int = 24,
         languages: list[str] | None = None,
         threshold: float | None = None,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
         sources: list[str] | None = None,
         enrich: bool = True,
         topic_dedup: bool = True,
-        save_to_horizon_data: bool = False,
+        save_to_periscope_data: bool = False,
     ) -> dict[str, Any]:
         fetch_result = await self.fetch_items(
             hours=hours,
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
             sources=sources,
         )
@@ -639,7 +639,7 @@ class HorizonPipelineService:
 
         score_result = await self.score_items(
             run_id=run_id,
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
         )
 
@@ -647,7 +647,7 @@ class HorizonPipelineService:
             run_id=run_id,
             threshold=threshold,
             topic_dedup=topic_dedup,
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
         )
 
@@ -657,14 +657,14 @@ class HorizonPipelineService:
             enrich_result = await self.enrich_items(
                 run_id=run_id,
                 source_stage="filtered",
-                horizon_path=horizon_path,
+                periscope_path=periscope_path,
                 config_path=config_path,
             )
             if enrich_result["status"] != "failure":
                 stage_for_summary = "enriched"
 
         ctx, _, _ = self._build_context(
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
             sources=sources,
         )
@@ -676,9 +676,9 @@ class HorizonPipelineService:
                 run_id=run_id,
                 language=lang,
                 source_stage=stage_for_summary,
-                horizon_path=horizon_path,
+                periscope_path=periscope_path,
                 config_path=config_path,
-                save_to_horizon_data=save_to_horizon_data,
+                save_to_periscope_data=save_to_periscope_data,
             )
             summaries.append(summary_result)
 
@@ -694,19 +694,19 @@ class HorizonPipelineService:
 
     def _build_context(
         self,
-        horizon_path: str | None,
+        periscope_path: str | None,
         config_path: str | None,
         sources: list[str] | None,
     ) -> tuple[PipelineContext, list[str], list[str]]:
-        resolved_horizon = resolve_horizon_path(horizon_path)
-        runtime = load_runtime(resolved_horizon)
-        resolved_config = resolve_config_path(resolved_horizon, config_path)
+        resolved_periscope = resolve_periscope_path(periscope_path)
+        runtime = load_runtime(resolved_periscope)
+        resolved_config = resolve_config_path(resolved_periscope, config_path)
         config = load_config(runtime, resolved_config)
         effective_config, selected_sources, unknown_sources = apply_source_filter(config, sources)
 
         return (
             PipelineContext(
-                horizon_path=resolved_horizon,
+                periscope_path=resolved_periscope,
                 config_path=resolved_config,
                 runtime=runtime,
                 config=effective_config,
@@ -719,15 +719,15 @@ class HorizonPipelineService:
         self,
         run_id: str,
         stage: str,
-        horizon_path: str | None,
+        periscope_path: str | None,
         config_path: str | None,
     ) -> tuple[list[Any], PipelineContext]:
-        ctx, _, _ = self._build_context(horizon_path=horizon_path, config_path=config_path, sources=None)
+        ctx, _, _ = self._build_context(periscope_path=periscope_path, config_path=config_path, sources=None)
         try:
             payload = self.run_store.load_items(run_id, stage)
         except FileNotFoundError as exc:
-            raise HorizonMcpError(
-                code="HZ_STAGE_NOT_FOUND",
+            raise McpError(
+                code="PS_STAGE_NOT_FOUND",
                 message=f"run_id={run_id} is missing stage artifact: {stage}",
                 details={"run_id": run_id, "stage": stage},
             ) from exc
@@ -748,8 +748,8 @@ class HorizonPipelineService:
         for stage in ("enriched", "filtered", "scored", "raw"):
             if self.run_store.has_stage(run_id, stage):
                 return stage
-        raise HorizonMcpError(
-            code="HZ_STAGE_NOT_FOUND",
+        raise McpError(
+            code="PS_STAGE_NOT_FOUND",
             message=f"run_id={run_id} has no usable stage for summary generation.",
             details={"run_id": run_id},
         )
@@ -764,7 +764,7 @@ class HorizonPipelineService:
     # ------------------------------------------------- periscope: evidence loop
     def _periscope_orchestrator(
         self,
-        horizon_path: str | None,
+        periscope_path: str | None,
         config_path: str | None,
     ) -> Any:
         """Orchestrator bound to the default config, for corpus/claims/research.
@@ -773,15 +773,15 @@ class HorizonPipelineService:
         call may build a fresh orchestrator and still resume any session_id.
         """
         ctx, _, _ = self._build_context(
-            horizon_path=horizon_path, config_path=config_path, sources=None
+            periscope_path=periscope_path, config_path=config_path, sources=None
         )
         return self._orchestrator(ctx)
 
     @staticmethod
     def _require(obj: Any, name: str) -> Any:
         if obj is None:
-            raise HorizonMcpError(
-                code="HZ_FEATURE_DISABLED",
+            raise McpError(
+                code="PS_FEATURE_DISABLED",
                 message=f"{name} is disabled in the current config.",
                 details={"feature": name},
             )
@@ -791,19 +791,19 @@ class HorizonPipelineService:
     def _jsonable(value: Any) -> Any:
         """Dataclass -> JSON-safe dict (datetimes isoformat'd, recursively)."""
         if is_dataclass(value) and not isinstance(value, type):
-            return {k: HorizonPipelineService._jsonable(v) for k, v in vars(value).items()}
+            return {k: PipelineService._jsonable(v) for k, v in vars(value).items()}
         if isinstance(value, datetime):
             return value.isoformat()
         if isinstance(value, list):
-            return [HorizonPipelineService._jsonable(v) for v in value]
+            return [PipelineService._jsonable(v) for v in value]
         if isinstance(value, dict):
-            return {k: HorizonPipelineService._jsonable(v) for k, v in value.items()}
+            return {k: PipelineService._jsonable(v) for k, v in value.items()}
         return value
 
     def corpus_stats(
-        self, horizon_path: str | None = None, config_path: str | None = None
+        self, periscope_path: str | None = None, config_path: str | None = None
     ) -> dict[str, Any]:
-        orch = self._periscope_orchestrator(horizon_path, config_path)
+        orch = self._periscope_orchestrator(periscope_path, config_path)
         corpus = self._require(orch.get_corpus(), "corpus")
         from ..research.session import ResearchStore
 
@@ -817,13 +817,13 @@ class HorizonPipelineService:
         self,
         query: str,
         limit: int = 20,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         if not query.strip():
-            raise HorizonMcpError(code="HZ_INVALID_INPUT", message="query must not be empty.")
+            raise McpError(code="PS_INVALID_INPUT", message="query must not be empty.")
         corpus = self._require(
-            self._periscope_orchestrator(horizon_path, config_path).get_corpus(),
+            self._periscope_orchestrator(periscope_path, config_path).get_corpus(),
             "corpus",
         )
         rows = corpus.search(query, limit=max(1, min(limit, 100)))
@@ -833,11 +833,11 @@ class HorizonPipelineService:
         self,
         limit: int = 30,
         source_type: str | None = None,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         corpus = self._require(
-            self._periscope_orchestrator(horizon_path, config_path).get_corpus(),
+            self._periscope_orchestrator(periscope_path, config_path).get_corpus(),
             "corpus",
         )
         rows = corpus.recent(limit=max(1, min(limit, 200)), source_type=source_type)
@@ -848,7 +848,7 @@ class HorizonPipelineService:
         payload: Any,
         tiering: str = "sections",
         dry_run: bool = False,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         """Ingest a user export into the shared corpus, tiers preserved.
@@ -865,23 +865,23 @@ class HorizonPipelineService:
         from ..corpus.ingest import IngestError, import_payload
 
         corpus = self._require(
-            self._periscope_orchestrator(horizon_path, config_path).get_corpus(),
+            self._periscope_orchestrator(periscope_path, config_path).get_corpus(),
             "corpus",
         )
         try:
             return import_payload(corpus, payload, tiering=tiering, dry_run=dry_run)
         except IngestError as exc:
-            raise HorizonMcpError(code="HZ_INVALID_INPUT", message=str(exc)) from exc
+            raise McpError(code="PS_INVALID_INPUT", message=str(exc)) from exc
 
     def list_claims(
         self,
         status: str = "graded",
         limit: int = 50,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         store = self._require(
-            self._periscope_orchestrator(horizon_path, config_path).get_claim_store(),
+            self._periscope_orchestrator(periscope_path, config_path).get_claim_store(),
             "analysis",
         )
         claims = store.claims_by_status(status, limit=max(1, min(limit, 200)))
@@ -895,17 +895,17 @@ class HorizonPipelineService:
     def get_claim(
         self,
         claim_id: str,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         store = self._require(
-            self._periscope_orchestrator(horizon_path, config_path).get_claim_store(),
+            self._periscope_orchestrator(periscope_path, config_path).get_claim_store(),
             "analysis",
         )
         claim = store.get_claim(claim_id)
         if claim is None:
-            raise HorizonMcpError(
-                code="HZ_CLAIM_NOT_FOUND",
+            raise McpError(
+                code="PS_CLAIM_NOT_FOUND",
                 message=f"claim_id={claim_id} does not exist.",
                 details={"claim_id": claim_id},
             )
@@ -914,13 +914,13 @@ class HorizonPipelineService:
     async def research_start(
         self,
         question: str,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         if not question.strip():
-            raise HorizonMcpError(code="HZ_INVALID_INPUT", message="question must not be empty.")
+            raise McpError(code="PS_INVALID_INPUT", message="question must not be empty.")
         session = self._require(
-            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            self._periscope_orchestrator(periscope_path, config_path).get_research_session(),
             "research",
         )
         report = await session.start(question.strip())
@@ -934,20 +934,20 @@ class HorizonPipelineService:
         self,
         session_id: str,
         message: str,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         if not message.strip():
-            raise HorizonMcpError(code="HZ_INVALID_INPUT", message="message must not be empty.")
+            raise McpError(code="PS_INVALID_INPUT", message="message must not be empty.")
         session = self._require(
-            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            self._periscope_orchestrator(periscope_path, config_path).get_research_session(),
             "research",
         )
         try:
             report = await session.followup(session_id, message.strip())
         except KeyError as exc:
-            raise HorizonMcpError(
-                code="HZ_SESSION_NOT_FOUND",
+            raise McpError(
+                code="PS_SESSION_NOT_FOUND",
                 message=str(exc),
                 details={"session_id": session_id},
             ) from exc
@@ -962,18 +962,18 @@ class HorizonPipelineService:
         self,
         session_id: str,
         message: str | None = None,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         session = self._require(
-            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            self._periscope_orchestrator(periscope_path, config_path).get_research_session(),
             "research",
         )
         try:
             result = await session.step(session_id, (message or "").strip())
         except KeyError as exc:
-            raise HorizonMcpError(
-                code="HZ_SESSION_NOT_FOUND",
+            raise McpError(
+                code="PS_SESSION_NOT_FOUND",
                 message=str(exc),
                 details={"session_id": session_id},
             ) from exc
@@ -985,17 +985,17 @@ class HorizonPipelineService:
         self,
         session_id: str,
         revision: int | None = None,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         session = self._require(
-            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            self._periscope_orchestrator(periscope_path, config_path).get_research_session(),
             "research",
         )
         draft = session.drafts.get(session_id, revision)
         if draft is None:
-            raise HorizonMcpError(
-                code="HZ_SESSION_NOT_FOUND",
+            raise McpError(
+                code="PS_SESSION_NOT_FOUND",
                 message=f"session {session_id} has no draft revision "
                         f"{revision if revision is not None else 'yet'}.",
                 details={"session_id": session_id, "revision": revision},
@@ -1013,20 +1013,20 @@ class HorizonPipelineService:
         session_id: str,
         section_id: str,
         body: str,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         if not body.strip():
-            raise HorizonMcpError(code="HZ_INVALID_INPUT", message="body must not be empty.")
+            raise McpError(code="PS_INVALID_INPUT", message="body must not be empty.")
         session = self._require(
-            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            self._periscope_orchestrator(periscope_path, config_path).get_research_session(),
             "research",
         )
         try:
             draft = session.edit_section(session_id, section_id, body)
         except KeyError as exc:
-            raise HorizonMcpError(
-                code="HZ_SESSION_NOT_FOUND",
+            raise McpError(
+                code="PS_SESSION_NOT_FOUND",
                 message=str(exc),
                 details={"session_id": session_id, "section_id": section_id},
             ) from exc
@@ -1043,11 +1043,11 @@ class HorizonPipelineService:
         request_id: str,
         answer: str = "",
         skip: bool = False,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         session = self._require(
-            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            self._periscope_orchestrator(periscope_path, config_path).get_research_session(),
             "research",
         )
         try:
@@ -1055,8 +1055,8 @@ class HorizonPipelineService:
                 session_id, request_id, answer, skip=skip
             )
         except KeyError as exc:
-            raise HorizonMcpError(
-                code="HZ_SESSION_NOT_FOUND",
+            raise McpError(
+                code="PS_SESSION_NOT_FOUND",
                 message=str(exc),
                 details={"session_id": session_id, "request_id": request_id},
             ) from exc
@@ -1067,17 +1067,17 @@ class HorizonPipelineService:
     def research_status(
         self,
         session_id: str,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         session = self._require(
-            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            self._periscope_orchestrator(periscope_path, config_path).get_research_session(),
             "research",
         )
         record = session.store.get_session(session_id)
         if record is None:
-            raise HorizonMcpError(
-                code="HZ_SESSION_NOT_FOUND",
+            raise McpError(
+                code="PS_SESSION_NOT_FOUND",
                 message=f"session_id={session_id} does not exist.",
                 details={"session_id": session_id},
             )
@@ -1102,11 +1102,11 @@ class HorizonPipelineService:
     def research_list(
         self,
         limit: int = 20,
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         session = self._require(
-            self._periscope_orchestrator(horizon_path, config_path).get_research_session(),
+            self._periscope_orchestrator(periscope_path, config_path).get_research_session(),
             "research",
         )
         sessions = session.store.list_sessions(limit=max(1, min(limit, 100)))
@@ -1117,7 +1117,7 @@ class HorizonPipelineService:
         return ProfileRegistry.load(
             Path(ctx.config.processing.profiles_dir).expanduser(),
             ctx.config.processing.default_profile,
-            base_dir=ctx.horizon_path,
+            base_dir=ctx.periscope_path,
         )
 
     @staticmethod
@@ -1149,13 +1149,13 @@ class HorizonPipelineService:
         all_items: int = 0,
         result: str = "success",
         summary: str = "",
-        horizon_path: str | None = None,
+        periscope_path: str | None = None,
         config_path: str | None = None,
     ) -> dict[str, Any]:
         """Send a webhook notification using the configured webhook settings."""
 
         ctx, _, _ = self._build_context(
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
             sources=None,
         )
@@ -1176,7 +1176,7 @@ class HorizonPipelineService:
             "all_items": all_items,
             "result": result,
             "timestamp": str(int(datetime.now(timezone.utc).timestamp())),
-            "message_title": f"Horizon {date} webhook",
+            "message_title": f"Periscope {date} webhook",
             "message_kind": "manual",
             "summary": summary,
         }

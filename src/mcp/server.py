@@ -1,4 +1,4 @@
-"""MCP server entrypoint for Horizon."""
+"""MCP server entrypoint for Periscope."""
 
 from __future__ import annotations
 
@@ -12,13 +12,13 @@ from rich.console import Console
 
 from .._cli import add_log_level_argument
 from ..logging_config import configure_logging
-from .errors import HorizonMcpError
-from .service import HorizonPipelineService
+from .errors import McpError
+from .service import PipelineService
 
 
 console = Console(stderr=True)
-mcp = FastMCP(name="horizon-mcp")
-service = HorizonPipelineService(console=console)
+mcp = FastMCP(name="periscope-mcp")
+service = PipelineService(console=console)
 
 SERVER_STARTED_AT = datetime.now(timezone.utc).isoformat()
 METRICS: dict[str, Any] = {
@@ -48,12 +48,12 @@ def _ok(tool: str, data: dict[str, Any], duration_ms: float | None = None) -> di
 
 
 def _err(tool: str, error: Exception, duration_ms: float | None = None) -> dict[str, Any]:
-    if isinstance(error, HorizonMcpError):
+    if isinstance(error, McpError):
         code = error.code
         message = error.message
         details = error.details
     else:
-        code = "HZ_INTERNAL_ERROR"
+        code = "PS_INTERNAL_ERROR"
         message = str(error)
         details = None
 
@@ -136,18 +136,18 @@ def _metrics_snapshot() -> dict[str, Any]:
 
 
 @mcp.tool()
-async def hz_validate_config(
-    horizon_path: str | None = None,
+async def ps_validate_config(
+    periscope_path: str | None = None,
     config_path: str | None = None,
     sources: list[str] | None = None,
     check_env: bool = True,
 ) -> dict[str, Any]:
-    """Validate Horizon config and required environment variables."""
+    """Validate Periscope config and required environment variables."""
 
     return await _run_tool(
-        "hz_validate_config",
+        "ps_validate_config",
         lambda: service.validate_config(
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
             sources=sources,
             check_env=check_env,
@@ -156,21 +156,21 @@ async def hz_validate_config(
 
 
 @mcp.tool()
-async def hz_fetch_items(
+async def ps_fetch_items(
     hours: int = 24,
     run_id: str | None = None,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
     sources: list[str] | None = None,
 ) -> dict[str, Any]:
     """Fetch and deduplicate content into the raw stage."""
 
     return await _run_tool(
-        "hz_fetch_items",
+        "ps_fetch_items",
         lambda: service.fetch_items(
             hours=hours,
             run_id=run_id,
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
             sources=sources,
         ),
@@ -178,138 +178,138 @@ async def hz_fetch_items(
 
 
 @mcp.tool()
-async def hz_score_items(
+async def ps_score_items(
     run_id: str,
     source_stage: str = "raw",
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Score a stage into the scored stage."""
 
     return await _run_tool(
-        "hz_score_items",
+        "ps_score_items",
         lambda: service.score_items(
             run_id=run_id,
             source_stage=source_stage,
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
         ),
     )
 
 
 @mcp.tool()
-async def hz_filter_items(
+async def ps_filter_items(
     run_id: str,
     threshold: float | None = None,
     source_stage: str = "scored",
     topic_dedup: bool = True,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Filter scored items into the filtered stage."""
 
     return await _run_tool(
-        "hz_filter_items",
+        "ps_filter_items",
         lambda: service.filter_items(
             run_id=run_id,
             threshold=threshold,
             source_stage=source_stage,
             topic_dedup=topic_dedup,
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
         ),
     )
 
 
 @mcp.tool()
-async def hz_enrich_items(
+async def ps_enrich_items(
     run_id: str,
     source_stage: str = "filtered",
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Enrich filtered items into the enriched stage."""
 
     return await _run_tool(
-        "hz_enrich_items",
+        "ps_enrich_items",
         lambda: service.enrich_items(
             run_id=run_id,
             source_stage=source_stage,
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
         ),
     )
 
 
 @mcp.tool()
-async def hz_generate_summary(
+async def ps_generate_summary(
     run_id: str,
     language: str = "zh",
     source_stage: str | None = None,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
-    save_to_horizon_data: bool = False,
+    save_to_periscope_data: bool = False,
 ) -> dict[str, Any]:
     """Generate a markdown summary from a stage."""
 
     return await _run_tool(
-        "hz_generate_summary",
+        "ps_generate_summary",
         lambda: service.generate_summary(
             run_id=run_id,
             language=language,
             source_stage=source_stage,
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
-            save_to_horizon_data=save_to_horizon_data,
+            save_to_periscope_data=save_to_periscope_data,
         ),
     )
 
 
 @mcp.tool()
-async def hz_run_pipeline(
+async def ps_run_pipeline(
     hours: int = 24,
     languages: list[str] | None = None,
     threshold: float | None = None,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
     sources: list[str] | None = None,
     enrich: bool = True,
     topic_dedup: bool = True,
-    save_to_horizon_data: bool = False,
+    save_to_periscope_data: bool = False,
 ) -> dict[str, Any]:
     """Run fetch -> score -> filter -> enrich -> summarize in one call."""
 
     return await _run_tool(
-        "hz_run_pipeline",
+        "ps_run_pipeline",
         lambda: service.run_pipeline(
             hours=hours,
             languages=languages,
             threshold=threshold,
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
             sources=sources,
             enrich=enrich,
             topic_dedup=topic_dedup,
-            save_to_horizon_data=save_to_horizon_data,
+            save_to_periscope_data=save_to_periscope_data,
         ),
     )
 
 
 @mcp.tool()
-def hz_list_runs(limit: int = 20) -> dict[str, Any]:
+def ps_list_runs(limit: int = 20) -> dict[str, Any]:
     """List recent runs and stage states."""
 
     started = perf_counter()
     try:
         data = service.list_runs(limit=limit)
         elapsed_ms = (perf_counter() - started) * 1000
-        _record_metrics("hz_list_runs", ok=True, duration_ms=elapsed_ms)
-        return _ok("hz_list_runs", data, duration_ms=elapsed_ms)
+        _record_metrics("ps_list_runs", ok=True, duration_ms=elapsed_ms)
+        return _ok("ps_list_runs", data, duration_ms=elapsed_ms)
     except Exception as exc:
         elapsed_ms = (perf_counter() - started) * 1000
-        payload = _err("hz_list_runs", exc, duration_ms=elapsed_ms)
+        payload = _err("ps_list_runs", exc, duration_ms=elapsed_ms)
         _record_metrics(
-            "hz_list_runs",
+            "ps_list_runs",
             ok=False,
             duration_ms=elapsed_ms,
             error_code=payload["error"]["code"],
@@ -318,20 +318,20 @@ def hz_list_runs(limit: int = 20) -> dict[str, Any]:
 
 
 @mcp.tool()
-def hz_get_run_meta(run_id: str) -> dict[str, Any]:
+def ps_get_run_meta(run_id: str) -> dict[str, Any]:
     """Read run metadata."""
 
     started = perf_counter()
     try:
         data = service.get_run_meta(run_id)
         elapsed_ms = (perf_counter() - started) * 1000
-        _record_metrics("hz_get_run_meta", ok=True, duration_ms=elapsed_ms)
-        return _ok("hz_get_run_meta", data, duration_ms=elapsed_ms)
+        _record_metrics("ps_get_run_meta", ok=True, duration_ms=elapsed_ms)
+        return _ok("ps_get_run_meta", data, duration_ms=elapsed_ms)
     except Exception as exc:
         elapsed_ms = (perf_counter() - started) * 1000
-        payload = _err("hz_get_run_meta", exc, duration_ms=elapsed_ms)
+        payload = _err("ps_get_run_meta", exc, duration_ms=elapsed_ms)
         _record_metrics(
-            "hz_get_run_meta",
+            "ps_get_run_meta",
             ok=False,
             duration_ms=elapsed_ms,
             error_code=payload["error"]["code"],
@@ -340,20 +340,20 @@ def hz_get_run_meta(run_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def hz_get_run_stage(run_id: str, stage: str, max_items: int = 200) -> dict[str, Any]:
+def ps_get_run_stage(run_id: str, stage: str, max_items: int = 200) -> dict[str, Any]:
     """Read items from a run stage."""
 
     started = perf_counter()
     try:
         data = service.get_run_stage(run_id=run_id, stage=stage, max_items=max_items)
         elapsed_ms = (perf_counter() - started) * 1000
-        _record_metrics("hz_get_run_stage", ok=True, duration_ms=elapsed_ms)
-        return _ok("hz_get_run_stage", data, duration_ms=elapsed_ms)
+        _record_metrics("ps_get_run_stage", ok=True, duration_ms=elapsed_ms)
+        return _ok("ps_get_run_stage", data, duration_ms=elapsed_ms)
     except Exception as exc:
         elapsed_ms = (perf_counter() - started) * 1000
-        payload = _err("hz_get_run_stage", exc, duration_ms=elapsed_ms)
+        payload = _err("ps_get_run_stage", exc, duration_ms=elapsed_ms)
         _record_metrics(
-            "hz_get_run_stage",
+            "ps_get_run_stage",
             ok=False,
             duration_ms=elapsed_ms,
             error_code=payload["error"]["code"],
@@ -362,20 +362,20 @@ def hz_get_run_stage(run_id: str, stage: str, max_items: int = 200) -> dict[str,
 
 
 @mcp.tool()
-def hz_get_run_summary(run_id: str, language: str = "zh") -> dict[str, Any]:
+def ps_get_run_summary(run_id: str, language: str = "zh") -> dict[str, Any]:
     """Read a generated run summary."""
 
     started = perf_counter()
     try:
         data = service.get_run_summary(run_id=run_id, language=language)
         elapsed_ms = (perf_counter() - started) * 1000
-        _record_metrics("hz_get_run_summary", ok=True, duration_ms=elapsed_ms)
-        return _ok("hz_get_run_summary", data, duration_ms=elapsed_ms)
+        _record_metrics("ps_get_run_summary", ok=True, duration_ms=elapsed_ms)
+        return _ok("ps_get_run_summary", data, duration_ms=elapsed_ms)
     except Exception as exc:
         elapsed_ms = (perf_counter() - started) * 1000
-        payload = _err("hz_get_run_summary", exc, duration_ms=elapsed_ms)
+        payload = _err("ps_get_run_summary", exc, duration_ms=elapsed_ms)
         _record_metrics(
-            "hz_get_run_summary",
+            "ps_get_run_summary",
             ok=False,
             duration_ms=elapsed_ms,
             error_code=payload["error"]["code"],
@@ -384,20 +384,20 @@ def hz_get_run_summary(run_id: str, language: str = "zh") -> dict[str, Any]:
 
 
 @mcp.tool()
-def hz_get_metrics() -> dict[str, Any]:
+def ps_get_metrics() -> dict[str, Any]:
     """Read in-memory server metrics."""
 
     started = perf_counter()
     try:
         data = _metrics_snapshot()
         elapsed_ms = (perf_counter() - started) * 1000
-        _record_metrics("hz_get_metrics", ok=True, duration_ms=elapsed_ms)
-        return _ok("hz_get_metrics", data, duration_ms=elapsed_ms)
+        _record_metrics("ps_get_metrics", ok=True, duration_ms=elapsed_ms)
+        return _ok("ps_get_metrics", data, duration_ms=elapsed_ms)
     except Exception as exc:
         elapsed_ms = (perf_counter() - started) * 1000
-        payload = _err("hz_get_metrics", exc, duration_ms=elapsed_ms)
+        payload = _err("ps_get_metrics", exc, duration_ms=elapsed_ms)
         _record_metrics(
-            "hz_get_metrics",
+            "ps_get_metrics",
             ok=False,
             duration_ms=elapsed_ms,
             error_code=payload["error"]["code"],
@@ -407,55 +407,55 @@ def hz_get_metrics() -> dict[str, Any]:
 
 # ------------------------------------------------------- periscope: evidence
 @mcp.tool()
-async def hz_corpus_stats(
-    horizon_path: str | None = None,
+async def ps_corpus_stats(
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Evidence-corpus overview: stored items by source, clusters, runs, plus
     claim and research-session counters. The 'what do we already know' probe."""
 
     return await _run_tool(
-        "hz_corpus_stats",
-        lambda: service.corpus_stats(horizon_path=horizon_path, config_path=config_path)
+        "ps_corpus_stats",
+        lambda: service.corpus_stats(periscope_path=periscope_path, config_path=config_path)
     )
 
 
 @mcp.tool()
-async def hz_corpus_search(
+async def ps_corpus_search(
     query: str,
     limit: int = 20,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Full-text search over every item ever collected (BM25, CJK-aware)."""
 
     return await _run_tool(
-        "hz_corpus_search",
-        lambda: service.corpus_search(query=query, limit=limit, horizon_path=horizon_path, config_path=config_path)
+        "ps_corpus_search",
+        lambda: service.corpus_search(query=query, limit=limit, periscope_path=periscope_path, config_path=config_path)
     )
 
 
 @mcp.tool()
-async def hz_corpus_recent(
+async def ps_corpus_recent(
     limit: int = 30,
     source_type: str | None = None,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Most recently published items in the corpus, optionally one source."""
 
     return await _run_tool(
-        "hz_corpus_recent",
-        lambda: service.corpus_recent(limit=limit, source_type=source_type, horizon_path=horizon_path, config_path=config_path)
+        "ps_corpus_recent",
+        lambda: service.corpus_recent(limit=limit, source_type=source_type, periscope_path=periscope_path, config_path=config_path)
     )
 
 
 @mcp.tool()
-async def hz_corpus_import(
+async def ps_corpus_import(
     payload: dict[str, Any],
     tiering: str = "sections",
     dry_run: bool = False,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Import a user export ({"items": [...]}) into the evidence corpus.
@@ -469,45 +469,45 @@ async def hz_corpus_import(
     """
 
     return await _run_tool(
-        "hz_corpus_import",
-        lambda: service.corpus_import(payload=payload, tiering=tiering, dry_run=dry_run, horizon_path=horizon_path, config_path=config_path)
+        "ps_corpus_import",
+        lambda: service.corpus_import(payload=payload, tiering=tiering, dry_run=dry_run, periscope_path=periscope_path, config_path=config_path)
     )
 
 
 @mcp.tool()
-async def hz_list_claims(
+async def ps_list_claims(
     status: str = "graded",
     limit: int = 50,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Claims by pipeline status (extracted | linked | graded) with verdicts,
     confidence, trust, ungraded_reason and independent-source counts."""
 
     return await _run_tool(
-        "hz_list_claims",
-        lambda: service.list_claims(status=status, limit=limit, horizon_path=horizon_path, config_path=config_path)
+        "ps_list_claims",
+        lambda: service.list_claims(status=status, limit=limit, periscope_path=periscope_path, config_path=config_path)
     )
 
 
 @mcp.tool()
-async def hz_get_claim(
+async def ps_get_claim(
     claim_id: str,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """One claim in full: verdict, evidence rows, source independence."""
 
     return await _run_tool(
-        "hz_get_claim",
-        lambda: service.get_claim(claim_id=claim_id, horizon_path=horizon_path, config_path=config_path)
+        "ps_get_claim",
+        lambda: service.get_claim(claim_id=claim_id, periscope_path=periscope_path, config_path=config_path)
     )
 
 
 @mcp.tool()
-async def hz_research_start(
+async def ps_research_start(
     question: str,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Open a long-session research task: decompose the question, investigate
@@ -515,32 +515,32 @@ async def hz_research_start(
     State persists — follow up later, even after restarts."""
 
     return await _run_tool(
-        "hz_research_start",
-        lambda: service.research_start(question=question, horizon_path=horizon_path, config_path=config_path),
+        "ps_research_start",
+        lambda: service.research_start(question=question, periscope_path=periscope_path, config_path=config_path),
     )
 
 
 @mcp.tool()
-async def hz_research_followup(
+async def ps_research_followup(
     session_id: str,
     message: str,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Push back on an existing session: the message can narrow, expand or
     challenge; the sub-question tree is revised and the report re-rendered."""
 
     return await _run_tool(
-        "hz_research_followup",
-        lambda: service.research_followup(session_id=session_id, message=message, horizon_path=horizon_path, config_path=config_path),
+        "ps_research_followup",
+        lambda: service.research_followup(session_id=session_id, message=message, periscope_path=periscope_path, config_path=config_path),
     )
 
 
 @mcp.tool()
-async def hz_research_step(
+async def ps_research_step(
     session_id: str,
     message: str | None = None,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Advance a research session by ONE round and get back the delta.
@@ -553,16 +553,16 @@ async def hz_research_step(
     """
 
     return await _run_tool(
-        "hz_research_step",
-        lambda: service.research_step(session_id=session_id, message=message, horizon_path=horizon_path, config_path=config_path),
+        "ps_research_step",
+        lambda: service.research_step(session_id=session_id, message=message, periscope_path=periscope_path, config_path=config_path),
     )
 
 
 @mcp.tool()
-async def hz_research_draft(
+async def ps_research_draft(
     session_id: str,
     revision: int | None = None,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Read the research document as a versioned draft: revision, origin
@@ -570,96 +570,96 @@ async def hz_research_draft(
     the evidence item ids behind each section. Omit `revision` for the latest."""
 
     return await _run_tool(
-        "hz_research_draft",
-        lambda: service.research_draft(session_id=session_id, revision=revision, horizon_path=horizon_path, config_path=config_path),
+        "ps_research_draft",
+        lambda: service.research_draft(session_id=session_id, revision=revision, periscope_path=periscope_path, config_path=config_path),
     )
 
 
 @mcp.tool()
-async def hz_research_edit(
+async def ps_research_edit(
     session_id: str,
     section_id: str,
     body: str,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Rewrite one section as the author. Stored as its own revision and locked,
     so a later recompute marks it stale instead of overwriting your prose."""
 
     return await _run_tool(
-        "hz_research_edit",
-        lambda: service.research_edit(session_id=session_id, section_id=section_id, body=body, horizon_path=horizon_path, config_path=config_path),
+        "ps_research_edit",
+        lambda: service.research_edit(session_id=session_id, section_id=section_id, body=body, periscope_path=periscope_path, config_path=config_path),
     )
 
 
 @mcp.tool()
-async def hz_research_answer(
+async def ps_research_answer(
     session_id: str,
     request_id: str,
     answer: str = "",
     skip: bool = False,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Reply to a question the session asked (`skip: true` to decline), then the
     loop continues. A parked session is not stuck: this is how you unpark it."""
 
     return await _run_tool(
-        "hz_research_answer",
-        lambda: service.research_answer(session_id=session_id, request_id=request_id, answer=answer, skip=skip, horizon_path=horizon_path, config_path=config_path),
+        "ps_research_answer",
+        lambda: service.research_answer(session_id=session_id, request_id=request_id, answer=answer, skip=skip, periscope_path=periscope_path, config_path=config_path),
     )
 
 
 @mcp.tool()
-async def hz_research_status(
+async def ps_research_status(
     session_id: str,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Session state: sub-question tree with statuses/answers/evidence ids,
     turn history, and the current rendered report."""
 
     return await _run_tool(
-        "hz_research_status",
-        lambda: service.research_status(session_id=session_id, horizon_path=horizon_path, config_path=config_path)
+        "ps_research_status",
+        lambda: service.research_status(session_id=session_id, periscope_path=periscope_path, config_path=config_path)
     )
 
 
 @mcp.tool()
-async def hz_research_list(
+async def ps_research_list(
     limit: int = 20,
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Recent research sessions with their questions and statuses."""
 
     return await _run_tool(
-        "hz_research_list",
-        lambda: service.research_list(limit=limit, horizon_path=horizon_path, config_path=config_path)
+        "ps_research_list",
+        lambda: service.research_list(limit=limit, periscope_path=periscope_path, config_path=config_path)
     )
 
 
 @mcp.tool()
-async def hz_send_webhook(
+async def ps_send_webhook(
     date: str,
     language: str = "zh",
     important_items: int = 0,
     all_items: int = 0,
     result: str = "success",
     summary: str = "",
-    horizon_path: str | None = None,
+    periscope_path: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, Any]:
     """Send a webhook notification with the given variables.
 
     Uses the webhook URL (from environment variable), request_body template,
-    and headers from the Horizon config. Template variables #{date}, #{language},
+    and headers from the Periscope config. Template variables #{date}, #{language},
     #{important_items}, #{all_items}, #{result}, #{timestamp},
     #{summary} are replaced in the URL and request_body before sending.
     """
 
     return await _run_tool(
-        "hz_send_webhook",
+        "ps_send_webhook",
         lambda: service.send_webhook(
             date=date,
             language=language,
@@ -667,77 +667,77 @@ async def hz_send_webhook(
             all_items=all_items,
             result=result,
             summary=summary,
-            horizon_path=horizon_path,
+            periscope_path=periscope_path,
             config_path=config_path,
         ),
     )
 
 
-@mcp.resource("horizon://server/info")
+@mcp.resource("periscope://server/info")
 def r_server_info() -> dict[str, Any]:
     """Server metadata resource."""
 
     return {
-        "name": "horizon-mcp",
+        "name": "periscope-mcp",
         "started_at": SERVER_STARTED_AT,
         "runs_root": str(service.runs_root.resolve()),
     }
 
 
-@mcp.resource("horizon://metrics")
+@mcp.resource("periscope://metrics")
 def r_metrics() -> dict[str, Any]:
     """In-memory metrics snapshot."""
 
-    return _resource_result("horizon://metrics", _metrics_snapshot)
+    return _resource_result("periscope://metrics", _metrics_snapshot)
 
 
-@mcp.resource("horizon://runs")
+@mcp.resource("periscope://runs")
 def r_runs() -> dict[str, Any]:
     """Recent run list."""
 
-    return _resource_result("horizon://runs", lambda: service.list_runs(limit=30))
+    return _resource_result("periscope://runs", lambda: service.list_runs(limit=30))
 
 
-@mcp.resource("horizon://runs/{run_id}/meta")
+@mcp.resource("periscope://runs/{run_id}/meta")
 def r_run_meta(run_id: str) -> dict[str, Any]:
     """Run metadata resource."""
 
     return _resource_result(
-        f"horizon://runs/{run_id}/meta",
+        f"periscope://runs/{run_id}/meta",
         lambda: service.get_run_meta(run_id),
     )
 
 
-@mcp.resource("horizon://runs/{run_id}/items/{stage}")
+@mcp.resource("periscope://runs/{run_id}/items/{stage}")
 def r_run_items(run_id: str, stage: str) -> dict[str, Any]:
     """Run stage items resource."""
 
     return _resource_result(
-        f"horizon://runs/{run_id}/items/{stage}",
+        f"periscope://runs/{run_id}/items/{stage}",
         lambda: service.get_run_stage(run_id=run_id, stage=stage, max_items=200),
     )
 
 
-@mcp.resource("horizon://runs/{run_id}/summary/{language}")
+@mcp.resource("periscope://runs/{run_id}/summary/{language}")
 def r_run_summary(run_id: str, language: str) -> dict[str, Any]:
     """Run summary resource."""
 
     return _resource_result(
-        f"horizon://runs/{run_id}/summary/{language}",
+        f"periscope://runs/{run_id}/summary/{language}",
         lambda: service.get_run_summary(run_id=run_id, language=language),
     )
 
 
-@mcp.resource("horizon://config/effective")
+@mcp.resource("periscope://config/effective")
 def r_effective_config() -> dict[str, Any]:
-    """Effective default config resolved from local Horizon path."""
+    """Effective default config resolved from local Periscope path."""
 
-    return _resource_result("horizon://config/effective", service.get_effective_config)
+    return _resource_result("periscope://config/effective", service.get_effective_config)
 
 
 def main() -> None:
     """Run MCP server over stdio."""
-    parser = argparse.ArgumentParser(description="Horizon MCP server")
+    parser = argparse.ArgumentParser(description="Periscope MCP server")
     add_log_level_argument(parser, default="INFO")
     args = parser.parse_args()
 

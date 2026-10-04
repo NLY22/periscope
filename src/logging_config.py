@@ -1,4 +1,4 @@
-"""Shared logging configuration for Horizon entry points."""
+"""Shared logging configuration for Periscope entry points."""
 
 import logging
 

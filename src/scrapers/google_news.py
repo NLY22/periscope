@@ -2,7 +2,7 @@
 
 Pulls recent news articles from Google News' key-less RSS search endpoint
 (https://news.google.com/rss/search) for a configured query and maps each
-feed entry into a ContentItem so the rest of the Horizon pipeline
+feed entry into a ContentItem so the rest of the Periscope pipeline
 (deduplication, AI scoring, enrichment, summarization) treats them the same
 way as RSS, Hacker News, or GDELT items.
 

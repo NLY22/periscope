@@ -87,7 +87,7 @@ async def _wait_for_login(client: ILinkClient, local_tokens: list[str]) -> dict 
             _render_qr(qr["qrcode_img_content"])
             base_url, verify_code, scanned = ILINK_BASE_URL, None, False
         await asyncio.sleep(1)
-    console.print("[red]Login timed out. Run 'horizon-wechat login' again.[/red]")
+    console.print("[red]Login timed out. Run 'periscope-wechat login' again.[/red]")
     return None
 
 
@@ -130,13 +130,13 @@ async def _run_login(config: WeChatConfig, storage: StorageManager, force: bool)
                 console.print("Set wechat.enabled = true to send daily briefings.")
             return
         await asyncio.sleep(1)
-    console.print("Send the bot a message later, then run 'horizon-wechat status --refresh'.")
+    console.print("Send the bot a message later, then run 'periscope-wechat status --refresh'.")
 
 
 async def _run_status(config: WeChatConfig, storage: StorageManager, refresh: bool) -> None:
     notifier = WeChatNotifier(config, storage, console=console)
     if notifier.session is None:
-        console.print(f"No session at {notifier.session_path}. Run 'horizon-wechat login'.")
+        console.print(f"No session at {notifier.session_path}. Run 'periscope-wechat login'.")
         sys.exit(1)
     if refresh:
         await notifier.refresh_context(timeout=LONG_POLL_TIMEOUT)
@@ -157,9 +157,9 @@ async def _run_test(config: WeChatConfig, storage: StorageManager, lang: str, dr
         console.print(f"Language '{lang}' is filtered out by wechat.languages.")
         return
     sample = (
-        "# Horizon 微信推送测试\n\n这是一条测试消息。\n\n[Horizon](https://github.com/Thysrael/Horizon)"
+        "# Periscope 微信推送测试\n\n这是一条测试消息。\n\n[Periscope](https://atomgit.com/NLY22/periscope)"
         if lang == "zh" else
-        "# Horizon WeChat test\n\nThis is a test message.\n\n[Horizon](https://github.com/Thysrael/Horizon)"
+        "# Periscope WeChat test\n\nThis is a test message.\n\n[Periscope](https://atomgit.com/NLY22/periscope)"
     )
     if dry_run:
         # A preview neither loads credentials nor connects to WeChat.
@@ -176,7 +176,7 @@ async def _run_test(config: WeChatConfig, storage: StorageManager, lang: str, dr
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Connect Horizon to WeChat and test delivery")
+    parser = argparse.ArgumentParser(description="Connect Periscope to WeChat and test delivery")
     add_data_dir_arguments(parser)
     add_log_level_argument(parser)
     commands = parser.add_subparsers(dest="command", required=True)

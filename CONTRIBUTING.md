@@ -1,8 +1,6 @@
-# 贡献给 Periscope（本 fork）
+# 贡献给 Periscope
 
-> 本仓库是 [Thysrael/Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游的 issue、PR、赞助渠道、在线演示与「投稿信息源」网站都属于**上游社区**，与本 fork 无关。本 fork 的代码、issue 与 PR 只在 <https://atomgit.com/NLY22/periscope>。
-
-本 fork 的全部工作可以压成一句话：**把来源放宽到论坛、视频与评论区，再用分层、交叉印证与可解释打分把必然下降的质量补回来。** 因此这里的贡献规则只服务于一件事：改动之后，这个补质量的机制还成立吗？
+Periscope 的全部工作可以压成一句话：**把来源放宽到论坛、视频与评论区，再用分层、交叉印证与可解释打分把必然下降的质量补回来。** 因此这里的贡献规则只服务于一件事：改动之后，这个补质量的机制还成立吗？
 
 ## 先读这四份
 
@@ -60,7 +58,7 @@ uv run python scripts/eval_multiturn.py
 
 ## 贡献信息源
 
-本 fork 的信息源改动**直接开 PR 或 issue**。（上游社区收集投稿的站点不由本 fork 运营，而且两处地址不一致：上游 `CONTRIBUTING.md` 写的是 `horizon1123.top`，上游 `README.md` 现在写的是 `periscope1123.top` —— 本项目改名后旧地址未同步。以那两个字面量出现在本仓库里只是为了说明归属，不代表本 fork 使用或背书它们。）
+信息源改动**直接开 PR 或 issue**，没有另一条投稿渠道。
 
 新增一个源通常只需要：`SOURCE_SPECS` 一条 + `src/sources/registry.py` 一个工厂绑定 + 抓取器（如果要新增）+ `docs/scrapers.md` 一节。**先确认取得到**：中文 UGC 平台默认有登录墙或验证码，请先在 PR 里贴出实际响应，而不是假设能抓。判别这件事已经做成工具，跑一条就有结论（不加 `--online` 它一个请求都不发）：
 
@@ -72,4 +70,4 @@ uv run python scripts/spike_sources.py --source tieba --kw <吧名或关键词> 
 
 ## 行为准则与安全披露
 
-见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) 与 [SECURITY.md](SECURITY.md)。两者顶部的说明同样适用于本 fork：**上游联系邮箱不代表本 fork**，本 fork 的问题请开在本仓库。
+见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) 与 [SECURITY.md](SECURITY.md)。两个文件里写的联系渠道都以本仓库为准。

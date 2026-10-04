@@ -1,4 +1,4 @@
-"""Shared CLI argument helpers for Horizon entrypoints."""
+"""Shared CLI argument helpers for Periscope entrypoints."""
 
 import argparse
 import sys

@@ -183,7 +183,7 @@ class OpenAIClient(AIClient):
 
     _BASE_URL_ENVS = {
         "ollama": (
-            "HORIZON_OLLAMA_BASE_URL",
+            "PERISCOPE_OLLAMA_BASE_URL",
             "OLLAMA_BASE_URL",
             "OLLAMA_HOST",
         ),

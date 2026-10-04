@@ -2,7 +2,7 @@
 
 Pulls recent global news articles from the key-less GDELT 2.0 DOC API
 (https://api.gdeltproject.org/api/v2/doc/doc) and maps them into
-ContentItem instances so the rest of the Horizon pipeline (deduplication,
+ContentItem instances so the rest of the Periscope pipeline (deduplication,
 AI scoring, enrichment, summarization) treats them the same way as RSS or
 Hacker News items.
 

@@ -6,7 +6,7 @@ title: Processing Profiles
 # Processing Profiles
 
 News needs context. An engineering deep dive needs an explanation of the solution.
-A profile tells Horizon what to look for, how to judge it, and what to write—using
+A profile tells Periscope what to look for, how to judge it, and what to write—using
 Markdown prompts and a JSON block definition.
 
 Profiles define reusable editorial rules. Your sources, AI model, score thresholds,
@@ -73,7 +73,7 @@ new profile also joins the candidates for unrestricted automatic routing.
 ## Contributing a Profile
 
 A profile is a reusable editorial policy for a content domain, not a user
-account, source list, or collection of personal interests. It tells Horizon:
+account, source list, or collection of personal interests. It tells Periscope:
 
 1. which items belong to the domain (`match.md`),
 2. how to evaluate and score them (`analysis.md`), and
@@ -121,7 +121,7 @@ Configure discovery in `data/config.json`:
 }
 ```
 
-`default_profile` must name a loaded profile. Horizon fails to start if no
+`default_profile` must name a loaded profile. Periscope fails to start if no
 profiles are found or the default does not exist.
 
 ## Profile Schema
@@ -225,7 +225,7 @@ Routing follows these rules:
    profile's `match.md`.
 3. A non-empty profile array invokes AI matching only against those candidates.
 4. Unknown, duplicate, blank, or `"auto"` entries in a candidate array are errors.
-5. If candidate matching fails, Horizon uses `processing.default_profile` when
+5. If candidate matching fails, Periscope uses `processing.default_profile` when
    it is a candidate, otherwise the first candidate. Unrestricted matching falls
    back to `processing.default_profile`.
 
@@ -237,7 +237,7 @@ field directly.
 
 ## Analysis
 
-After routing, Horizon sends the item to the selected profile's `analysis.md`
+After routing, Periscope sends the item to the selected profile's `analysis.md`
 prompt. A successful analysis contains a 0-10 score, a reason, a one-sentence
 summary, and tags. A failed analysis may be stored with a null score. The profile
 owns the rubric, so profiles can evaluate different content forms by different
@@ -260,7 +260,7 @@ Filtering is a user preference configured by profile ID under
 }
 ```
 
-`threshold` must be between 0 and 10. Horizon keeps items whose analysis score
+`threshold` must be between 0 and 10. Periscope keeps items whose analysis score
 is greater than or equal to that threshold. Set it to `null` or omit settings for
 a profile to bypass score filtering. An MCP threshold supplied for a single
 operation takes precedence over these configured values.
@@ -277,7 +277,7 @@ Required blocks must be present; optional blocks can be omitted when they add no
 useful content. Generated output cannot contain unknown or duplicate blocks.
 
 Tools are allowed per block through its `tools` array. The built-in tools are
-`web_search` (external web results) and `history_search` (past Horizon digests).
+`web_search` (external web results) and `history_search` (past Periscope digests).
 A block may use a tool only when it explicitly declares it. Use an empty array
 for blocks that need no tools. Unknown tools are rejected when the enricher is
 initialized.
@@ -287,12 +287,12 @@ blocks with tools, the prompt asks the model to use a tool unless the source
 already provides enough evidence. A search is not guaranteed; tool failures do
 not make a required block optional.
 
-Search-backed statements cite tool results through source references. Horizon
+Search-backed statements cite tool results through source references. Periscope
 rejects references that were not returned by a tool call.
 
 ### Historical news search
 
-`history_search` reads the existing `horizon-YYYY-MM-DD*.md` files under your
+`history_search` reads the existing `periscope-YYYY-MM-DD*.md` files under your
 data directory's `summaries/` folder. It uses local BM25 ranking over individual
 news titles, main summaries, and tags, with extra weight for titles. The index is
 loaded lazily once per enrichment batch; it needs no additional dependency,
@@ -330,7 +330,7 @@ add some input tokens but no separate AI screening stage.
 To try it, keep past Markdown digests in the same data directory used by the
 next run. CLI `--data-dir` and the existing Docker data mount are respected. MCP
 uses `summaries/` beside its config file; per-run MCP artifacts alone are not
-searched (export a digest with `save_to_horizon_data` to include it). An empty or
+searched (export a digest with `save_to_periscope_data` to include it). An empty or
 missing archive simply returns no results. Scheduled runners need to restore
 past digest files before running; publishing old Pages posts alone does not
 make them available in a fresh checkout.

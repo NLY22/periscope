@@ -7,7 +7,7 @@ call is therefore gated behind a persistent (system, user, params) cache,
 and only genuine cache misses hit the network — spaced by `throttle_sec`.
 
 Deliberately a decorator over the AIClient protocol (not a base-class
-feature): Horizon's analyzer/enricher/summarizer all speak `complete()`,
+feature): Periscope's analyzer/enricher/summarizer all speak `complete()`,
 so wrapping once at the construction site covers every caller, and tests
 keep injecting fakes directly.
 """

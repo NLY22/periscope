@@ -389,7 +389,7 @@ function renderDraft(draft){
     <div class="sec${s.stale?' stale':''}" data-sid="${esc(s.id)}">
       <h4>${esc(s.title)}
         ${s.locked?'<span class="tag lock">已锁定</span>':''}
-        ${s.stale?'<span class="tag st">上游已变 · 未覆盖</span>':''}
+        ${s.stale?'<span class="tag st">新版已变 · 未覆盖</span>':''}
         <span class="tag">rev ${draft.revision}</span>
         <span class="tag">${(s.evidence_ids||[]).length} 条证据</span>
       </h4>

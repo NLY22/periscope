@@ -122,7 +122,7 @@ class StorageManager:
         return self.config_path
 
     def save_daily_summary(self, date: str, markdown: str, language: str = "en") -> Path:
-        filename = f"horizon-{date}-{language}.md"
+        filename = f"periscope-{date}-{language}.md"
         filepath = safe_output_path(self.summaries_dir, filename)
 
         _atomic_write_text(filepath, markdown)

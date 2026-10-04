@@ -1,6 +1,6 @@
 """Claim-level correctness analysis (Periscope Phase C).
 
-Horizon answers "what is worth reading today". Periscope must also answer
+Periscope answers "what is worth reading today". Periscope must also answer
 "is it true, and how independently is it supported" — which requires
 breaking prose into atomic claims and matching each claim against the
 evidence corpus.
@@ -477,7 +477,7 @@ CREATE INDEX IF NOT EXISTS idx_contra_b ON claim_contradictions(claim_b);
             ).fetchall()
         )
         # `by_verdict` alone hides how many of those the gate overruled, and
-        # `hz_corpus_stats` hands this dict straight to an agent. Pre-gate rows
+        # `ps_corpus_stats` hands this dict straight to an agent. Pre-gate rows
         # are labelled `unset` rather than folded into `llm`: nobody knows who
         # decided those, and the count must not imply otherwise.
         by_verdict_source = dict(

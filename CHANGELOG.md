@@ -120,7 +120,55 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 ---
 
-## 尚未合入（本轮，分支 `feat/eval-legs-and-selftest-runbook`）
+## 尚未合入（本轮，分支 `rename/upstream-to-periscope`）
+
+这一轮不新增能力，做的是**把身份彻底换成 Periscope**：继承来的名字散在 98 个文件里（旧项目名 673 处、它的 MCP 工具前缀 205 处、作者署名 24 处、它托管的两个域名 8 处），而"改名改了一半"比不改更糟——剩下的那些会被读成"重要的部分没改"。
+
+### 旧名 → 新名（对照表）
+
+| 旧 | 新 | 破坏性 |
+|---|---|---|
+| MCP 工具前缀 `hz_*`（27 个） | `ps_*` | 是：任何已写好的 agent 提示词 / MCP 客户端配置要换名 |
+| `HorizonOrchestrator` / `HorizonMcpError` / `HorizonPipelineService` | `Orchestrator` / `McpError` / `PipelineService` | 否（内部 API） |
+| `src/mcp/horizon_adapter.py` | `src/mcp/pipeline_adapter.py` | 否 |
+| 环境变量 `HORIZON_PATH` / `HORIZON_MCP_SECRETS_PATH` / `HORIZON_WEBHOOK_URL` / `HORIZON_OLLAMA_BASE_URL` | `PERISCOPE_*` | **是**：你手写的 `.env` 与 `data/config.json` 里 `url_env` 那一串要改名才生效 |
+| 错误码 `HZ_*`（`HZ_INVALID_INPUT` / `HZ_SECRETS_NOT_FOUND` / `HZ_SESSION_NOT_FOUND` …） | `PS_*`；两个含旧项目名的改成 `PS_REPO_NOT_FOUND` / `PS_INVALID_REPO_PATH` | 否 |
+| 资源 URI `horizon://…` | `periscope://…` | 是（客户端里写死过的） |
+| 抓取器 UA、示例邮件与示例微信文本里的旧项目名与旧地址 | `Periscope/1.0` 与本仓库地址 | 否 |
+
+### 删掉的"属于原项目"的内容
+
+徽章（Trendshift×2、HelloGitHub 与它的 widget 脚本、"fork of" 徽章）、在线演示站点、QQ 群与二维码、三家赞助位及其 logo、投稿收集站点、作者的联系邮箱（`SECURITY.md` 与 `CODE_OF_CONDUCT.md` 的报告渠道整体改写为本仓库）、README 的「这是 fork，不是上游」对照表与整段免责句、能力表里的「（上游）/（本 fork）」出处列、`CONTRIBUTING.md` 的 fork 告示、`docs/horizon-hub-design.md`（上游那份**没有一行实现**的提案，删页而不是加标注：加了标注的虚构仍会被当事实扫）、GitHub Pages 那套站点机器（`docs/index.md`、`_config.yml`、`_includes/head-custom.html`、`feed-*.xml`、`css/horizon.css`、`js/horizon.js`、`horizon-header.svg`）、`.github/workflows/deploy-docs.yml` 与 `daily-summary.yml.disabled` 及 `data/config.github.json`、以及继承来的 `architecture.svg` 与它的 OmniGraffle 源文件（那张图画的是上游那层日报流水线，README 现在直接指向 `docs/architecture.md` 里与代码双向对齐的三张图）。
+
+两条**边界**写清楚，避免被读成别的：
+
+- `LICENSE` 里原作者的版权行与 MIT 正文**保留**。MIT 的义务就是保留版权声明，删它是许可违规，不是风格选择。
+- 平台记录的 fork 关系由仓库元数据决定，不由文字决定。删掉描述能让它读起来就是 Periscope 这个项目，**做不到**"看起来不是 fork"。
+
+### 一条真正的行为变更（不是改名）
+
+`src/setup/presets.py` 原先**默认**从上游托管的 `/api/presets` 拉标签预设，也就是说开箱状态下你的安装会去请求别人的服务器。这条远程通路连同 `*_API_URL`、`*_OFFLINE` 两个环境变量一起删除，配置向导现在只读本地 `data/presets.json`。少了一个"要不要联网"的隐式开关，也多了一条不会外发的保证。
+
+### 护栏
+
+- 新增 `tests/test_no_upstream_identity_remains.py`（5 条）：扫全部 tracked 文本文件里的四个旧标识，豁免**只有** `LICENSE` 与两份历史文件（`CHANGELOG.md`、`docs/superpowers/`），并且**每条豁免必须真命中**——否则豁免清单就是护栏悄悄失效的地方。这个文件里所有被禁的名字都是运行时拼出来的：本文件自己也是被扫对象，写死一个就等于给它发通行证。两个方向都用合成输入验过会红（普通文件里种一个旧名要报、`LICENSE` 里那行不能报）。
+- 符号网加了一条"历史前缀"规则：`CHANGELOG.md` 里以 `hz_` / `horizon` 开头的标识按当年的名字放行，其他文档不放行——历史记录可以引用已经不存在的名字，指南不行。
+- 适配的既有护栏：MCP 工具前缀的两处正则、README 的工具数、`docs/index.md` 删除后"每个顶层 docs 必须被 README 链接"不再需要豁免、原"上游提案必须被标注"换成"那一页必须不存在且没有任何人链接它"、CLI 幽灵命令自证改成运行时拼接（改名把它当例子的那个旧命令变成了真命令，自证当场失效）、`PERISCOPE_PATH` 那条 env 文档护栏跟着改名。
+
+### 改名过程中被"跑一遍"抓出来的两处真缺陷
+
+- `scripts/check_mcp.py` 里 `from src.mcp.periscope_adapter import ...` —— 改名中途留下的**坏 import**，测试没有覆盖这个脚本，只有真跑才暴露。
+- `docs/configuration.md` 的进程环境变量表指向已经不存在的 `src/mcp/periscope_adapter.py`。
+
+两处都在同一轮修掉。这是"跑一遍才算验"的第五次应用：静态扫描看到的是"文档写了个文件名"，只有执行会告诉你那个文件不在了。
+
+**数据**：全量 `uv run pytest` **collected 1061、exit=0**（+5 身份护栏，−3 随上游页面一起删除的护栏）。真验的运行面：六个 `periscope-*` 控制台命令重建后逐个能跑；MCP 用真 stdio 客户端握手，`tools/list` 回 **27** 个全部 `ps_*` 前缀，资源 **4 固定 + 3 模板**；`docs/evaluation.md` 与 `docs/selftest.md` 的表仍与 `data/eval/results.json` 逐格一致。**尚未验的**：面板像素本轮没重看（改名只动了 `docs/` 那套 Pages 静态资源，面板自身是内联样式，`src/web/static/index.html` 只改了草稿标记那一处文案）。**本机副作用**：`.venv` 的控制台脚本本轮重建过（`uv sync` 因 C 盘满 / 杀软锁 PE 资源失败两次，第三次成功）。
+
+
+
+---
+
+## 尚未合入（分支 `feat/eval-legs-and-selftest-runbook`，PR !11 已开）
 
 这一轮没有新增能力面，做的是**把"你自己去测"这条路铺平**：文档里承诺过的真模型开关这次真的存在了、手册里每个数字都由机器对着评测产物核过、而"文档给过一条不存在的命令"这类缺陷第一次有了覆盖到脚本自己 docstring 的护栏。
 

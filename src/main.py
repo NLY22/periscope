@@ -1,4 +1,4 @@
-"""CLI entry point for Horizon."""
+"""CLI entry point for Periscope."""
 
 import argparse
 import asyncio
@@ -13,7 +13,7 @@ from ._cli import add_data_dir_arguments, add_log_level_argument, force_utf8_out
 from .console_icons import get_icons
 from .logging_config import configure_logging
 from .storage.manager import ConfigError, StorageManager
-from .orchestrator import HorizonOrchestrator
+from .orchestrator import Orchestrator
 
 
 console = Console(stderr=True)
@@ -44,7 +44,7 @@ def main():
     print_banner()
     icons = get_icons()
 
-    parser = argparse.ArgumentParser(description="Horizon - AI-Driven Information Aggregation System")
+    parser = argparse.ArgumentParser(description="Periscope - AI-Driven Information Aggregation System")
     parser.add_argument("--hours", type=int, help="Force fetch from last N hours")
     add_data_dir_arguments(parser)
     add_log_level_argument(parser)
@@ -104,7 +104,7 @@ def main():
         icons = get_icons(config.display.icon_style)
 
         # Create and run orchestrator
-        orchestrator = HorizonOrchestrator(config, storage, console=console)
+        orchestrator = Orchestrator(config, storage, console=console)
         asyncio.run(orchestrator.run(force_hours=args.hours))
 
     except KeyboardInterrupt:

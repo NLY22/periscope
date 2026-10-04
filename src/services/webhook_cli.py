@@ -207,7 +207,7 @@ async def _run_test(
 
 
 def main() -> None:
-    """CLI entry point for horizon-webhook."""
+    """CLI entry point for periscope-webhook."""
     parser = argparse.ArgumentParser(
         description="Test webhook connectivity and preview rendered content",
     )

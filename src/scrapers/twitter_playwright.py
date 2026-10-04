@@ -375,7 +375,7 @@ class TwitterPlaywrightScraper(BaseScraper):
             await page.close()
 
     def _parse_tweet(self, tweet: dict, username: str) -> Optional[ContentItem]:
-        """Convert raw tweet dict to Horizon ContentItem."""
+        """Convert raw tweet dict to Periscope ContentItem."""
         try:
             tweet_id = str(tweet.get("tweet_id", ""))
             if not tweet_id:

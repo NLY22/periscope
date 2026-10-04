@@ -1,4 +1,4 @@
-"""Small, read-only BM25 search over Horizon's Markdown digests."""
+"""Small, read-only BM25 search over Periscope's Markdown digests."""
 
 import asyncio
 from collections import Counter
@@ -14,7 +14,7 @@ from urllib.parse import urldefrag
 
 logger = logging.getLogger(__name__)
 
-_FILENAME = re.compile(r"^horizon-(\d{4}-\d{2}-\d{2})(?:-.*)?\.md$")
+_FILENAME = re.compile(r"^periscope-(\d{4}-\d{2}-\d{2})(?:-.*)?\.md$")
 # Older digests use H2 for news; Profile-grouped digests use H3.
 _ITEM = re.compile(
     r"^#{2,3} \[((?:\\.|[^\\\]])+)\]\((https?://\S+)\)[^\n]*\n",
@@ -57,7 +57,7 @@ class HistoryEntry:
 
 def _read_entries(directory: Path) -> list[HistoryEntry]:
     entries = []
-    for path in sorted(directory.glob("horizon-*.md")):
+    for path in sorted(directory.glob("periscope-*.md")):
         filename = _FILENAME.fullmatch(path.name)
         if not filename:
             continue
@@ -158,7 +158,7 @@ class HistorySearchTool:
                 "title": f"{entry.digest_date.isoformat()} — {entry.title}",
                 "url": entry.url,
                 "text": (
-                    f"Horizon archive: {entry.filename}. "
+                    f"Periscope archive: {entry.filename}. "
                     "Date is the digest date, not a verified event date.\n"
                     f"Archived summary: {entry.summary[:500] or entry.title}"
                 ),

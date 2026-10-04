@@ -1,133 +1,30 @@
 """Preset source library loader and keyword matching.
 
-Supports loading from the horizon-site API (preferred) or local file (fallback).
-API data is served in horizon-site's own format (Category/SourceType enums)
-and transformed internally to the preset format that match_domains() expects.
+The preset library is a local file (`data/presets.json`). The wizard reads it
+offline, so a first run never contacts a remote service.
 """
 
 import json
-import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-
-import httpx
 
 from .tag_aliases import get_tag_aliases
 
 
-API_BASE_URL = os.environ.get(
-    "HORIZON_API_URL", "https://horizon1123.top"
-)
-PRESETS_ENDPOINT = f"{API_BASE_URL}/api/presets"
-REQUEST_TIMEOUT = 10  # seconds
-
-
-def fetch_presets() -> Optional[Dict]:
-    """Fetch presets from the horizon-site API.
-
-    Returns:
-        Dict in the internal preset format (with "domains" key),
-        or None if the fetch fails.
-    """
-    try:
-        response = httpx.get(
-            PRESETS_ENDPOINT,
-            timeout=REQUEST_TIMEOUT,
-            follow_redirects=True,
-            headers={"Accept": "application/json"},
-        )
-        response.raise_for_status()
-        data = response.json()
-
-        if "categories" not in data:
-            return None
-
-        return _transform_api_response(data)
-    except (httpx.HTTPError, json.JSONDecodeError, ValueError):
-        return None
-
-
-def _transform_api_response(api_data: Dict) -> Dict:
-    """Transform horizon-site API response to the internal preset format.
-
-    The API returns data in horizon-site's format (Category enum IDs like
-    "AI_ML", SourceType enums like "REDDIT"). This function converts it
-    to the preset format with kebab-case IDs and lowercase type strings
-    that match_domains() and collect_sources_from_domains() expect.
-
-    Args:
-        api_data: Raw API response with "categories" key.
-
-    Returns:
-        Dict with "domains" key in preset format.
-    """
-    domains = []
-    for category in api_data.get("categories", []):
-        sources = []
-        for src in category.get("sources", []):
-            config = dict(src.get("config", {}))
-
-            # Horizon-site stores "name" at the source level, but
-            # horizon's build_config() expects it inside config for RSS sources.
-            src_type = src.get("type", "rss")
-            source_name = src.get("name", "")
-            if src_type == "rss" and source_name and "name" not in config:
-                config["name"] = source_name
-
-            # Remove the internal "subtype" field that horizon-site uses
-            # for GitHub sources — horizon uses the type field instead.
-            if src_type in ("github_user", "github_repo"):
-                config.pop("subtype", None)
-
-            sources.append({
-                "type": src_type,
-                "description": src.get("description", ""),
-                "description_zh": src.get("description_zh", src.get("description", "")),
-                "tags": src.get("tags", []),
-                "config": config,
-            })
-
-        domains.append({
-            "id": category.get("id", "").lower().replace("_", "-"),
-            "name": category.get("name", ""),
-            "name_zh": category.get("name_zh", category.get("name", "")),
-            "keywords": category.get("keywords", []),
-            "sources": sources,
-        })
-
-    return {"domains": domains}
-
-
-def load_presets(
-    presets_path: str = "data/presets.json",
-    prefer_api: bool = True,
-) -> Dict:
-    """Load presets from API (preferred) or local file (fallback).
-
-    Args:
-        presets_path: Path to the local presets JSON file for fallback.
-        prefer_api: Whether to try the API first. Set False for offline mode
-            or when HORIZON_OFFLINE environment variable is set.
-
-    Returns:
-        Dict with "domains" key containing preset data.
+def load_presets(presets_path: str = "data/presets.json") -> Dict:
+    """Load the local preset library.
 
     Raises:
-        FileNotFoundError: If both API and local file are unavailable.
+        FileNotFoundError: when the file is missing. `data/presets.json` ships
+            in the repository, so this means the working directory or the
+            storage data dir was pointed somewhere without it.
     """
-    offline = os.environ.get("HORIZON_OFFLINE", "").lower() in ("1", "true", "yes")
-
-    if prefer_api and not offline:
-        api_presets = fetch_presets()
-        if api_presets is not None:
-            return api_presets
-
     path = Path(presets_path)
     if not path.exists():
         raise FileNotFoundError(
             f"Presets file not found: {path}\n"
-            f"API fetch also failed. Please check your connection "
-            f"or ensure {presets_path} exists."
+            f"`data/presets.json` ships in the repository; run from the repo "
+            f"root or restore that file."
         )
 
     with open(path, "r", encoding="utf-8") as f:
