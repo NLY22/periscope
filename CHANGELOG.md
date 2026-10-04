@@ -143,7 +143,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 两条**边界**写清楚，避免被读成别的：
 
 - `LICENSE` 里原作者的版权行与 MIT 正文**保留**。MIT 的义务就是保留版权声明，删它是许可违规，不是风格选择。
-- 平台记录的 fork 关系由仓库元数据决定，不由文字决定。删掉描述能让它读起来就是 Periscope 这个项目，**做不到**"看起来不是 fork"。
+- 一条**本轮实测纠正**：我先前说过"平台记录的 fork 关系由仓库元数据决定，删文字做不到看起来不是 fork"。回读 `GET /repos/NLY22/periscope` 打的是 `fork: false`、`forks_count: 0`，响应里也没有 forked-from 字段——也就是说这个仓库在平台上**本来就没被标成 fork**，我那句话是没核实的归因。仓库的 `description` 字段仍写着"Periscope fork…"，那是唯一还在说这件事的地方，而 `update_repository` 两次调用都未生效（每次都回读确认字段没变），要改只能你在网页端改。
 
 ### 一条真正的行为变更（不是改名）
 
