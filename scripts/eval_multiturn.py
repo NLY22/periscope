@@ -14,9 +14,9 @@ Three numbers, none of which is a quality claim:
 3. **flood resistance** — `independent_sources` before and after the P1 recount
    under a same-text pile-on. The old rule
    (`COUNT(DISTINCT COALESCE(cluster_id, item_id))`) is replayed *inside this
-   script*, the way `--tiering marker` keeps ablation arm A reproducible: the
-   production code no longer contains it, so the comparison has to be explicit
-   to stay checkable.
+   script*, the way `scripts/eval_retrieval.py --tiering marker` keeps ablation
+   arm A reproducible: the production code no longer contains it, so the
+   comparison has to be explicit to stay checkable.
 
 Nothing here measures latency. The repo bans wall-clock assertions, so the cost
 unit is LLM calls, not seconds — say "calls", never "ms", when quoting this.

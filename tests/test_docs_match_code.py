@@ -10,8 +10,10 @@ A prose fix without a test would rot again.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -303,6 +305,17 @@ def _doc_identifiers(text: str) -> list[str]:
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", t) and "..." not in t
         # `UC...` / `past_...` are elisions readers are meant to complete, not symbols.
     ]
+
+
+# A backticked commit hash is a claim about history, not about a symbol table.
+# Before this rule the identifier net caught `eb2a094` and let `7379a77` through
+# purely because one starts with a letter, which is the worst kind of coverage:
+# accidental, and invisible. Hex-shaped spans now get checked against git.
+_REVISION = re.compile(r"[0-9a-f]{7,40}")
+
+
+def _doc_revisions(text: str) -> list[str]:
+    return [t for t in _doc_backticked(text) if _REVISION.fullmatch(t)]
 
 
 def _dataclass_field_values(class_name: str, field_name: str) -> list[str]:
@@ -614,6 +627,59 @@ def test_the_ablation_guard_rejects_a_stale_number() -> None:
     assert "row B, nDCG@10" in problems[0] and "row D, recall@10" in problems[1]
 
 
+SELFTEST_DOC = REPO_ROOT / "docs" / "selftest.md"
+
+
+def _selftest_numbers(stored: dict) -> dict[str, str]:
+    """The digits 档 1 tells a reader to expect, recomputed from the stored run."""
+    rows = {config["name"].split()[0]: config["metrics"] for config in stored["configs"]}
+    return {
+        "A precision@5": f"{rows['A']['precision@5']:.3f}",
+        "B precision@5": f"{rows['B']['precision@5']:.3f}",
+        "A nDCG@10": f"{rows['A']['ndcg@10']:.3f}",
+        "B nDCG@10": f"{rows['B']['ndcg@10']:.3f}",
+        "分层付出的 recall@10 代价": f"{rows['A']['recall@10'] - rows['B']['recall@10']:.3f}",
+        "D recall@5 (stub 腿)": f"{rows['D']['recall@5']:.4f}",
+        "D recall@5 (腿降级为 off 后)": f"{rows['B']['recall@5']:.4f}",
+    }
+
+
+def test_the_selftest_runbook_quotes_the_stored_run() -> None:
+    """The runbook is the artifact he tests with, so its numbers are data too.
+
+    `docs/evaluation.md`'s table is already pinned cell by cell; the runbook
+    repeats four of those digits *and* makes a claim no table check looks at --
+    that the D row falls back to exactly B's recall@5 when the expansion leg
+    reports `off`. Two rows compared is a claim about arithmetic, and it is the
+    sentence that tells a reader the degradation path works.
+    """
+    stored = json.loads(RESULTS_JSON.read_text(encoding="utf-8"))
+    text = _read(SELFTEST_DOC)
+    missing = [f"{label}={value}" for label, value in _selftest_numbers(stored).items()
+               if value not in text]
+    assert not missing, f"docs/selftest.md does not print the stored run's values: {missing}"
+
+    rows = {c["name"].split()[0]: c["metrics"] for c in stored["configs"]}
+    assert rows["D"]["recall@5"] != rows["B"]["recall@5"], (
+        "the runbook's fall-back sentence only means something if the stub leg "
+        "actually moves the number"
+    )
+
+
+def test_the_selftest_guard_rejects_a_stale_number() -> None:
+    """Bite proof: one digit off in the runbook has to be reported, not admired."""
+    stored = json.loads(RESULTS_JSON.read_text(encoding="utf-8"))
+    numbers = _selftest_numbers(stored)
+    value = numbers["D recall@5 (stub 腿)"]
+    text = _read(SELFTEST_DOC)
+    assert text.count(value) == 1, f"{value} appears twice; the check would miss a stale copy"
+
+    stale = text.replace(value, value[:-1] + ("8" if value[-1] != "8" else "7"))
+    assert [label for label, printed in numbers.items() if printed not in stale] == [
+        "D recall@5 (stub 腿)"
+    ]
+
+
 # --------------------------------------------------- inherited text vs fork policy
 COOKIE_DOC = REPO_ROOT / "docs" / "twitter-cookies.md"
 HUB_DOC = REPO_ROOT / "docs" / "horizon-hub-design.md"
@@ -730,6 +796,8 @@ def _unknown_symbols(text: str, vocab: set[str]) -> list[str]:
             continue          # a ${VAR} name is chosen by the user, not by this repo
         if token in _EXTERNAL_IDENTIFIERS:
             continue
+        if _REVISION.fullmatch(token):
+            continue          # a commit hash is checked against git, not against a name list
         if token in vocab or all(part in vocab for part in token.split(".")):
             continue
         if _suffix_is_real(token, vocab):
@@ -758,6 +826,89 @@ def test_the_symbol_net_is_not_toothless() -> None:
     assert _unknown_symbols(f"`{fake_class}` and `{fake_tool}` and `_draft`", vocab) == sorted(
         [fake_class, fake_tool]
     )
+
+
+def _git(*args: str) -> int:
+    """`git` exit code for an argument list -- no shell, so the hex token above
+    is the only thing that reaches git."""
+    return subprocess.run(
+        ["git", *args], cwd=str(REPO_ROOT), capture_output=True, text=True
+    ).returncode
+
+
+def _ref_exists(ref: str) -> bool:
+    return _git("rev-parse", "--verify", "--quiet", ref) == 0
+
+
+def _reaches_main(rev: str) -> bool:
+    """Is `rev` an ancestor of (or equal to) the main branch?"""
+    anchor = "main" if _ref_exists("main") else "origin/main"
+    return _git("merge-base", "--is-ancestor", rev, anchor) == 0
+
+
+def test_every_backticked_revision_names_a_real_commit() -> None:
+    """The changelog's history claims are checkable, so they have to be checked.
+
+    `8be37ed..main` in the header is the command a reviewer runs to audit this
+    file; a hash that names nothing makes that audit silently return the wrong
+    set. Scope: the hashes a reader can actually copy -- inline spans. The ones
+    inside fenced blocks are covered by the same rule as the code they sit in.
+    """
+    cited = {
+        rev
+        for path in _SYMBOL_DOC_TARGETS
+        for rev in _doc_revisions(_read(path))
+    }
+    # a fresh clone of `main` may not carry an open PR's commits, so only names
+    # that resolve anywhere in this repo are held to the ancestry test below.
+    invented = [rev for rev in sorted(cited) if not _ref_exists(f"{rev}^{{commit}}")]
+    assert not invented, f"docs name commits that do not exist: {invented}"
+
+    # bite proof, built at runtime like the fake symbols: a hash-shaped span is
+    # invisible to the symbol net now, so without this check it would be
+    # invisible to every check.
+    fake = "0" * 6 + "f"
+    assert _doc_revisions(f"`{fake}`") == [fake]
+    assert not _ref_exists(f"{fake}^{{commit}}")
+
+
+def test_the_changelog_merge_state_matches_git() -> None:
+    """"已合入" and "尚未合入" are claims about a branch, and git knows.
+
+    This is the check that would have caught last round's stale wording by
+    itself: a section still titled 尚未合入 after its branch landed in `main`.
+    The heading is what a reader scans first, so the heading is what has to be
+    true.
+    """
+    def problems(text: str) -> list[str]:
+        found: list[str] = []
+        for heading in re.findall(r"^## (.+)$", text, re.M):
+            if "已合入" in heading:
+                for rev in _doc_revisions(heading):
+                    if not _reaches_main(rev):
+                        found.append(f"'{heading}' calls {rev} merged; git disagrees")
+            elif "尚未合入" in heading:
+                branch = next((t for t in re.findall(r"`([^`]+)`", heading) if "/" in t), "")
+                # Only a ref this clone can see is contradicted; a reader who
+                # never fetched the branch is not being told the file is wrong.
+                if branch and _ref_exists(branch) and _reaches_main(branch):
+                    found.append(f"'{heading}' calls {branch} open; it is already in main")
+        return found
+
+    text = _read(REPO_ROOT / "CHANGELOG.md")
+    assert not problems(text), "; ".join(problems(text))
+
+    # Both directions have to bite: the same file with the two titles swapped
+    # onto states git disagrees with must produce exactly two complaints.
+    lines = text.splitlines()
+    open_at = next(i for i, line in enumerate(lines) if line.startswith("## 尚未合入"))
+    merged_at = next(i for i, line in enumerate(lines)
+                     if line.startswith("## 已合入") and _doc_revisions(line))
+    lines[open_at] = "## 尚未合入（本轮，分支 `origin/main`）"
+    lines[merged_at] = f"## 已合入 main（`{'0' * 6}f`）"
+    reported = problems("\n".join(lines))
+    assert len(reported) == 2, reported
+    assert "origin/main" in reported[0] and "000000f" in reported[1]
 
 
 # ------------------------------------------------------------ documented CLI surface
@@ -792,6 +943,12 @@ def _options_in(mod_rel: str) -> set[str]:
 # collector would report a documentation defect that does not exist.
 _ORCHESTRATOR_FLAGS = {"rm", "entrypoint", "build", "no-cache", "it", "detach", "d"}
 
+# One command pattern, used by every attribution rule, so the markdown path and
+# the docstring path can never disagree about what counts as a command.
+_COMMAND_PATTERN = re.compile(
+    r"(?:uv run )?(?:python )?(scripts/\w+\.py|periscope-[a-z-]+|periscope)"
+)
+
 
 def _command_lines(path: Path) -> list[str]:
     """Only code spans and fenced blocks, one line at a time.
@@ -809,31 +966,104 @@ def _command_lines(path: Path) -> list[str]:
     return lines
 
 
-def _documented_targets() -> dict[str, set[str]]:
-    """Every --flag the docs print for one of our commands.
+def _docstring_text(path: Path) -> str:
+    """Module/class/function docstrings of one of our files, joined.
 
-    A flag belongs to the command it follows *up to the next command on the
-    same line*, because the compose idiom stacks two: `docker compose run --rm
-    --entrypoint uv periscope-collect run periscope-wechat test --lang zh`
-    advertises `--lang` for the wechat CLI, not the collector, and `--rm` is
-    docker's. Matching by whole line made both look like documentation defects.
+    Docstrings are documentation too -- and this is where the last fake flag
+    hid: `scripts/eval_retrieval.py` told readers to use `--expander llm` and
+    `--embedder provider` for days while argparse had neither. Every markdown
+    file was checked; the text closest to the code was not.
     """
-    pattern = re.compile(r"(?:uv run )?(?:python )?(scripts/\w+\.py|periscope-[a-z-]+|periscope)")
+    try:
+        tree = ast.parse(_read(path))
+    except (SyntaxError, ValueError):
+        return ""
+    chunks: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            doc = ast.get_docstring(node)
+            if doc:
+                chunks.append(doc)
+    return "\n".join(chunks)
+
+
+def _docstring_promises(path: Path) -> list[str]:
+    """Code-ish lines of a program's own docstrings -- what a reader can copy.
+
+    A line counts when it is an inline span, sits inside a fence, is indented,
+    or names one of our commands. Indentation alone is not enough: docstrings
+    are read through `ast.get_docstring`, whose `cleandoc` removes a uniform
+    margin, so a docstring that is *nothing but* commands arrives flush-left.
+    Un-backticked, unindented prose stays out -- a sentence about a retired
+    flag is not a tutorial that advertises it.
+    """
+    text = _docstring_text(path)
+    lines = re.findall(r"`([^`\n]+)`", text)
+    for block in re.findall(r"```[a-zA-Z]*\n(.*?)```", text, re.S):
+        lines.extend(block.splitlines())
+    lines.extend(line for line in text.splitlines()
+                 if line[:1].isspace() or _COMMAND_PATTERN.search(line))
+    return lines
+
+
+def _attribute_docstrings(target: str, path: Path, found: dict[str, set[str]]) -> None:
+    """Credit a docstring's flags to the command it names, else to its own file.
+
+    The file-only rule I wrote first got two things wrong at once: it credited
+    `--tiering` to `scripts/eval_multiturn.py` because that file's docstring
+    demonstrates the *retrieval* harness, and it still missed
+    `scripts/eval_retrieval.py`'s real promises because they sit on indented
+    command lines rather than in backticks. So: command attribution first, and
+    self-attribution only for the spans that name no command -- which is the
+    shape of the original bug ("to see real gains, rerun with `--expander llm`",
+    a line with no command on it).
+    """
+    lines = _docstring_promises(path)
+    _flags_from_lines(lines, _COMMAND_PATTERN, found)
+    own: set[str] = set()
+    for line in lines:
+        if _COMMAND_PATTERN.search(line):
+            continue
+        own.update(flag for flag in re.findall(r"--([a-z][a-z0-9-]+)", line)
+                   if flag not in _ORCHESTRATOR_FLAGS)
+    found.setdefault(target, set()).update(own)
+
+
+def _flags_from_lines(lines, pattern, found) -> None:
+    """Attribute each --flag to the command it follows, up to the next command.
+
+    The compose idiom stacks two commands on one line (`docker compose run --rm
+    --entrypoint uv periscope-collect run periscope-wechat test --lang zh`), so
+    a whole-line match would credit `--lang` to the collector and `--rm` to us.
+    """
+    for line in lines:
+        matches = list(pattern.finditer(line))
+        for index, match in enumerate(matches):
+            stop = matches[index + 1].start() if index + 1 < len(matches) else len(line)
+            segment = line[match.end():stop]
+            found.setdefault(match.group(1), set()).update(
+                flag for flag in re.findall(r"--([a-z][a-z0-9-]+)", segment)
+                if flag not in _ORCHESTRATOR_FLAGS
+            )
+
+
+def _documented_targets() -> dict[str, set[str]]:
+    """Every --flag the docs and our own docstrings print for one of our commands."""
     found: dict[str, set[str]] = {}
     sources = [
         README, MCP_DOC, REPO_ROOT / "CONTRIBUTING.md", REPO_ROOT / "SECURITY.md",
         REPO_ROOT / "CHANGELOG.md", *sorted((REPO_ROOT / "docs").glob("*.md")),
     ]
     for path in sources:
-        for line in _command_lines(path):
-            matches = list(pattern.finditer(line))
-            for index, match in enumerate(matches):
-                stop = matches[index + 1].start() if index + 1 < len(matches) else len(line)
-                segment = line[match.end():stop]
-                found.setdefault(match.group(1), set()).update(
-                    flag for flag in re.findall(r"--([a-z][a-z0-9-]+)", segment)
-                    if flag not in _ORCHESTRATOR_FLAGS
-                )
+        _flags_from_lines(_command_lines(path), _COMMAND_PATTERN, found)
+
+    # ...plus each program's own docstrings.
+    scripts = {f"scripts/{p.name}": p for p in sorted((REPO_ROOT / "scripts").glob("*.py"))}
+    entries = {name: REPO_ROOT / (mod.replace(".", "/") + ".py")
+               for name, mod in _entry_points().items()}
+    for target, path in {**scripts, **entries}.items():
+        if path.exists():
+            _attribute_docstrings(target, path, found)
     return found
 
 
@@ -861,6 +1091,54 @@ def test_every_documented_command_flag_exists() -> None:
         if missing:
             unknown[target] = missing
     assert not unknown, f"docs print flags the programs do not accept: {unknown}"
+
+
+def test_the_flag_guard_reads_script_docstrings(tmp_path: Path) -> None:
+    """Both docstring shapes get read, and each flag lands on the right program.
+
+    Two real defects made this rule, and each is one of the two attribution
+    halves. The trigger was `scripts/eval_retrieval.py` telling readers to
+    "rerun with `--expander llm --embedder provider`" for days while argparse
+    had neither: no command shared those lines, so the line-based markdown rule
+    saw nothing and the file had to be credited with its own spans. Then the
+    first fix overreached -- that same harness also prints its commands as an
+    *indented block* (docstrings need no backticks), and `eval_multiturn.py`
+    demonstrates the retrieval command in its own docstring, which file
+    attribution credited to the wrong program. Proving both directions here is
+    what makes the guard real; the live files are checked by
+    `test_every_documented_command_flag_exists`.
+    """
+    def attributed(source: str, target: str = "scripts/own_tool.py") -> dict[str, set[str]]:
+        fake = tmp_path / "own_tool.py"
+        fake.write_text(source, encoding="utf-8")
+        found: dict[str, set[str]] = {}
+        _attribute_docstrings(target, fake, found)
+        return found
+
+    # span with no command -> the file's own promise, and a set difference is
+    # what the guard compares, so an invented flag must come out as missing.
+    own = attributed(
+        '"""Measure things.\n\nTo see real gains, rerun with `--expander llm '
+        '--made-up-flag`.\n"""\n',
+    )
+    assert own["scripts/own_tool.py"] == {"expander", "made-up-flag"}
+
+    # indented command block -> credited to the command on that line, never to
+    # the file that happens to mention it.
+    named = attributed(
+        '"""Compare configurations.\n\n'
+        "    uv run python scripts/other_tool.py --tiering marker\n"
+        "    uv run python scripts/own_tool.py --embedder provider\n"
+        '"""\n',
+    )
+    assert named["scripts/other_tool.py"] == {"tiering"}, "cross-file promise misattributed"
+    assert named["scripts/own_tool.py"] == {"embedder"}, "own command lost its flag"
+
+    # prose is not a promise: an un-backticked, unindented sentence about a
+    # retired option must not be read as a command a reader can copy.
+    assert attributed('"""Dropped the --old-flag option in v3.\n\nNothing here is code.\n"""\n') == {
+        "scripts/own_tool.py": set()
+    }
 
 
 def test_the_reachability_probe_is_documented_as_a_runnable_command() -> None:
