@@ -874,7 +874,8 @@ def test_the_changelog_merge_state_matches_git() -> None:
     This is the check that would have caught last round's stale wording by
     itself: a section still titled 尚未合入 after its branch landed in `main`.
     The heading is what a reader scans first, so the heading is what has to be
-    true.
+    true. Its counterpart is equally cheap: merge something without recording
+    the revision, and main's head has no 已合入 heading to point at.
     """
     def problems(text: str) -> list[str]:
         found: list[str] = []
@@ -894,15 +895,41 @@ def test_the_changelog_merge_state_matches_git() -> None:
     text = _read(REPO_ROOT / "CHANGELOG.md")
     assert not problems(text), "; ".join(problems(text))
 
-    # Both directions have to bite: the same file with the two titles swapped
-    # onto states git disagrees with must produce exactly two complaints.
-    lines = text.splitlines()
-    open_at = next(i for i, line in enumerate(lines) if line.startswith("## 尚未合入"))
-    merged_at = next(i for i, line in enumerate(lines)
-                     if line.startswith("## 已合入") and _doc_revisions(line))
-    lines[open_at] = "## 尚未合入（本轮，分支 `origin/main`）"
-    lines[merged_at] = f"## 已合入 main（`{'0' * 6}f`）"
-    reported = problems("\n".join(lines))
+    def recorded_merges(document: str) -> set[str]:
+        return {
+            rev
+            for heading in re.findall(r"^## (.+)$", document, re.M)
+            if "已合入" in heading
+            for rev in _doc_revisions(heading)
+        }
+
+    # Recording the merge is part of merging it. If `main` moved and no 已合入
+    # heading carries that revision, the file is describing an older repository
+    # while reading like it is current -- which is how "待合并" wording survived
+    # a whole round last time.
+    anchor = "main" if _ref_exists("main") else "origin/main"
+    head = subprocess.run(
+        ["git", "rev-parse", "--short=7", anchor], cwd=str(REPO_ROOT),
+        capture_output=True, text=True
+    ).stdout.strip()
+    assert head, "git gave no revision for main, so this check would pass vacuously"
+    assert head in recorded_merges(text), (
+        f"main is at {head}, but no 已合入 heading records it"
+    )
+    # The check is a set membership over the file, not a tautology: hide that
+    # heading and the same assertion must stop holding.
+    hidden = "\n".join(line for line in text.splitlines() if head not in line)
+    assert head not in recorded_merges(hidden)
+
+    # Both directions have to bite, and the proof cannot lean on the file's
+    # current state: the first version of this proof searched the real CHANGELOG
+    # for a 尚未合入 heading to tamper with, and blew up with StopIteration the
+    # moment every branch had landed. A synthetic document is the fixture.
+    synthetic = (
+        "## 尚未合入（本轮，分支 `origin/main`）\n\n正文\n\n"
+        f"## 已合入 main（`{'0' * 6}f`）\n\n正文\n"
+    )
+    reported = problems(synthetic)
     assert len(reported) == 2, reported
     assert "origin/main" in reported[0] and "000000f" in reported[1]
 

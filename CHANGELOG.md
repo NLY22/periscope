@@ -19,7 +19,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 ```
 !3 文档  → 7379a77     !4 P0 → 0c35e7a
-!7 P2    → ff5c8b8     !8 P1 → b9cf338   ← main 的头
+!7 P2    → ff5c8b8     !8 P1 → b9cf338   ← 当时的 main 头
 ```
 
 合完后在本地 fast-forward 到 `main` 跑的全量是 **994 passed、exit=0**。
@@ -120,7 +120,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 ---
 
-## 尚未合入（本轮，分支 `rename/upstream-to-periscope`）
+## 已合入 main（2026-10-04，`!12` → `8dfab36`）
 
 这一轮不新增能力，做的是**把身份彻底换成 Periscope**：继承来的名字散在 98 个文件里（旧项目名 673 处、它的 MCP 工具前缀 205 处、作者署名 24 处、它托管的两个域名 8 处），而"改名改了一半"比不改更糟——剩下的那些会被读成"重要的部分没改"。
 
@@ -168,7 +168,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 ---
 
-## 尚未合入（分支 `feat/eval-legs-and-selftest-runbook`，PR !11 已开）
+## 已合入 main（2026-10-04，`!11` → `9eb09d6`）
 
 这一轮没有新增能力面，做的是**把"你自己去测"这条路铺平**：文档里承诺过的真模型开关这次真的存在了、手册里每个数字都由机器对着评测产物核过、而"文档给过一条不存在的命令"这类缺陷第一次有了覆盖到脚本自己 docstring 的护栏。
 
