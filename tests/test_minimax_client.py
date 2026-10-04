@@ -95,7 +95,7 @@ class TestOpenAIClientInit:
         assert "dashscope.aliyuncs.com" in str(client.client.base_url)
 
     def test_ollama_uses_localhost_default_base_url(self, monkeypatch):
-        monkeypatch.delenv("HORIZON_OLLAMA_BASE_URL", raising=False)
+        monkeypatch.delenv("PERISCOPE_OLLAMA_BASE_URL", raising=False)
         monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         monkeypatch.delenv("OLLAMA_HOST", raising=False)
 
@@ -104,35 +104,35 @@ class TestOpenAIClientInit:
         assert str(client.client.base_url).rstrip("/") == "http://localhost:11434/v1"
 
     def test_ollama_accepts_custom_base_url_without_v1(self, monkeypatch):
-        monkeypatch.delenv("HORIZON_OLLAMA_BASE_URL", raising=False)
+        monkeypatch.delenv("PERISCOPE_OLLAMA_BASE_URL", raising=False)
 
         client = OpenAIClient(_make_ollama_config(base_url="http://192.168.1.10:11434"))
 
         assert str(client.client.base_url).rstrip("/") == "http://192.168.1.10:11434/v1"
 
     def test_ollama_does_not_duplicate_v1_in_custom_base_url(self, monkeypatch):
-        monkeypatch.delenv("HORIZON_OLLAMA_BASE_URL", raising=False)
+        monkeypatch.delenv("PERISCOPE_OLLAMA_BASE_URL", raising=False)
 
         client = OpenAIClient(_make_ollama_config(base_url="https://ollama.example/v1/"))
 
         assert str(client.client.base_url).rstrip("/") == "https://ollama.example/v1"
 
     def test_ollama_uses_base_url_from_env(self, monkeypatch):
-        monkeypatch.setenv("HORIZON_OLLAMA_BASE_URL", "http://ollama.internal:11434")
+        monkeypatch.setenv("PERISCOPE_OLLAMA_BASE_URL", "http://ollama.internal:11434")
 
         client = OpenAIClient(_make_ollama_config())
 
         assert str(client.client.base_url).rstrip("/") == "http://ollama.internal:11434/v1"
 
     def test_ollama_config_base_url_overrides_env(self, monkeypatch):
-        monkeypatch.setenv("HORIZON_OLLAMA_BASE_URL", "http://env-host:11434")
+        monkeypatch.setenv("PERISCOPE_OLLAMA_BASE_URL", "http://env-host:11434")
 
         client = OpenAIClient(_make_ollama_config(base_url="http://config-host:11434"))
 
         assert str(client.client.base_url).rstrip("/") == "http://config-host:11434/v1"
 
     def test_ollama_host_env_without_scheme_is_supported(self, monkeypatch):
-        monkeypatch.delenv("HORIZON_OLLAMA_BASE_URL", raising=False)
+        monkeypatch.delenv("PERISCOPE_OLLAMA_BASE_URL", raising=False)
         monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         monkeypatch.setenv("OLLAMA_HOST", "nas.local:11434")
 

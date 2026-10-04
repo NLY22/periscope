@@ -1,6 +1,6 @@
 """The three import entries must be the same feature, not three near-copies.
 
-spec §6.1 promises one fallback path reached three ways: MCP `hz_corpus_import`,
+spec §6.1 promises one fallback path reached three ways: MCP `ps_corpus_import`,
 `POST /api/import` (the panel), and `scripts/import_corpus.py`. Every time that
 path grew a knob, the entries drifted -- `--dry-run` landed on the CLI first with
 a stricter parser than the write used, then on the panel, and the MCP tool was
@@ -55,7 +55,7 @@ def _signature(text: str, start: str) -> str:
 
 def test_every_entry_can_preview_and_the_reproducers_keep_the_tier_knob() -> None:
     previews = {
-        "hz_corpus_import": _signature(MCP_SERVER, "async def hz_corpus_import("),
+        "ps_corpus_import": _signature(MCP_SERVER, "async def ps_corpus_import("),
         "service.corpus_import": _signature(MCP_SERVICE, "def corpus_import("),
         "POST /api/import": _block(WEB_APP, "async def import_export("),
         "periscope-import": CLI,
@@ -69,7 +69,7 @@ def test_every_entry_can_preview_and_the_reproducers_keep_the_tier_knob() -> Non
     # `tiering` stays out of the panel on purpose: `marker` is the ablation arm
     # that reproduces the pre-P0 numbers, and offering it where a user uploads
     # evidence invites importing under the weaker rule.
-    for name in ("hz_corpus_import", "service.corpus_import"):
+    for name in ("ps_corpus_import", "service.corpus_import"):
         assert "tiering" in previews[name], f"{name} lost the tiering knob"
     assert "--tiering" in CLI, "the CLI is how the ablation arms are reproduced"
 
@@ -93,23 +93,23 @@ def test_the_preview_goes_through_the_shared_validation() -> None:
 
 def test_mcp_guide_documents_the_preview() -> None:
     """An option a client cannot discover from the guide is an option it will not use."""
-    section = MCP_GUIDE.split("hz_corpus_import")
+    section = MCP_GUIDE.split("ps_corpus_import")
     assert len(section) > 1, "the MCP guide stopped documenting the import tool"
     around = section[0] + section[1]
-    assert "dry_run" in around, "hz_corpus_import's preview is undocumented in the MCP guide"
+    assert "dry_run" in around, "ps_corpus_import's preview is undocumented in the MCP guide"
 
 
 def _unforwarded(source: str) -> list[str]:
-    """Declared `hz_*` parameters that never reach the service call."""
+    """Declared `ps_*` parameters that never reach the service call."""
     tree = ast.parse(source)
     problems: list[str] = []
     for node in tree.body:
         if not isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
             continue
-        if not node.name.startswith("hz_"):
+        if not node.name.startswith("ps_"):
             continue
         declared = [
-            a.arg for a in node.args.args if a.arg not in ("horizon_path", "config_path")
+            a.arg for a in node.args.args if a.arg not in ("periscope_path", "config_path")
         ]
         reached: set[str] = set()
         for call in ast.walk(node):
@@ -140,7 +140,7 @@ def test_every_tool_wrapper_forwards_every_declared_parameter() -> None:
     Found by suspicion rather than by a failure: the parity fix added a
     parameter to the service, and nothing would have complained if the wrapper
     kept its own copy while dropping it on the way through. Positional
-    forwarding counts (`hz_get_run_meta` calls `service.get_run_meta(run_id)`),
+    forwarding counts (`ps_get_run_meta` calls `service.get_run_meta(run_id)`),
     so the check looks for the name reaching the call, not for a keyword form.
     """
     offenders = _unforwarded(
@@ -150,12 +150,12 @@ def test_every_tool_wrapper_forwards_every_declared_parameter() -> None:
 
 
 def test_the_forwarding_check_distinguishes_keyword_positional_and_dropped() -> None:
-    ok_keyword = "async def hz_a(flag: bool) -> dict:\n    return service.a(flag=flag)\n"
-    ok_positional = "def hz_b(run_id: str) -> dict:\n    return service.b(run_id)\n"
+    ok_keyword = "async def ps_a(flag: bool) -> dict:\n    return service.a(flag=flag)\n"
+    ok_positional = "def ps_b(run_id: str) -> dict:\n    return service.b(run_id)\n"
     dropped = (
-        'async def hz_c(dry_run: bool, tiering: str = "sections") -> dict:\n'
+        'async def ps_c(dry_run: bool, tiering: str = "sections") -> dict:\n'
         "    return service.c(tiering=tiering)\n"
     )
     assert _unforwarded(ok_keyword) == []
     assert _unforwarded(ok_positional) == []
-    assert _unforwarded(dropped) == ["hz_c: ['dry_run']"]
+    assert _unforwarded(dropped) == ["ps_c: ['dry_run']"]

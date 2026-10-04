@@ -3,19 +3,13 @@
 
 <p><strong>把广而杂的信息源，变成可核查的证据库</strong></p>
 
-<p><sub>上游 Horizon 的口号是「享受新闻本身，其余交给 Periscope」；本 fork 多做一步 —— 除了帮你读，还要说清每句话出自谁、有几家独立支撑、哪里互相矛盾。</sub></p>
+<p><sub>除了帮你读，还要说清每句话出自谁、有几家独立支撑、哪里互相矛盾。</sub></p>
 
-> ⚠️ **本仓库是 fork（`NLY22/periscope`），不是上游。** 下面的 Trendshift / HelloGitHub 徽章、在线演示站点、QQ 群与赞助位都属于上游项目；本 fork 独有的能力见[能力对照](#本-fork-与上游的能力对照)，协作请在本仓库开 issue / PR。
-
-<a href="https://trendshift.io/repositories/22864?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-22864" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/22864/daily" alt="Periscope | Trendshift" width="250" height="55"/></a>
-<a href="https://trendshift.io/repositories/22864?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-22864" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/22864/weekly?language=Python" alt="Periscope | Trendshift" width="250" height="55"/></a>
-<a href="https://hellogithub.com/repository/Thysrael/Periscope" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=7a4b606e28e4477998d35851cf4fdddf&claim_uid=rtjnLkYT7ziQJUG" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" /></a>
 <br>
 
 [![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge&logo=opensourceinitiative&logoColor=white)](LICENSE)
 [![Tool uv](https://img.shields.io/badge/Tool-uv-4B275F?style=for-the-badge&logo=uv&logoColor=white)](https://github.com/astral-sh/uv)
 [![Repo](https://img.shields.io/badge/Repo-AtomGit-263238?style=for-the-badge&logo=git&logoColor=white)](https://atomgit.com/NLY22/periscope)
-[![Fork of](https://img.shields.io/badge/fork%20of-Thysrael%2FHorizon-orange?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Thysrael/Horizon)
 ![Status](https://img.shields.io/badge/status-Phase%20F1%E2%80%93F6%20已合并%20main-2ea44f?style=for-the-badge)
 [![Commits](https://img.shields.io/badge/Commits-main-blue?style=for-the-badge&logo=git&logoColor=white)](https://atomgit.com/NLY22/periscope/commits/main)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge&logo=git&logoColor=white)](https://atomgit.com/NLY22/periscope/pulls)
@@ -31,7 +25,7 @@
 
 📡 你专属的 AI 新闻雷达：聚合多源信息，自动筛选、去重、富化，生成中英双语每日简报，并把每一天的知识沉淀成可检索、可核查、可研究的证据库。
 
-📖 在线演示（**上游站点**，非本 fork 部署） · [📋 配置指南](docs/configuration.md) · [🧩 Profile 定制](docs/profiles.md) · [🔎 取证检索机制](docs/retrieval.md) · [📊 评测](docs/evaluation.md)
+[📋 配置指南](docs/configuration.md) · [🧩 Profile 定制](docs/profiles.md) · [🔎 取证检索机制](docs/retrieval.md) · [📊 评测](docs/evaluation.md)
 
 </div>
 
@@ -39,13 +33,12 @@
 
 ## 目录
 
-- [先说清楚：这是 fork，不是上游](#先说清楚这是-fork不是上游)
 - [简介](#简介)
-- [本 fork 与上游的能力对照](#本-fork-与上游的能力对照)
+- [能力总览](#能力总览)
 - [核心特性](#核心特性)
 - [截图](#截图)
 - [工作原理](#工作原理)
-- [本 fork 的独有层次](#本-fork-的独有层次)
+- [独有层次](#独有层次)
 - [快速开始](#快速开始)
 - [支持的 AI 提供商](#支持的-ai-提供商)
 - [支持的数据源](#支持的数据源)
@@ -58,23 +51,7 @@
 - [文档](#文档)
 - [项目状态](#项目状态)
 - [贡献](#贡献)
-- [社区](#社区)
-- [赞助支持](#赞助支持)
-- [致谢](#致谢)
 - [许可证](#许可证)
-
-## 先说清楚：这是 fork，不是上游
-
-| | 上游 | 本仓库 |
-|---|---|---|
-| 项目 | [Thysrael/Horizon](https://github.com/Thysrael/Horizon)（上游后期也把项目改名为 Periscope） | `NLY22/periscope`，Horizon 的 fork |
-| 回答的问题 | 今天有什么值得读 | 这个说法**站不站得住**，以及围绕它如何做长时研究 |
-| 来源面 | 以搜索引擎可索引的内容为主 | 加上论坛、视频描述、CC 字幕、评论区 |
-| 记忆 | 每次运行独立，次日即忘 | `corpus.db` 持久证据库，跨运行、跨入口累积 |
-| 结论可核性 | AI 评分与摘要 | 声明级核查 + 独立信源计数 + 引用反解核验 |
-| 维护与协作 | 上游作者的渠道 | <https://atomgit.com/NLY22/periscope> 的 issue / PR |
-
-> **本页面上的 Trendshift、HelloGitHub、LINUX.DO、小红书徽章，在线演示 `thysrael.github.io`，QQ 群、`periscope1123.top` 与 `thysrael@163.com` / `thysrael@gmail.com`（后者是上游的安全披露与行为准则执行邮箱）以及三家赞助位，全部属于上游项目。** 本 fork 不经这些渠道分发，也不为其内容负责；本 fork 的问题请开在本仓库，安全问题是私下联系本仓库维护者（见 [SECURITY.md](SECURITY.md)）。下文用 `（上游）` / `（本 fork）` 标注每条能力的出处。
 
 ## 简介
 
@@ -82,43 +59,43 @@
 
 你的品味决定了你读什么，也决定了你希望从中得到什么。一篇新闻报道需要回答「为什么重要」，一篇工程深度长文需要回答「我能用上什么」。Periscope 的 **Profile（画像）** 为每一类内容定义各自的评分标准与输出形式，让简报读起来像是为你手工挑选的。
 
-Periscope 是 [Horizon](https://github.com/Thysrael/Horizon) 的 fork。上游只回答「今天有什么值得读」，到了第二天就遗忘；本 fork 在此之上增加了**证据语料库、声明级核查与多轮共创研究**三项核心能力，并提供 **Web 面板**与扩展的 **MCP**（27 个工具）入口，让知识能够跨运行累积；再往下是三项支撑机制——**证据分层**、**条目可信度**与**自适应取证**，它们决定了前三项在噪声里是否真的站得住。详见[本 fork 的独有层次](#本-fork-的独有层次)。
+Periscope 回答的不只是「今天有什么值得读」，还有**「这个说法站不站得住」**。它在采集与简报之上做三件事：**证据语料库**（`corpus.db` 跨运行、跨入口累积，不会次日即忘）、**声明级核查**（独立信源计数 + 引用反解核验）与**多轮共创研究**（长会话里逐轮取证、改范围、深化、定稿），并给出 **Web 面板**与 **MCP**（27 个工具）两个入口；再往下是三项支撑机制——**证据分层**、**条目可信度**与**自适应取证**，它们决定了前三项在噪声里是否真的站得住。详见[独有层次](#独有层次)。
 
-## 本 fork 与上游的能力对照
+## 能力总览
 
-| 能力 | 出处 | 落在哪 |
-|---|---|---|
-| 多源聚合、Profile 评分、双语日报、邮件 / Webhook / 微信投递、配置向导 | （上游） | `src/scrapers`（四个新源除外）、`src/processing`、`src/services`、`src/setup` |
-| Bilibili / V2EX / Discourse / YouTube 四个源，含 B 站 CC 字幕层 | （本 fork） | `src/scrapers/{bilibili,v2ex,discourse,youtube}.py` |
-| 证据语料库：SQLite + FTS5 + 手写 SimHash 聚簇，跨运行累积 | （本 fork） | `src/corpus/store.py`、`src/corpus/simhash.py` |
-| 用户导出入库通路（取不到的源不靠抓取）| （本 fork） | `src/corpus/ingest.py`、`scripts/import_corpus.py`、`hz_corpus_import`、面板「导入你导出的内容」（`POST /api/import`，可先只校验）|
-| 证据分层：scraper **声明**的类型化 `Section`（作者亲写 vs 人群发言），独立信源计数只认前者 | （本 fork） | `src/models.py` 的 `Section`、`src/corpus/sections.py`、`items.claimable` + `claim_fts` |
-| 条目可信度与独立性：可拆解的 trust 分数、noisy-OR 聚合、两道门（跑在 `grade_claim`，判定来源可追） | （本 fork） | `src/corpus/trust.py`、`items.trust` + `trust_features_json`、`claims.verdict_source` |
-| 多轮共创：逐轮动词 + 带 revision/locked/stale 的草稿工件 + 向用户索取输入 | （本 fork） | `src/research/{moves,drafts}.py`、`research_drafts` / `research_requests` 表 |
-| 源注册表与抓取基础设施：per-host 令牌桶、可注入时钟、env/cookie 鉴权与过期检测 | （本 fork） | `src/sources/registry.py`、`src/scrapers/{throttle,auth}.py`、`SOURCE_SPECS` |
-| 取证检索：查询扩展 + 向量路 + RRF 融合 | （本 fork） | `src/corpus/retrieval.py`、`src/ai/{expand,embeddings}.py`、`src/corpus/semantic.py` |
-| 声明级核查 + 评级一致率工具 | （本 fork） | `src/analysis/{claims,agreement}.py`、`scripts/eval_claims.py` |
-| 长会话研究：子问题树、崩溃续跑、缺证时自适应加宽 | （本 fork） | `src/research/`、`research_actions` 表 |
-| 报告骨架（背景调查 / 市场调研 / 方法探索）+ 引用反解核验 | （本 fork） | `src/research/templates.py`、`src/corpus/citations.py` |
-| 检索消融评测（Recall / Precision / nDCG / MRR） | （本 fork） | `src/corpus/metrics.py`、`scripts/eval_retrieval.py`、`docs/evaluation.md` |
-| Web 面板 | （本 fork） | `src/web/`（上游无） |
+| 能力 | 落在哪 |
+|---|---|
+| 多源聚合（14 类源）、Profile 评分、双语日报、邮件 / Webhook / 微信投递、配置向导 | `src/scrapers`、`src/processing`、`src/services`、`src/setup` |
+| Bilibili / V2EX / Discourse / YouTube 四个源，含 B 站 CC 字幕层 | `src/scrapers/{bilibili,v2ex,discourse,youtube}.py` |
+| 证据语料库：SQLite + FTS5 + 手写 SimHash 聚簇，跨运行累积 | `src/corpus/store.py`、`src/corpus/simhash.py` |
+| 用户导出入库通路（取不到的源不靠抓取）| `src/corpus/ingest.py`、`scripts/import_corpus.py`、`ps_corpus_import`、面板「导入你导出的内容」（`POST /api/import`，可先只校验）|
+| 证据分层：scraper **声明**的类型化 `Section`（作者亲写 vs 人群发言），独立信源计数只认前者 | `src/models.py` 的 `Section`、`src/corpus/sections.py`、`items.claimable` + `claim_fts` |
+| 条目可信度与独立性：可拆解的 trust 分数、noisy-OR 聚合、两道门（跑在 `grade_claim`，判定来源可追） | `src/corpus/trust.py`、`items.trust` + `trust_features_json`、`claims.verdict_source` |
+| 多轮共创：逐轮动词 + 带 revision/locked/stale 的草稿工件 + 向用户索取输入 | `src/research/{moves,drafts}.py`、`research_drafts` / `research_requests` 表 |
+| 源注册表与抓取基础设施：per-host 令牌桶、可注入时钟、env/cookie 鉴权与过期检测 | `src/sources/registry.py`、`src/scrapers/{throttle,auth}.py`、`SOURCE_SPECS` |
+| 取证检索：查询扩展 + 向量路 + RRF 融合 | `src/corpus/retrieval.py`、`src/ai/{expand,embeddings}.py`、`src/corpus/semantic.py` |
+| 声明级核查 + 评级一致率工具 | `src/analysis/{claims,agreement}.py`、`scripts/eval_claims.py` |
+| 长会话研究：子问题树、崩溃续跑、缺证时自适应加宽 | `src/research/`、`research_actions` 表 |
+| 报告骨架（背景调查 / 市场调研 / 方法探索）+ 引用反解核验 | `src/research/templates.py`、`src/corpus/citations.py` |
+| 检索消融评测（Recall / Precision / nDCG / MRR） | `src/corpus/metrics.py`、`scripts/eval_retrieval.py`、`docs/evaluation.md` |
+| Web 面板 | `src/web/` |
 
-**这个 fork 的立场一句话**：把来源放宽到论坛与流媒体，信息质量必然下降；全部工作在于让"降下去的质量"被分层、检索、计数与引用核验**重新补回来**，并用消融表说明补回了多少。
+**本项目的立场一句话**：把来源放宽到论坛与流媒体，信息质量必然下降；全部工作在于让"降下去的质量"被分层、检索、计数与引用核验**重新补回来**，并用消融表说明补回了多少。
 
 ## 核心特性
 
-下面每条标明出处，便于与上游对比：
+下面每条都是本项目自带的能力：
 
-- **📡 聚合你的信息源（上游 + 本 fork）** — RSS、Hacker News、Reddit、Telegram、X、GitHub、财经资讯等 10 类来自上游；**Bilibili、V2EX、Discourse、YouTube 四类及 B 站 CC 字幕层是本 fork 加的**。
+- **📡 聚合你的信息源** — RSS、Hacker News、Reddit、Telegram、X、GitHub、财经资讯等 10 类，再加 **Bilibili、V2EX、Discourse、YouTube 四类与 B 站 CC 字幕层**，共 14 类。
 - **🎯 判断什么值得读** — 用 Profile 定义评分细则，为每个 Profile 设置阈值，并在同一 Profile 内合并重复报道。
 - **🧩 为每篇内容定制处理方式** — 通过 Markdown 提示词与 JSON block 定义，自由组合摘要、背景、解决方案或要点。
 - **💬 不止于标题** — 在有助于解释事件时，自动补充联网检索到的背景与社区讨论。
 - **⚖️ 兼顾你的所有兴趣** — 限制简报总长度与各分类占比，避免某一热门话题挤占其余内容。
 - **📬 在你习惯的地方阅读** — 生成中英双语 Markdown 简报，发布到 Pages，或通过邮件、Webhook、微信投递。
-- **🧠 让每一天都可积累（本 fork）** — 所有采集过的内容进入证据语料库，可全文检索、做声明核查，并作为长会话研究的素材；**证据分层**保证评论与回复只作线索，不充当信源。
-- **🧯 诚实的降级（本 fork）** — 没有 LLM key 也能运行：语料照常增长、证据照常确定性关联，报告会如实标注「尚未回答」而不是编造内容。
-- **🔍 找不到就换打法（本 fork）** — 一个子问题不再只有一次查询：放宽词条、换来源族、让模型改写问法，每步写入 `research_actions`，报告尾部列出「取证尝试」，把"语料里没有"和"问法不对"分开。
-- **✅ 引用可自查（本 fork）** — 成品报告可被反向核验：幽灵引用、指向不存在条目、只靠人群发言支撑的引用，都会被点名（`src/corpus/citations.py`）。
+- **🧠 让每一天都可积累** — 所有采集过的内容进入证据语料库，可全文检索、做声明核查，并作为长会话研究的素材；**证据分层**保证评论与回复只作线索，不充当信源。
+- **🧯 诚实的降级** — 没有 LLM key 也能运行：语料照常增长、证据照常确定性关联，报告会如实标注「尚未回答」而不是编造内容。
+- **🔍 找不到就换打法** — 一个子问题不再只有一次查询：放宽词条、换来源族、让模型改写问法，每步写入 `research_actions`，报告尾部列出「取证尝试」，把"语料里没有"和"问法不对"分开。
+- **✅ 引用可自查** — 成品报告可被反向核验：幽灵引用、指向不存在条目、只靠人群发言支撑的引用，都会被点名（`src/corpus/citations.py`）。
 
 ### 一份简报，多种读法
 
@@ -177,11 +154,7 @@ Profile 是一套可复用的编辑规则：**什么内容该收录、什么值�
 
 ## 工作原理
 
-![Periscope 架构：十余个信息源汇入 Profile 驱动的流水线，结合历史与联网检索工具，投递到 Markdown、Pages、邮件、微信与 Webhook。](docs/assets/architecture.svg)
-
-[可编辑的 OmniGraffle 源文件](docs/assets/architecture.graffle)
-
-**Profile 决定处理方式，运行期配置反映你的阅读偏好。** 每个条目只会路由到一个 Profile。分析、过滤与去重在富化之前完成，随后入选条目按 Profile 分组形成简报。
+**Profile 决定处理方式，运行期配置反映你的阅读偏好。** 每个条目只会路由到一个 Profile。分析、过滤与去重在富化之前完成，随后入选条目按 Profile 分组形成简报。结构与图元（通路、会话状态机、一轮时序）见 [docs/architecture.md](docs/architecture.md)——那三张图与代码是双向对齐的，画进去的名字由测试核对。
 
 一次完整运行（`periscope --hours 24`）的阶段顺序如下：
 
@@ -190,14 +163,14 @@ Profile 是一套可复用的编辑规则：**什么内容该收录、什么值�
 3. **分析** — 分类路由到 Profile，由 AI 完成评分、理由、摘要与标签。
 4. **选择与过滤** — Profile 阈值过滤 → AI 主题去重 → 均衡配额（`digest` 配置）。
 5. **富化** — 第二遍 AI，按 Profile 定义的 block 生成多语言产物，可调用联网检索与历史检索工具。
-6. **声明核查** — 将高分条目蒸馏为原子声明，关联语料证据并评级（本 fork 新增，尽力而为）。
+6. **声明核查** — 将高分条目蒸馏为原子声明，关联语料证据并评级（尽力而为）。
 7. **摘要与投递** — 程序化渲染多语言 Markdown 日报，保存到 `data/summaries/`，并按配置发布或投递。
 
 你可以通过 CLI 运行完整流水线，也可以让 AI 助手经由 [MCP](src/mcp/README.md) 调用其中的各个阶段。
 
-## 本 fork 的独有层次
+## 独有层次
 
-上游 Horizon 只回答「今天有什么值得读」，并且到了第二天就遗忘。本 fork 在此基础上做了八项增强：
+只回答「今天有什么值得读」、并且到了第二天就遗忘的工具，产出的是一天的信息，不是可复查的证据。Periscope 在采集与简报之上做了八项增强，让"来源放宽必然掉下去的质量"能被补回来：
 
 1. **证据语料库（`corpus.db`）** — 所有曾经采集过的条目都会带 SimHash 指纹与近似重复聚簇被持久化存储，可用 SQLite FTS5（对 CJK 友好）检索。知识会跨运行累积，而不是在生成摘要后就蒸发。
 2. **声明级正确性核查** — 高分条目会被蒸馏为原子化、可核查的声明；每条声明都与语料证据关联并评级（supported / contested / unsupported + 置信度），评级每轮有预算上限。`contested` 不再只是一个标签：`claim_contradictions` 会记下是哪两条声明、靠哪些条目互相冲突。
@@ -219,7 +192,7 @@ uv run periscope --hours 24
 # Web 面板：证据库 / 研究报告 / 核查台（http://localhost:8790）
 uv run periscope-web --data-dir data
 
-# MCP：面向任意 MCP 客户端的 27 个工具（hz_research_start、hz_research_step、hz_corpus_search 等）
+# MCP：面向任意 MCP 客户端的 27 个工具（ps_research_start、ps_research_step、ps_corpus_search 等）
 uv run periscope-mcp
 
 # 取不到的源：用户自己导出，按声明的层级入库（不联网、不碰验证码与签名）
@@ -406,7 +379,7 @@ docker compose up -d periscope-web
 
 Periscope 适合用系统定时器调度，例如 `cron` 或 `systemd timer`；Docker Compose 也可直接配合定时任务使用（`docker compose run --rm periscope-collect --hours 24` 配 cron 即可）。
 
-仓库里另有**上游留下的 GitHub workflow**（`.github/workflows/daily-summary.yml.disabled` 每日模板、`tests.yml`、`deploy-docs.yml`）。**它们只在 GitHub 上有效，本平台不执行任何 GitHub 语法的 workflow**（已实测：PR 的 `check_tasks_num` 为 0）。在这个平台上要定时跑，就用能执行 shell 的任何调度器；`daily-summary.yml.disabled` 也请保持 `.disabled` 后缀，重命名它在这里不会有任何效果。
+仓库里另有 `.github/workflows/tests.yml`。**本平台不执行任何 GitHub 语法的 workflow**（已实测：PR 的 `check_tasks_num` 为 0），那条文件只对在 GitHub 上跑的人有意义；在这个平台上要定时运行，就用任何能执行 shell 的调度器，按下面的命令排程即可。
 
 ## 支持的 AI 提供商
 
@@ -452,7 +425,6 @@ Periscope 可以通过多种方式发布或投递生成的简报：
 
 | 渠道 | 作用 |
 |------|------|
-| **GitHub Pages 每日站点**（上游机制，**本平台不生效**） | 把生成的 Markdown 复制到 `docs/`，由 GitHub Pages 发布每日更新的简报站点；在 AtomGit 上 `docs/` 只是仓库内的 Markdown |
 | **邮件订阅** | 向订阅者发送每日简报，并通过 SMTP/IMAP 处理订阅/退订请求 |
 | **Webhook 通知** | 把成功或失败结果推送到飞书/Lark、钉钉、Slack、Discord 或任意自定义 Webhook 端点 |
 | **微信通知** | 通过 iLink Bot 在扫码登录并收到你的消息后发送简报；受微信回复条数限制 |
@@ -465,7 +437,7 @@ Periscope 可以通过多种方式发布或投递生成的简报：
 uv run periscope-web --data-dir data        # 默认 http://localhost:8790
 ```
 
-三栏式界面：**证据库**（全文检索）、**研究报告**（长会话研究）、**核查台**（按 verdict 展示声明与证据）。研究报告栏按轮次组织：`推一轮` 按钮、每节的「已锁定」与「上游已变 · 未覆盖」标记、待回答请求卡片；报告正文会列出未评级声明的原因（低于分诊门 / 证据不足 / 无可核验发布者 / 可信度不足）。顶部可一键触发采集。API 文档位于 `/api/docs`。
+三栏式界面：**证据库**（全文检索）、**研究报告**（长会话研究）、**核查台**（按 verdict 展示声明与证据）。研究报告栏按轮次组织：`推一轮` 按钮、每节的「已锁定」与「新版已变 · 未覆盖」标记、待回答请求卡片；报告正文会列出未评级声明的原因（低于分诊门 / 证据不足 / 无可核验发布者 / 可信度不足）。顶部可一键触发采集。API 文档位于 `/api/docs`。
 
 ### MCP 服务
 
@@ -473,7 +445,7 @@ uv run periscope-web --data-dir data        # 默认 http://localhost:8790
 uv run periscope-mcp
 ```
 
-以 stdio 方式运行，提供 22 个 `hz_*` 工具与 7 个 `horizon://` 资源，覆盖配置校验、分阶段流水线、运行产物、证据检索、声明核查、研究会话与 Webhook 通知。详见 [MCP 工具说明](src/mcp/README.md) 与[客户端配置](src/mcp/integration.md)。
+以 stdio 方式运行，提供 27 个 `ps_*` 工具与 7 个 `periscope://` 资源（4 个固定 + 3 个带参数的模板，实测握手），覆盖配置校验、分阶段流水线、运行产物、证据检索、声明核查、研究会话与 Webhook 通知。详见 [MCP 工具说明](src/mcp/README.md) 与[客户端配置](src/mcp/integration.md)。
 
 ### 微信与 Webhook 命令行
 
@@ -547,11 +519,10 @@ uv run python scripts/eval_retrieval.py --tiering marker   # 复现分层前的 
 uv run python scripts/eval_multiturn.py    # 多轮调用数比值 / 轮次 / 灌水曲线（不联网）
 ```
 
-**关于 CI：这个平台上没有自动执行。** `.github/workflows/tests.yml` 与 `deploy-docs.yml` 是 GitHub 语法的配置，AtomGit 不执行它们（每个 PR 的 `check_tasks_num` 都是 0，已实测确认）。所以：
+**关于 CI：这个平台上没有自动执行。** `.github/workflows/tests.yml` 是 GitHub 语法的配置，AtomGit 不执行它（每个 PR 的 `check_tasks_num` 都是 0，已实测确认）。所以：
 
-- 那些文件**保留着**，迁到 GitHub 或支持该语法的平台就生效；内容仍然是可信的验收脚本（Linux + Windows 各跑一遍全量，再跑一次检索 harness，只看能否复现，不在 CI 里断言指标数值）。
+- 那条文件保留着，迁到 GitHub 或支持该语法的平台就生效；内容仍然是可信的验收脚本（Linux + Windows 各跑一遍全量，再跑一次检索 harness，只看能否复现，不在 CI 里断言指标数值）。
 - 但在当前平台，**验证是提交者的责任**：本地跑 `uv run pytest` 与相关 harness，把实测数字写进 PR 正文。本项目不接受「有 CI 兜底」作为质量证据，PR 模板性的「测试通过」需要能复现的命令。
-- `deploy-docs.yml` 对应的 GitHub Pages 站点也不生效，`docs/` 目前只是仓库内的 Markdown；要么换平台静态托管，要么删除该文件（未决）。
 
 测试位于 `tests/`，覆盖流水线各阶段、各数据源抓取器、证据语料库与声明核查、研究会话、Web 面板与 MCP 服务等。
 
@@ -566,7 +537,7 @@ uv run python scripts/eval_multiturn.py    # 多轮调用数比值 / 轮次 / �
 
 | 指南 | 说明 |
 |------|------|
-| [配置](docs/configuration.md) | AI 提供商、信息源、Profile、过滤、邮件、Webhook、微信、GitHub Pages 与 MCP 配置 |
+| [配置](docs/configuration.md) | AI 提供商、信息源、Profile、过滤、邮件、Webhook、微信与 MCP 配置 |
 | [处理画像](docs/profiles.md) | Profile 路由、提示词、运行期过滤偏好、富化 block 与工具 |
 | [评分](docs/scoring.md) | Periscope 如何评估与排序新闻条目 |
 | [抓取器](docs/scrapers.md) | 各数据源抓取器细节与扩展说明 |
@@ -579,13 +550,12 @@ uv run python scripts/eval_multiturn.py    # 多轮调用数比值 / 轮次 / �
 | [Twitter / X Cookie 配置](docs/twitter-cookies.md) | 免费方案：Playwright + 自己账号的 cookie 抓推文（Apify 订阅的替代路径） |
 | [MCP 工具](src/mcp/README.md) | 面向 MCP 兼容客户端的 27 个工具参考 |
 | [设计 spec 与三期实现计划](docs/superpowers/specs/2026-09-29-broad-source-credibility-and-multiturn-research-design.md) | 为什么这么改（spec v4，§15 是交付记录）、`docs/superpowers/plans/` 下逐 Task 的计划与「执行记录」里写错的句子 |
-| [生态设计提案（上游，未实现）](docs/horizon-hub-design.md) | HorizonHub 数据源市场与推荐的产品设计文档；本仓库**没有对应代码**，不要当成本项目的架构（架构见 [docs/architecture.md](docs/architecture.md)） |
 
 ## 项目状态
 
-本 fork 继承的日报闭环（上游）：多源采集、Profile 驱动的分析与富化、去重、评论摘要、双语生成、邮件 / Webhook / 微信投递、Docker 部署、MCP 集成与配置向导。其中 **GitHub Pages 发布这一条在本平台上不生效** —— `deploy-docs.yml` 仍是 GitHub Pages 专用配置，待换成平台静态托管或删除。
+日报闭环（本项目自带）：多源采集、Profile 驱动的分析与富化、去重、评论摘要、双语生成、邮件 / Webhook / 微信投递、Docker 部署、MCP 集成与配置向导。
 
-本 fork 在此基础上额外提供证据语料库、声明级核查与多轮共创研究三项核心能力，以及证据分层、条目可信度与自适应取证三项支撑机制，并提供 Web 面板这一独立入口（见[本 fork 的独有层次](#本-fork-的独有层次)）。
+在此基础上，证据语料库、声明级核查与多轮共创研究是三项核心能力，证据分层、条目可信度与自适应取证是三项支撑机制，Web 面板是独立入口（见[独有层次](#独有层次)）。
 
 后续计划（与 `docs/superpowers/specs/` 里设计 spec 的 §15.5「还剩什么」一致）：
 
@@ -597,51 +567,15 @@ uv run python scripts/spike_sources.py --source xiaohongshu --url <公开笔记�
 uv run python scripts/spike_sources.py --source tieba --kw <吧名或关键词> --online
 ```
 
-（`--online` 是唯一会让它真的发请求的开关；去掉它就是打印判定计划。）第 2–3 步才需要登录态或浏览器。**S1 不通过时的降级路径已经实现**（用户导出 → `scripts/import_corpus.py` / `hz_corpus_import` / `POST /api/import`，分层靠声明），所以"取不到的源"不再是死路，只是不自动。
+（`--online` 是唯一会让它真的发请求的开关；去掉它就是打印判定计划。）第 2–3 步才需要登录态或浏览器。**S1 不通过时的降级路径已经实现**（用户导出 → `scripts/import_corpus.py` / `ps_corpus_import` / `POST /api/import`，分层靠声明），所以"取不到的源"不再是死路，只是不自动。
 - **P3 图文 → 文本通路**（OCR / VLM）：条件执行，卡在 S1 结论；VLM 描述只能当线索，不进声明蒸馏
 - 支持更多数据源类型，例如 Discord
-- 平台侧未决：CI 是否在本平台执行（GitHub 语法的 workflow 不被执行，`deploy-docs.yml` 待替换或删除）、仓库 issue 开关只能在网页打开
+- 平台侧未决：GitHub 语法的 workflow 在本平台不被执行（护栏与测试要人工过一遍）、仓库 issue 开关只能在网页打开
 - 在 AtomGit 上发布 Release；发布到 PyPI，支持 `pip install`
-- 命名：上游后期也把项目改叫 Periscope，两个仓库同名分不开 —— 是否改名由维护者决定，尚未执行
 
 ## 贡献
 
-欢迎在**本仓库**贡献：issue 与 PR 请开在 <https://atomgit.com/NLY22/periscope>，上游仓库的 issue 与本 fork 无关。规范见 [CONTRIBUTING.md](CONTRIBUTING.md)，行为准则见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)，安全问题见 [SECURITY.md](SECURITY.md)。动手前建议先读 [docs/retrieval.md](docs/retrieval.md) 与 [docs/evaluation.md](docs/evaluation.md) —— 新增能力要能进消融表，否则只是加功能。
-
-### 分享信息源
-
-想把发现的优质信息源分享出去？**上游社区**通过 **[periscope1123.top](https://periscope1123.top)** 收集（该站点不由本 fork 运营）；本 fork 的信息源改动请直接开 PR 或 issue。
-
-## 社区
-
-> 归属说明：本 fork 的代码仓库、issue 与 PR 均在 <https://atomgit.com/NLY22/periscope>。页面上的 Trendshift / HelloGitHub 徽章、在线演示 `thysrael.github.io`、QQ 群与赞助位沿自上游项目，不是本 fork 的运营渠道。
-
-欢迎加入 Periscope 用户与开发者 QQ 群，分享信息源、Profile 与部署经验。
-
-<p align="center">
-  <img src="docs/assets/qq-group.png" alt="Periscope QQ 群 1106121909 二维码" width="240" height="240" />
-  <br />
-  <strong>QQ 群：1106121909</strong><br />
-  用 QQ 扫码或搜索群号加入。
-</p>
-
-## 赞助支持
-
-Periscope 是一个利用业余时间维护的开源项目。如果你想支持本项目或希望出现在此列表中，欢迎[提交 Issue](https://atomgit.com/NLY22/periscope/issues/new)或[邮件联系](mailto:thysrael@163.com)。
-
-| 支持者 | 详情 |
-|-----------|---------|
-| [<img src="docs/assets/compshare-logo.png" alt="Compshare / 优云智算" width="220" />](https://www.compshare.cn/?ytag=GPU_YY_git_Periscope) | Compshare 目前为 Periscope 提供支持。Compshare 是 UCloud 旗下的 AI 云平台，提供高性价比的包月与按量付费国内模型 Agent 方案，低至 49 元/月起，同时提供稳定官方转发的海外模型，支持 Claude Code、Codex 及 API 使用，具备企业级高并发、7×24 技术支持与自助开票能力。<br><br>通过他们的[链接](https://www.compshare.cn/?ytag=GPU_YY_git_Periscope)注册可获赠 5 元试用额度。 |
-| [<img src="docs/assets/apimart-logo.jpg" alt="APIMart" width="220" />](https://go.apimart.ai/gh-periscope) | 感谢 APIMart 赞助本项目！APIMart 是一个低成本的 AI 图像与视频生成 API 平台——GPT-Image-2 低至 $0.006/张，一美元可生成 160+ 张图片。一套异步 API 同时覆盖图像与视频：提交任务、获取 ID、通过轮询或回调取回结果。可批量处理数万张图片而不超时，切换模型无需改动代码。按量付费、无月费——[点此注册](https://go.apimart.ai/gh-periscope)即可开始。 |
-| [<img src="docs/assets/ofoxai-logo.svg" alt="OfoxAI" width="220" />](https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=periscope) | OfoxAI 是一个统一的 AI API 平台，汇集多家提供商的文本、图像与视频模型。凭借 OpenAI 兼容端点以及原生 Anthropic 与 Gemini 接口，开发者可通过一个平台访问用于 AI 应用、Agent 与内容创作的各类模型。<br><br>[探索 OfoxAI 的模型与 API →](https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=periscope) |
-
-## 致谢
-
-- 本项目 fork 自 [Thysrael/Horizon](https://github.com/Thysrael/Horizon)：日报流水线、Profile 体系与投递渠道均为上游成果；本 fork 的贡献集中在证据分层、取证检索、声明核查与长会话研究（见[能力对照](#本-fork-与上游的能力对照)）。
-- **命名提示**：上游后期也把项目称为 Periscope，因此**"Periscope"这个名字本身不足以区分两个项目**。请以仓库地址 `NLY22/periscope` 与本页的对照表为准。若要彻底改名（包名与 `periscope-*` 六个 CLI 入口一起改）是一个独立决定，尚未执行。
-- 特别感谢 [LINUX.DO](https://linux.do/) 提供推广平台（上游渠道）。
-- 特别感谢 [HelloGitHub](https://hellogithub.com/) 提供宝贵的指导与建议。
-- 特别感谢 [AIGC Link](https://xhslink.com/m/80ngts127cA) 在小红书上的推广。
+欢迎贡献：issue 与 PR 请开在 <https://atomgit.com/NLY22/periscope>。规范见 [CONTRIBUTING.md](CONTRIBUTING.md)，行为准则见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)，安全问题见 [SECURITY.md](SECURITY.md)。动手前建议先读 [docs/retrieval.md](docs/retrieval.md) 与 [docs/evaluation.md](docs/evaluation.md) —— 新增能力要能进消融表，否则只是加功能。信息源与 Profile 的改动直接开 PR 或 issue。
 
 ## 许可证
 

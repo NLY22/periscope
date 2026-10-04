@@ -15,14 +15,14 @@ from rich.console import Console
 
 from src.analysis import Claim, ClaimStore
 from src.models import AnalysisConfig, ContentItem, CorpusConfig, SourceType
-from src.orchestrator import HorizonOrchestrator, _AI_UNSET
+from src.orchestrator import Orchestrator, _AI_UNSET
 
 NOW = datetime(2026, 9, 24, 12, 0, 0, tzinfo=timezone.utc)
 
 
-def make_orchestrator(tmp_path, monkeypatch) -> HorizonOrchestrator:
+def make_orchestrator(tmp_path, monkeypatch) -> Orchestrator:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    orch = HorizonOrchestrator.__new__(HorizonOrchestrator)
+    orch = Orchestrator.__new__(Orchestrator)
     orch.config = SimpleNamespace(
         corpus=CorpusConfig(),
         analysis=AnalysisConfig(),
@@ -119,7 +119,7 @@ def test_analyze_claims_skips_items_the_corpus_has_already_seen(tmp_path, monkey
             return 0
 
     monkeypatch.setattr(
-        HorizonOrchestrator, "_get_claim_analyzer", lambda self: RecordingAnalyzer()
+        Orchestrator, "_get_claim_analyzer", lambda self: RecordingAnalyzer()
     )
 
     def timeless(idx):
@@ -176,7 +176,7 @@ def test_linking_and_grading_still_run_when_nothing_is_new(tmp_path, monkeypatch
             return 0
 
     monkeypatch.setattr(
-        HorizonOrchestrator, "_get_claim_analyzer", lambda self: RecordingAnalyzer()
+        Orchestrator, "_get_claim_analyzer", lambda self: RecordingAnalyzer()
     )
 
     asyncio.run(orch.analyze_claims([make_item("ghost", "t", "b")]))

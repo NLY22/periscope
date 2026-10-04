@@ -1,4 +1,4 @@
-"""Interactive setup wizard for Horizon configuration."""
+"""Interactive setup wizard for Periscope configuration."""
 
 import argparse
 import json
@@ -389,7 +389,7 @@ def _gh_key(src: GitHubSourceConfig) -> str:
 
 def main():
     """Main entry point for the setup wizard."""
-    parser = argparse.ArgumentParser(description="Horizon setup wizard")
+    parser = argparse.ArgumentParser(description="Periscope setup wizard")
     add_data_dir_arguments(parser)
     add_log_level_argument(parser)
     args = parser.parse_args()
@@ -410,20 +410,20 @@ def main():
     interests = get_interests()
 
     # Step 3: Preset library matching
-    console.print("\n[dim]Fetching preset source library...[/dim]")
+    console.print("\n[dim]Loading preset source library...[/dim]")
     try:
         presets_path = Path(args.data_dir) / "presets.json"
         if not presets_path.exists():
             presets_path = Path("data/presets.json")
-        presets = load_presets(presets_path=str(presets_path), prefer_api=True)
-        offline = os.environ.get("HORIZON_OFFLINE", "").lower() in ("1", "true", "yes")
-        if offline:
-            console.print("[dim]Using local presets (offline mode)[/dim]")
-        else:
-            console.print("[dim]Loaded preset sources from API[/dim]")
+        presets = load_presets(presets_path=str(presets_path))
+        console.print(
+            f"[dim]Loaded {len(presets.get('domains', []))} preset domains "
+            f"from {presets_path}[/dim]"
+        )
     except FileNotFoundError:
-        console.print("[yellow]Could not fetch presets (offline and no local file).[/yellow]")
-        console.print("[yellow]Skipping preset matching.[/yellow]")
+        console.print(
+            "[yellow]No local preset library found; skipping preset matching.[/yellow]"
+        )
         presets = {"domains": []}
 
     matched_sources = match_sources(interests, presets)
@@ -487,7 +487,7 @@ def main():
         f"  AI:      {ai_config.provider.value} / {ai_config.model}\n"
         f"  Sources: {_count_sources(config)} total\n"
         f"  Profile: {config.processing.default_profile}\n\n"
-        f"Run [bold cyan]horizon[/bold cyan] to start aggregating!",
+        f"Run [bold cyan]periscope[/bold cyan] to start aggregating!",
         title="Setup Complete",
         border_style="green",
     ))

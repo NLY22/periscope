@@ -61,7 +61,7 @@ def _rendered(default) -> str:
 
 
 def _server_tools() -> set:
-    return set(re.findall(r"^(?:async )?def (hz_\w+)", SERVER.read_text(encoding="utf-8"), re.M))
+    return set(re.findall(r"^(?:async )?def (ps_\w+)", SERVER.read_text(encoding="utf-8"), re.M))
 
 
 # ---------------------------------------------------------------- config blocks
@@ -100,14 +100,14 @@ def test_config_example_covers_the_evidence_blocks() -> None:
 # -------------------------------------------------------------------- MCP tools
 def test_mcp_guide_lists_every_registered_tool() -> None:
     tools = _server_tools()
-    listed = set(re.findall(r"`(hz_\w+)`", MCP_DOC.read_text(encoding="utf-8")))
+    listed = set(re.findall(r"`(ps_\w+)`", MCP_DOC.read_text(encoding="utf-8")))
     assert not tools - listed, f"undocumented tools: {sorted(tools - listed)}"
 
 
 def test_mcp_guide_invents_no_tool() -> None:
-    """The guide once named `hz_claims`, which has never existed."""
+    """The guide once listed a tool that has never existed."""
     tools = _server_tools()
-    listed = set(re.findall(r"`(hz_\w+)`", MCP_DOC.read_text(encoding="utf-8")))
+    listed = set(re.findall(r"`(ps_\w+)`", MCP_DOC.read_text(encoding="utf-8")))
     assert not listed - tools, f"non-existent tools in the guide: {sorted(listed - tools)}"
 
 
@@ -120,35 +120,15 @@ def test_readme_tool_count_matches_the_server() -> None:
 
 
 # ---------------------------------------------------------------- fork identity
-_UPSTREAM_CONTACTS = ("thysrael@gmail.com", "thysrael@163.com")
-_FORK_DOC = re.compile(r"本 fork|this fork", re.IGNORECASE)
+# The addresses that used to live here are gone from the repository, and
+# `tests/test_no_upstream_identity_remains.py` is what keeps them gone.
 
 
-@pytest.mark.parametrize("name", ["SECURITY.md", "CODE_OF_CONDUCT.md"])
-def test_fork_contact_banner_comes_before_the_upstream_address(name: str) -> None:
-    """Both files were pure upstream, so every report went to a stranger's inbox.
-
-    The rule is not "never mention the upstream address" — it is that a reader
-    must be told whose address it is before they can act on it.
-    """
-    text = (REPO_ROOT / name).read_text(encoding="utf-8")
-    first_contact = min(
-        (text.index(c) for c in _UPSTREAM_CONTACTS if c in text),
-        default=None,
-    )
-    assert first_contact is not None, f"{name} no longer carries the upstream contact"
-    header = text[:first_contact]
-    assert _FORK_DOC.search(header), (
-        f"{name}: the fork/upstream distinction must appear before any contact address"
-    )
-
-
-def test_contributing_guide_is_not_the_upstream_one() -> None:
-    """CONTRIBUTING.md used to be upstream verbatim: no test command, no invariant,
-    and it sent source suggestions to a site this fork does not run."""
+def test_contributing_guide_carries_the_local_duties() -> None:
+    """A contributor guide has to say how *this* repository is worked on."""
     text = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     assert "uv run pytest" in text, "contributor duties must include the actual test command"
-    assert "test_tier_guard" in text, "the marker ban is the fork's core invariant; it must be documented"
+    assert "test_tier_guard" in text, "the marker ban is the core invariant; it must be documented"
     assert "没有 CI" in text or "不执行" in text, (
         "this platform does not run GitHub workflows; contributors must be told to verify locally"
     )
@@ -491,35 +471,26 @@ def test_architecture_doc_paths_point_at_real_files_and_tests() -> None:
 
 
 def test_readme_links_every_top_level_doc() -> None:
-    """A guide nobody can reach from the front page is not documentation.
-
-    `docs/index.md` is exempt: it is the GitHub Pages site home, and this
-    platform never builds it (see the workflow guards above).
-    """
+    """A guide nobody can reach from the front page is not documentation."""
     readme = _read(README)
     unlinked = [
         path.name for path in sorted((REPO_ROOT / "docs").glob("*.md"))
-        if path.name != "index.md" and path.name not in readme
+        if path.name not in readme
     ]
     assert not unlinked, f"docs not linked from the README: {unlinked}"
 
 
-def test_site_index_links_the_same_pages_in_both_languages() -> None:
-    """docs/index.md carries a Chinese and an English doc list.
+def test_the_site_home_page_is_not_coming_back() -> None:
+    """`docs/index.md` was a GitHub Pages site home with a duplicated doc list.
 
-    Editing one and forgetting the other is the obvious failure, and nothing
-    but a test would notice -- the site is not built on this platform.
+    It went away with the Pages machinery, and the same list maintained twice --
+    once in Chinese, once in English -- is exactly what rots. If someone adds it
+    back, the README table is the single source and this test says why.
     """
-    text = _read(REPO_ROOT / "docs" / "index.md")
-
-    def links_after(heading: str) -> set[str]:
-        block = text.split(heading, 1)[1]
-        block = block.split("\n## ", 1)[0]
-        return set(re.findall(r"\]\(([^)\s]+)\)", block))
-
-    zh, en = links_after("## 文档"), links_after("## Documentation")
-    assert zh == en, f"zh-only={sorted(zh - en)} en-only={sorted(en - zh)}"
-    assert "architecture" in zh, "the diagram page has to be reachable from the site home"
+    assert not (REPO_ROOT / "docs" / "index.md").exists(), (
+        "docs/index.md duplicated the README's doc table in two languages; "
+        "keep the README the one list, or update both languages in the same commit"
+    )
 
 
 def test_every_image_referenced_in_docs_exists() -> None:
@@ -680,17 +651,16 @@ def test_the_selftest_guard_rejects_a_stale_number() -> None:
     ]
 
 
-# --------------------------------------------------- inherited text vs fork policy
+# --------------------------------------------------- inherited text vs policy here
 COOKIE_DOC = REPO_ROOT / "docs" / "twitter-cookies.md"
-HUB_DOC = REPO_ROOT / "docs" / "horizon-hub-design.md"
 
 
 def test_cookie_guide_states_the_collection_boundary() -> None:
-    """Upstream wrote this guide as a multi-account "防封" recipe.
+    """The guide used to sell multi-account rotation as a "防封" recipe.
 
     SECURITY.md in the same repository excludes account pools, so the two
-    cannot both stay true. The guide now separates what the code does from what
-    this fork will support, and still warns about the failure a stale second
+    cannot both stay true. The guide separates what the code does from what
+    this project supports, and still warns about the failure a stale second
     export causes even for one account.
     """
     text = _read(COOKIE_DOC)
@@ -701,12 +671,21 @@ def test_cookie_guide_states_the_collection_boundary() -> None:
     assert "warm-up failed" in text, "the single-account pitfall must stay documented"
 
 
-def test_unimplemented_upstream_proposal_is_labelled_everywhere_it_is_linked() -> None:
-    """A proposal that reads like architecture is the most misleading doc type."""
-    banner = "\n".join(_read(HUB_DOC).splitlines()[:8])
-    assert "not implemented" in banner.lower(), "HorizonHub must be labelled a proposal up top"
-    row = next(line for line in _read(README).splitlines() if "horizon-hub-design.md" in line)
-    assert "未实现" in row and "没有对应代码" in row, f"README row: {row}"
+def test_the_unimplemented_proposal_page_stays_deleted() -> None:
+    """A proposal that reads like architecture is the most misleading doc type.
+
+    The page described a source marketplace and a recommender that no code
+    implements. It is deleted rather than labelled, because a labelled fiction
+    still gets skimmed as fact; what has to stay true is that the file is absent
+    and nothing in the repository points at it.
+    """
+    dead = "hub-design.md"
+    assert not (REPO_ROOT / "docs" / dead).exists(), f"docs/{dead} is back"
+    readers = [
+        path.name for path in [README, *sorted((REPO_ROOT / "docs").glob("*.md"))]
+        if path.name != "CHANGELOG.md" and dead in _read(path)
+    ]
+    assert not readers, f"pages still link the deleted proposal: {readers}"
 
 
 # ------------------------------------------------- repo-wide symbol existence net
@@ -717,7 +696,7 @@ def test_unimplemented_upstream_proposal_is_labelled_everywhere_it_is_linked() -
 #   - **external** identifiers -- Twitter cookie keys, OpenBB provider names, pydantic
 #     API, git refs, cron. Those go in a stated list, each with its reason, so the day
 #     someone removes `ct0` from the code the doc stops being excused for it.
-# Suffix shorthands (`hz_research_step` / `_draft` / `_edit`) are accepted only when
+# Suffix shorthands (`ps_research_step` / `_draft` / `_edit`) are accepted only when
 # some real identifier ends with them, which is a rule rather than an allowance.
 _EXTERNAL_IDENTIFIERS = {
     "auth_token", "ct0", "twid",   # Twitter cookie names the user exports
@@ -726,15 +705,29 @@ _EXTERNAL_IDENTIFIERS = {
     "HEAD", "HEAD~1", "main",      # git refs quoted in contribution docs
     "cron",                        # the scheduler this platform can actually offer
     "check_tasks_num",             # an AtomGit API response field we quote
+    "update_repository",           # an AtomGit MCP tool name, not repo code
     "MyExtractor", "MyExtractorConfig",  # placeholder class in the extractor how-to
     "F12",                         # a keyboard key, not code
-    "periscope1123.top",           # the demo domain mentioned in the README
     "llama3.1",                    # a model name a user would type
     "past_7_days",                 # an OSSInsight period value the guide calls out as broken
     "x_cookies_stale.json",        # hypothetical stale export in the cookie guide
-    "hz_claims",                   # named in the changelog precisely because it never existed
     "SOURCE_REGISTRY_V2",          # named in the changelog as the invented token a guard rejects
+    "test_unimplemented_upstream_proposal_is_labelled_everywhere_it_is_linked",
+    # ^ the changelog quotes a guard that has since been deleted, together with
+    # the page it policed; naming a dead test in a history entry is accurate.
 }
+
+# Names that were true when they were written down. The changelog is a record,
+# not a spec, so it may quote identifiers the current tree no longer defines --
+# but only inside the history prefixes below, and only in the history file.
+# Built at runtime because this file is itself part of the repository vocabulary
+# the guard scans: a literal here would make its own forbidden string legal.
+_LEGACY_PREFIX = re.compile("^(?:" + "hz" + "_" + "|" + "hori" + "zon)", re.I)
+_HISTORY_DOCS = (REPO_ROOT / "CHANGELOG.md",)
+
+
+def _is_legacy(token: str) -> bool:
+    return bool(_LEGACY_PREFIX.match(token))
 
 # Scoped on purpose: the guides and the contributor-facing files describe the
 # repository as it is, so every symbol they quote must exist. `docs/superpowers/`
@@ -751,7 +744,6 @@ _SYMBOL_DOC_TARGETS = (
     REPO_ROOT / "docs" / "profiles.md",
     REPO_ROOT / "docs" / "extractors.md",
     REPO_ROOT / "docs" / "twitter-cookies.md",
-    REPO_ROOT / "docs" / "horizon-hub-design.md",
     REPO_ROOT / "docs" / "architecture.md",
     MCP_DOC,
     REPO_ROOT / "CONTRIBUTING.md",
@@ -782,13 +774,13 @@ def _repo_vocab() -> set[str]:
 
 
 def _suffix_is_real(token: str, vocab: set[str]) -> bool:
-    """`_draft` counts as real only because `hz_research_draft` ends with it."""
+    """`_draft` counts as real only because `ps_research_draft` ends with it."""
     if not (token.startswith("_") or token.islower()):
         return False
     return any(name.endswith(token) for name in vocab)
 
 
-def _unknown_symbols(text: str, vocab: set[str]) -> list[str]:
+def _unknown_symbols(text: str, vocab: set[str], allow_legacy: bool = False) -> list[str]:
     unknown = []
     envish = set(re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", text))
     for token in _doc_identifiers(text):
@@ -798,6 +790,8 @@ def _unknown_symbols(text: str, vocab: set[str]) -> list[str]:
             continue
         if _REVISION.fullmatch(token):
             continue          # a commit hash is checked against git, not against a name list
+        if allow_legacy and _is_legacy(token):
+            continue          # a changelog may quote what was true when it was written
         if token in vocab or all(part in vocab for part in token.split(".")):
             continue
         if _suffix_is_real(token, vocab):
@@ -810,7 +804,9 @@ def test_every_doc_quoted_symbol_exists_somewhere() -> None:
     offenders = {}
     vocab = _repo_vocab()
     for path in _SYMBOL_DOC_TARGETS:
-        missing = _unknown_symbols(_read(path), vocab)
+        missing = _unknown_symbols(
+            _read(path), vocab, allow_legacy=path in _HISTORY_DOCS
+        )
         if missing:
             offenders[path.name] = missing
     assert not offenders, f"docs name identifiers that exist nowhere in the repo: {offenders}"
@@ -822,7 +818,7 @@ def test_the_symbol_net_is_not_toothless() -> None:
     # Built at runtime on purpose: this file is part of the vocabulary, so a
     # literal fake name would become "real" by being written down here.
     fake_class = f"SOURCE_REGISTRY_V{9}"
-    fake_tool = "hz_research_" + "nothere"
+    fake_tool = "ps_research_" + "nothere"
     assert _unknown_symbols(f"`{fake_class}` and `{fake_tool}` and `_draft`", vocab) == sorted(
         [fake_class, fake_tool]
     )
@@ -1190,8 +1186,8 @@ def test_the_flag_guard_resolves_shared_and_invented_options() -> None:
 def test_every_env_var_the_code_reads_is_documented() -> None:
     """An env var the software tells you to set has to appear in a guide.
 
-    Found this by auditing the deployment surface: `HORIZON_PATH` is named in an
-    MCP error message ("Pass horizon_path or set HORIZON_PATH") while no document
+    Found this by auditing the deployment surface: `PERISCOPE_PATH` is named in an
+    MCP error message ("Pass periscope_path or set PERISCOPE_PATH") while no document
     mentioned it -- the same class of dead end as the RESEND_API_KEY case, where
     the guide pointed at a variable .env.example did not carry.
     """

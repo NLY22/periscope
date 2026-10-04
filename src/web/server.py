@@ -9,16 +9,16 @@ from dotenv import load_dotenv
 from .._cli import add_data_dir_arguments, add_log_level_argument
 from ..logging_config import configure_logging
 from ..main import console
-from ..orchestrator import HorizonOrchestrator
+from ..orchestrator import Orchestrator
 from ..storage.manager import StorageManager
 
 
-def build_orchestrator(data_dir: str, config: str | None = None) -> HorizonOrchestrator:
+def build_orchestrator(data_dir: str, config: str | None = None) -> Orchestrator:
     """Same wiring the daily CLI does — one config, one storage, one orch."""
     load_dotenv()
     storage = StorageManager(data_dir=data_dir, config_path=config)
     app_config = storage.load_config()
-    return HorizonOrchestrator(app_config, storage)
+    return Orchestrator(app_config, storage)
 
 
 def main() -> None:

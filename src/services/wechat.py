@@ -34,9 +34,9 @@ LONG_POLL_TIMEOUT = 35.0
 CONTEXT_REFRESH_TIMEOUT = 8.0
 
 try:
-    ILINK_BOT_AGENT = f"Horizon/{version('horizon')}"
+    ILINK_BOT_AGENT = f"Periscope/{version('periscope')}"
 except PackageNotFoundError:  # pragma: no cover
-    ILINK_BOT_AGENT = "Horizon/0.1.0"
+    ILINK_BOT_AGENT = "Periscope/0.1.0"
 
 
 def _client_version_number(value: str) -> int:
@@ -68,12 +68,12 @@ class ILinkError(Exception):
         if self.session_timeout:
             return (
                 "WeChat receive session timed out (-14); delivery may still work. "
-                "If this persists, run 'horizon-wechat login --force'."
+                "If this persists, run 'periscope-wechat login --force'."
             )
         if self.budget_exhausted:
             return (
                 "WeChat refused the message (-2), usually because the reply budget is exhausted. "
-                "Send the bot a message, then run Horizon again."
+                "Send the bot a message, then run Periscope again."
             )
         return f"WeChat API error: {self}"
 
@@ -206,7 +206,7 @@ class ILinkClient:
         return await self._post("ilink/bot/sendmessage", {"msg": {
             "from_user_id": "",
             "to_user_id": to_user_id,
-            "client_id": f"horizon:{int(time.time() * 1000)}-{secrets.token_hex(4)}",
+            "client_id": f"periscope:{int(time.time() * 1000)}-{secrets.token_hex(4)}",
             "message_type": 2,
             "message_state": 2,
             "context_token": context_token,
@@ -360,7 +360,7 @@ class WeChatNotifier:
             await self._refresh_before_send()
             if self.session is None or not self.session.ready:
                 hint = (
-                    "Run 'horizon-wechat login' to connect."
+                    "Run 'periscope-wechat login' to connect."
                     if self.session is None else
                     "No context token yet. Send the bot a message and try again."
                 )
@@ -405,6 +405,6 @@ class WeChatNotifier:
 
     async def send_failure(self, date: str, error_message: str) -> WeChatDeliveryResult:
         return await self.send_text(
-            f"**Horizon generation failed** ({date})\n\n{error_message}",
+            f"**Periscope generation failed** ({date})\n\n{error_message}",
             (self.config.languages or ["zh"])[0],
         )

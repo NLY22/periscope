@@ -99,7 +99,7 @@ class Draft:
     def markdown(self) -> str:
         parts: List[str] = []
         for section in self.sections:
-            marker = " _(stale: 上游证据已变化，未自动覆盖)_" if section.stale else ""
+            marker = " _(stale: 重算结果已变化，未自动覆盖)_" if section.stale else ""
             parts.append(f"## {section.title}{marker}\n\n{section.body}".strip())
         return "\n\n".join(parts).strip()
 

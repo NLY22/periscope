@@ -4,22 +4,22 @@ import json
 import os
 from pathlib import Path
 
-from src.mcp.horizon_adapter import (
+from src.mcp.pipeline_adapter import (
     _load_mcp_secrets,
     apply_source_filter,
     get_enabled_sources,
     load_config,
     load_runtime,
     resolve_config_path,
-    resolve_horizon_path,
+    resolve_periscope_path,
 )
 from src.models import AIProvider, Config, SOURCE_REGISTRY, SourceType
 
 
-def test_resolve_horizon_path_accepts_explicit_repo() -> None:
+def test_resolve_periscope_path_accepts_explicit_repo() -> None:
     repo_root = Path(__file__).resolve().parents[1]
 
-    assert resolve_horizon_path(str(repo_root)) == repo_root.resolve()
+    assert resolve_periscope_path(str(repo_root)) == repo_root.resolve()
 
 
 def test_resolve_config_path_defaults_to_repo_data_config(tmp_path: Path) -> None:
@@ -47,7 +47,7 @@ def test_load_mcp_secrets_loads_generic_env_keys(tmp_path: Path, monkeypatch) ->
     )
 
     repo_root = Path(__file__).resolve().parents[1]
-    monkeypatch.setenv("HORIZON_MCP_SECRETS_PATH", str(secrets_path))
+    monkeypatch.setenv("PERISCOPE_MCP_SECRETS_PATH", str(secrets_path))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("CUSTOM_TOKEN", raising=False)
 

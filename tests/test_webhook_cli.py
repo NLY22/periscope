@@ -21,7 +21,7 @@ def _silence(monkeypatch):
 
 def test_data_dir_and_config_flags_are_forwarded_to_storage_manager(monkeypatch, tmp_path):
     data_dir = tmp_path / "state"
-    config_path = tmp_path / "custom" / "horizon.json"
+    config_path = tmp_path / "custom" / "periscope.json"
     storage_calls = []
 
     class RecordingStorage:
@@ -35,7 +35,7 @@ def test_data_dir_and_config_flags_are_forwarded_to_storage_manager(monkeypatch,
     monkeypatch.setattr(webhook_cli, "StorageManager", RecordingStorage)
     monkeypatch.setattr(
         "sys.argv",
-        ["horizon-webhook", "--data-dir", str(data_dir), "--config", str(config_path)],
+        ["periscope-webhook", "--data-dir", str(data_dir), "--config", str(config_path)],
     )
 
     with pytest.raises(SystemExit):
@@ -56,7 +56,7 @@ def test_data_dir_and_config_default_to_data_directory(monkeypatch):
 
     _silence(monkeypatch)
     monkeypatch.setattr(webhook_cli, "StorageManager", RecordingStorage)
-    monkeypatch.setattr("sys.argv", ["horizon-webhook"])
+    monkeypatch.setattr("sys.argv", ["periscope-webhook"])
 
     with pytest.raises(SystemExit):
         webhook_cli.main()
@@ -82,7 +82,7 @@ def test_log_level_flag_is_forwarded_to_configure_logging(monkeypatch):
         "configure_logging",
         lambda console, level=None: logging_calls.append(level),
     )
-    monkeypatch.setattr("sys.argv", ["horizon-webhook", "--log-level", "debug"])
+    monkeypatch.setattr("sys.argv", ["periscope-webhook", "--log-level", "debug"])
 
     with pytest.raises(SystemExit):
         webhook_cli.main()
@@ -100,7 +100,7 @@ def test_exits_when_webhook_not_enabled(monkeypatch):
 
     _silence(monkeypatch)
     monkeypatch.setattr(webhook_cli, "StorageManager", FixedStorage)
-    monkeypatch.setattr("sys.argv", ["horizon-webhook"])
+    monkeypatch.setattr("sys.argv", ["periscope-webhook"])
 
     with pytest.raises(SystemExit) as exc_info:
         webhook_cli.main()
@@ -136,7 +136,7 @@ def test_lang_dry_run_and_delivery_flags_are_forwarded_to_run_test(monkeypatch):
     monkeypatch.setattr(webhook_cli, "_run_test", fake_run_test)
     monkeypatch.setattr(
         "sys.argv",
-        ["horizon-webhook", "--lang", "zh", "--dry-run", "--delivery", "summary_and_items"],
+        ["periscope-webhook", "--lang", "zh", "--dry-run", "--delivery", "summary_and_items"],
     )
 
     webhook_cli.main()
@@ -168,7 +168,7 @@ def test_lang_defaults_to_first_configured_language(monkeypatch):
     _silence(monkeypatch)
     monkeypatch.setattr(webhook_cli, "StorageManager", FixedStorage)
     monkeypatch.setattr(webhook_cli, "_run_test", fake_run_test)
-    monkeypatch.setattr("sys.argv", ["horizon-webhook"])
+    monkeypatch.setattr("sys.argv", ["periscope-webhook"])
 
     webhook_cli.main()
 

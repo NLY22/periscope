@@ -14,7 +14,7 @@
 flowchart LR
   subgraph SRC["来源"]
     A1["14 个已注册源族<br/>SOURCE_SPECS → SOURCE_REGISTRY → SCRAPER_BINDINGS"]
-    A2["用户导出<br/>import_corpus · hz_corpus_import · POST /api/import"]
+    A2["用户导出<br/>import_corpus · ps_corpus_import · POST /api/import"]
     A3["可达性探针<br/>pass / list_only / blocked_captcha / signed_required / blocked_auth / error"]
   end
 
@@ -86,7 +86,7 @@ stateDiagram-v2
   closed --> [*]
 ```
 
-**为什么 `awaiting_user` 必须是一等状态。** 它不是错误也不是结束：`hz_research_list` 与面板要能看出"这个会话在等你"，并且能被恢复；若把它塞回 `planning`，用户看到的就是一个永远在转圈的会话。
+**为什么 `awaiting_user` 必须是一等状态。** 它不是错误也不是结束：`ps_research_list` 与面板要能看出"这个会话在等你"，并且能被恢复；若把它塞回 `planning`，用户看到的就是一个永远在转圈的会话。
 
 **关键约束。** `AskUser` 只在有可用模型时才可能被选出：无 LLM 时的确定性回退只会产出 `Deepen` / `Finalize`，所以联系不到模型的会话会终止，不会开始连环追问。请求可以 `answered` 也可以 `skipped` —— 拿不到输入是常态，不是死锁。
 

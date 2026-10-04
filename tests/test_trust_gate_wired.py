@@ -305,7 +305,7 @@ def test_sheets_without_the_column_get_no_split_and_no_complaint(tmp_path) -> No
 
 
 def test_aggregate_stats_keep_the_two_kinds_of_unsupported_apart(tmp_path) -> None:
-    """`hz_corpus_stats` answers "how many supported?" for an agent. After the
+    """`ps_corpus_stats` answers "how many supported?" for an agent. After the
     gate that count mixes a model judgment with an arithmetic veto, and the
     caller has no way to ask which is which."""
     _demoted(tmp_path)

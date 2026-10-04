@@ -1,6 +1,6 @@
 # Twitter / X Cookie 配置指南（Playwright 模式）
 
-Horizon 支持两种 Twitter 抓取方式：
+Periscope 支持两种 Twitter 抓取方式：
 
 | 方式 | 成本 | 稳定性 | 适用场景 |
 |------|------|--------|----------|
@@ -85,9 +85,9 @@ Keyword search (`sources.twitter.keywords`) is Apify-only. Playwright logs a war
 
 ---
 
-## 4. 多个 cookie 文件：代码会做什么，本 fork 允许什么
+## 4. 多个 cookie 文件：代码会做什么，本项目允许什么
 
-先说清楚两件事，因为上游这段文档把它们混在一起了。
+先把两件事分开说，它们很容易被混在一起。
 
 **代码会做的**（`src/scrapers/twitter_playwright.py`）：`cookie_dir` 下所有匹配 `cookie_file_pattern` 的文件会被排序后**逐个开一个浏览器上下文**，然后把配置的账号列表切成同样数量的队列分头抓，失败的一轮之后重试一次。每个上下文的 UA 里的 Chrome 版本号按序号递增。
 

@@ -14,7 +14,7 @@ from .console_icons import get_icons
 from .models import Config, ContentItem, SOURCE_SPECS
 from .corpus.sections import marker_sections_to_model
 from .corpus.trust import thresholds_from
-from .storage.manager import StorageManager, safe_output_path
+from .storage.manager import StorageManager
 from .services.email import EmailManager
 from .services.webhook import WebhookNotifier
 from .services.wechat import WeChatNotifier
@@ -179,7 +179,7 @@ class FetchReport:
         }
 
 
-class HorizonOrchestrator:
+class Orchestrator:
     """Orchestrates the complete workflow for content aggregation and analysis."""
 
     icons = get_icons()
@@ -290,7 +290,7 @@ class HorizonOrchestrator:
         """Store fetched items in the evidence corpus (best-effort).
 
         Corpus failures must never break the daily pipeline, so errors are
-        reported and swallowed; the run simply behaves like stateless Horizon.
+        reported and swallowed; the run simply behaves like stateless Periscope.
 
         Returns the ids that were newly stored. `_get_corpus` caches its
         instance, so this must not close the corpus.
@@ -576,7 +576,7 @@ class HorizonOrchestrator:
             force_hours: Optional override for time window in hours
         """
         self.console.print(
-            f"[bold cyan]{self.icons['start']} Horizon - Starting aggregation...[/bold cyan]\n"
+            f"[bold cyan]{self.icons['start']} Periscope - Starting aggregation...[/bold cyan]\n"
         )
 
         # Check email subscriptions if configured
@@ -662,54 +662,13 @@ class HorizonOrchestrator:
                     f"{self.icons['save']} Saved {lang.upper()} summary to: {summary_path}\n"
                 )
 
-                # Copy to docs/ for GitHub Pages
-                try:
-                    from pathlib import Path
-
-                    post_filename = f"{today}-summary-{lang}.md"
-                    posts_dir = Path("docs/_posts")
-                    posts_dir.mkdir(parents=True, exist_ok=True)
-
-                    dest_path = safe_output_path(posts_dir, post_filename)
-
-                    # Add Jekyll front matter
-                    front_matter = (
-                        "---\n"
-                        "layout: default\n"
-                        f"title: \"Horizon Summary: {today} ({lang.upper()})\"\n"
-                        f"date: {today}\n"
-                        f"lang: {lang}\n"
-                        "---\n\n"
-                    )
-
-                    # Strip leading H1 header to avoid duplication with Jekyll title
-                    summary_content = summary
-                    first_line = summary_content.strip().split("\n")[0]
-                    if first_line.startswith("# "):
-                        parts = summary_content.split("\n", 1)
-                        if len(parts) > 1:
-                            summary_content = parts[1].strip()
-
-                    with open(dest_path, "w", encoding="utf-8") as f:
-                        f.write(front_matter + summary_content)
-
-                    self.console.print(
-                        f"{self.icons['document']} Copied {lang.upper()} summary "
-                        f"to GitHub Pages: {dest_path}\n"
-                    )
-                except Exception as e:
-                    self.console.print(
-                        f"[yellow]{self.icons['warning']} Failed to copy "
-                        f"{lang.upper()} summary to docs/: {e}[/yellow]\n"
-                    )
-
                 # Send email if configured
                 if self.email_manager and self.config.email and self.config.email.enabled:
                     self.console.print(
                         f"{self.icons['email']} Sending {lang.upper()} email summary..."
                     )
                     subscribers = self.storage.load_subscribers()
-                    subject = f"Horizon Summary ({lang.upper()}) - {today}"
+                    subject = f"Periscope Summary ({lang.upper()}) - {today}"
                     self.email_manager.send_daily_summary(summary, subject, subscribers)
 
                 # Send webhook notification if configured
@@ -727,7 +686,7 @@ class HorizonOrchestrator:
 
             self.console.print(
                 f"[bold green]{self.icons['success']} "
-                "Horizon completed successfully![/bold green]"
+                "Periscope completed successfully![/bold green]"
             )
             usage = get_usage_snapshot()
             if usage.total_tokens > 0:

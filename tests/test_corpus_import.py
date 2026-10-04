@@ -195,11 +195,11 @@ def test_the_mcp_tool_is_registered_and_counted() -> None:
     import re
 
     server = (REPO_ROOT / "src" / "mcp" / "server.py").read_text(encoding="utf-8")
-    assert "async def hz_corpus_import(" in server, (
+    assert "async def ps_corpus_import(" in server, (
         "the spec's degradation path promised an import entry; without the tool "
         "an import only works from the CLI"
     )
-    assert len(re.findall(r"^(?:async )?def hz_\w+", server, re.M)) == 27
+    assert len(re.findall(r"^(?:async )?def ps_\w+", server, re.M)) == 27
 
 
 def test_the_mcp_exposes_the_import_verb() -> None:
@@ -207,13 +207,13 @@ def test_the_mcp_exposes_the_import_verb() -> None:
     import re
 
     server = (REPO_ROOT / "src" / "mcp" / "server.py").read_text(encoding="utf-8")
-    assert "async def hz_corpus_import(" in server, (
+    assert "async def ps_corpus_import(" in server, (
         "the spec's degradation path promised an import entry; without the tool "
         "an import only works from the CLI"
     )
-    assert len(re.findall(r"^(?:async )?def hz_\w+", server, re.M)) == 27
+    assert len(re.findall(r"^(?:async )?def ps_\w+", server, re.M)) == 27
 
-    from src.mcp.service import HorizonPipelineService as S
+    from src.mcp.service import PipelineService as S
 
     assert callable(S.corpus_import)
     assert not inspect.iscoroutinefunction(S.corpus_import), (
@@ -224,7 +224,7 @@ def test_the_mcp_exposes_the_import_verb() -> None:
 def test_the_web_endpoint_imports_and_the_panel_can_find_it(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
-    from src.orchestrator import HorizonOrchestrator
+    from src.orchestrator import Orchestrator
     from src.storage.manager import StorageManager
     from src.web.app import create_app
 
@@ -232,7 +232,7 @@ def test_the_web_endpoint_imports_and_the_panel_can_find_it(tmp_path: Path) -> N
     for value in cfg["sources"].values():
         if isinstance(value, dict) and "enabled" in value:
             value["enabled"] = False
-    orch = HorizonOrchestrator(Config.model_validate(cfg), StorageManager(data_dir=str(tmp_path)))
+    orch = Orchestrator(Config.model_validate(cfg), StorageManager(data_dir=str(tmp_path)))
     with TestClient(create_app(orch)) as client:
         result = client.post("/api/import", json=payload(note()))
         assert result.status_code == 200, result.text

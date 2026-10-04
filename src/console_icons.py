@@ -1,4 +1,4 @@
-"""Terminal icon sets used by Horizon's console output."""
+"""Terminal icon sets used by Periscope's console output."""
 
 from typing import Literal
 

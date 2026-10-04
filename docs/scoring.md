@@ -6,7 +6,7 @@ title: Scoring System
 # Scoring System
 
 A release announcement and an engineering deep dive earn their place for
-different reasons. Horizon routes each item to one profile and scores it from
+different reasons. Periscope routes each item to one profile and scores it from
 0 to 10 using that profile's rubric. You choose the threshold for each profile
 in the runtime configuration.
 
@@ -120,7 +120,7 @@ Selected items are enriched according to the profile's `enrichment.md` prompt
 and block contract. A block can call a tool only when that tool is declared in
 the block's `tools` list. The only built-in tool is `web_search`.
 
-For every configured language, Horizon produces a localized title, section
+For every configured language, Periscope produces a localized title, section
 blocks, and references when tool sources are cited. The renderer groups these
 artifacts by profile and builds the Markdown briefing without a final AI call.
 See [Processing Profiles](profiles.md) for the complete schema and output behavior.

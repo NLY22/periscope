@@ -5,7 +5,7 @@ title: Configuration Guide
 
 # Configuration Guide
 
-Horizon is configured through a `.env` file for secrets, a JSON file for runtime settings, and processing profiles for analysis and enrichment prompts. The JSON file defaults to `data/config.json`; profiles default to `profiles/`.
+Periscope is configured through a `.env` file for secrets, a JSON file for runtime settings, and processing profiles for analysis and enrichment prompts. The JSON file defaults to `data/config.json`; profiles default to `profiles/`.
 
 ## Configuration Paths
 
@@ -101,7 +101,7 @@ automatic matching cannot select a profile:
 - `default_profile`: ID of a profile present in `profiles_dir`.
 - `profile_settings`: User preferences keyed by profile ID. `threshold` accepts
   `0` through `10` or `null` for no score filter; `topic_dedup` defaults to
-  `true`. Unknown profile IDs are rejected when Horizon starts.
+  `true`. Unknown profile IDs are rejected when Periscope starts.
 
 Each profile owns its matching, analysis, and enrichment behavior. Runtime
 filtering preferences stay in the main JSON configuration. See [Processing
@@ -121,9 +121,9 @@ OPENAI_API_KEY=sk-your-key
 GOOGLE_API_KEY=your-gemini-key
 ```
 
-When Horizon starts, environment variables have priority because
+When Periscope starts, environment variables have priority because
 the active config file does not store the secret. For local VS Code runs, create
-`.env` in the repository root and launch Horizon from that same root directory.
+`.env` in the repository root and launch Periscope from that same root directory.
 
 Common API key variable names:
 
@@ -221,7 +221,7 @@ Use the endpoint for your account region and preferred compatible API:
 | China | `https://api.minimaxi.com/v1` | `https://api.minimaxi.com/anthropic` |
 
 For the Anthropic-compatible API, keep `provider` set to `minimax` and pass
-the base URL directly without adding `/v1`. Horizon selects its Anthropic
+the base URL directly without adding `/v1`. Periscope selects its Anthropic
 client for this endpoint, and the SDK appends `/v1/messages` when sending a
 request:
 
@@ -268,8 +268,8 @@ Use the [DashScope compatible-mode](https://help.aliyun.com/zh/dashscope/develop
 
 Omit `base_url` to use the default `http://localhost:11434/v1`.
 For remote Ollama servers, set `ai.base_url` in the active config file or set
-`HORIZON_OLLAMA_BASE_URL` in `.env`. `OLLAMA_BASE_URL` and `OLLAMA_HOST` are
-also recognized. If the value omits `/v1`, Horizon appends it automatically
+`PERISCOPE_OLLAMA_BASE_URL` in `.env`. `OLLAMA_BASE_URL` and `OLLAMA_HOST` are
+also recognized. If the value omits `/v1`, Periscope appends it automatically
 for Ollama's OpenAI-compatible endpoint.
 
 ### AI throttling
@@ -320,7 +320,7 @@ By default, AI scoring and enrichment run one item at a time. If your API endpoi
 }
 ```
 
-For OpenAI-compatible gateways, Horizon sends `temperature` by default. If a newer reasoning-style model rejects that parameter with an error such as `temperature is deprecated for this model`, Horizon retries once without it and remembers that capability for later requests.
+For OpenAI-compatible gateways, Periscope sends `temperature` by default. If a newer reasoning-style model rejects that parameter with an error such as `temperature is deprecated for this model`, Periscope retries once without it and remembers that capability for later requests.
 
 ## Information Sources
 
@@ -531,13 +531,13 @@ uv pip install --only-binary=:all: openbb openbb-benzinga
 
 - `enabled` — enable or disable the OpenBB source globally
 - `watchlists` — list of named ticker groups; each watchlist becomes one `news.company()` call per run
-- `name` — label shown in Horizon metadata and selection breakdowns
+- `name` — label shown in Periscope metadata and selection breakdowns
 - `provider` — OpenBB provider name such as `yfinance` or `benzinga`
 - `fetch_limit` — maximum news rows requested for that watchlist
 - `category` — optional tag stored on fetched items
 - `symbols` — ticker symbols to fetch together; group symbols by provider to keep requests efficient
 
-OpenBB provider credentials are handled by the OpenBB SDK itself, using its own environment variables or user settings. Horizon does not pass those secrets through the active config file.
+OpenBB provider credentials are handled by the OpenBB SDK itself, using its own environment variables or user settings. Periscope does not pass those secrets through the active config file.
 
 ### OSS Insight (Trending GitHub Repos)
 
@@ -640,7 +640,7 @@ Note the strictness split, because it is easy to get wrong: `Section` and `Conte
 
 | Key | Default | What it does |
 |---|---|---|
-| `enabled` | `true` | Store every collected item into SQLite. Off means the fork behaves like stateless upstream Horizon. |
+| `enabled` | `true` | Store every collected item into SQLite. Off means the fork behaves like stateless upstream Periscope. |
 | `path` | `"corpus.db"` | Database file, relative to `--data-dir`. Shared by CLI, web panel and MCP. |
 | `cluster_max_distance` | `3` | SimHash Hamming cutoff for near-duplicate clustering; ≤3 is effectively the same text. This is the collapse that stops a recycled post from being counted twice. |
 | `cluster_lookback_rows` | `500` | Rows re-grouped per run — clusters are recomputed, not append-only. |
@@ -653,7 +653,7 @@ Schema is versioned (`SCHEMA_VERSION = 4`) and migrations are idempotent `ALTER`
 |---|---|---|
 | `enabled` | `true` | Turn claim extraction, evidence linking and grading on. Off leaves the corpus as pure searchable memory. |
 | `max_claims_per_item` | `5` | Cap on atomic claims distilled from one item. |
-| `evidence_per_claim` | `6` | Cap on linked evidence rows per claim, enforced where the rows are written. Readers no longer set their own ceilings, so the grader's prompt, `hz_get_claim`, the panel and `eval_claims.py --export` all show the same set — three different caps used to live there (6 / 8 / 6), which meant a human labelled a different excerpt set than the model was shown. |
+| `evidence_per_claim` | `6` | Cap on linked evidence rows per claim, enforced where the rows are written. Readers no longer set their own ceilings, so the grader's prompt, `ps_get_claim`, the panel and `eval_claims.py --export` all show the same set — three different caps used to live there (6 / 8 / 6), which meant a human labelled a different excerpt set than the model was shown. |
 | `grade_min_sources` | `2` | **Triage floor, not a verdict.** Below it a claim is never graded — which is why reports now list un-graded claims with a reason instead of dropping them. |
 | `triage_min_trust` | `0.0` | Second triage gate: only claims with aggregated `T ≥` this value get an LLM call. **`0.0` means the gate is off**, preserving pre-P1 behaviour; the threshold is a hand-set prior, not a fitted value (see `docs/evaluation.md`). |
 | `supported_min_trust` | `null` | T cut point for the `supported` gate. `null` keeps the code's hand prior (`0.55`). This is where a θ from `scripts/eval_claims.py --score` lands — **and until the human labels exist, no such fitted value exists**, so leaving it `null` is the honest setting. |
@@ -661,7 +661,7 @@ Schema is versioned (`SCHEMA_VERSION = 4`) and migrations are idempotent `ALTER`
 | `same_family_prior` | `null` | Source prior a single-family claim must reach for depth to substitute for breadth (hand prior `0.40`). |
 | `same_family_publishers` | `null` | Distinct publishers within one family that count as deep corroboration (hand prior `3`). |
 
-These three are not cosmetic: `grade_claim` runs the gates against the stored votes, so setting them changes verdicts on the product path. When the gate vetoes a model's `supported`, the claim is stored as `unsupported` with `verdict_source='trust_gate'` and the report says 🚫 未通过可信度门（模型原判 supported） rather than pretending the model changed its mind. `hz_validate_config` 还会对着 `data/eval/claims_results.json` 回一句：如果标注已经拟出阈值而配置仍是旧值，它会说"拟合值没被用上"。
+These three are not cosmetic: `grade_claim` runs the gates against the stored votes, so setting them changes verdicts on the product path. When the gate vetoes a model's `supported`, the claim is stored as `unsupported` with `verdict_source='trust_gate'` and the report says 🚫 未通过可信度门（模型原判 supported） rather than pretending the model changed its mind. `ps_validate_config` 还会对着 `data/eval/claims_results.json` 回一句：如果标注已经拟出阈值而配置仍是旧值，它会说"拟合值没被用上"。
 | `grade_budget_per_run` | `8` | LLM calls reserved for grading per run, on a rate-limited free tier. |
 | `extract_top_items` | `12` | Analyse at most this many *new* items per run — the widening loop re-fetches `time_basis="unknown"` items every cycle, and dedup only stops duplicate rows, not duplicate spend. |
 | `item_content_chars` | `3500` | Truncation for the extraction prompt. |
@@ -772,7 +772,7 @@ All source types support a `category` field: `sources.rss[].category`,
 `sources.gdelt.category`, and `sources.google_news.category`.
 Sources without a category set enter the default group.
 
-If the same category appears in multiple groups, Horizon logs a warning and uses
+If the same category appears in multiple groups, Periscope logs a warning and uses
 the first group in configuration order. Omitting both `category_groups` and
 `max_items` disables balanced digest limits; configured profile thresholds still
 apply.
@@ -786,7 +786,7 @@ Example:
 ```json
 {
   "ai": {
-    "base_url": "${HORIZON_AI_BASE_URL}"
+    "base_url": "${PERISCOPE_AI_BASE_URL}"
   },
   "sources": {
     "rss": [
@@ -798,13 +798,13 @@ Example:
     ]
   },
   "webhook": {
-    "url_env": "HORIZON_WEBHOOK_URL",
-    "headers": "Authorization: Bearer ${HORIZON_WEBHOOK_TOKEN}"
+    "url_env": "PERISCOPE_WEBHOOK_URL",
+    "headers": "Authorization: Bearer ${PERISCOPE_WEBHOOK_TOKEN}"
   }
 }
 ```
 
-- `${NAME}` is replaced only when `NAME` is a valid identifier like `LWN_KEY` or `HORIZON_AI_BASE_URL`.
+- `${NAME}` is replaced only when `NAME` is a valid identifier like `LWN_KEY` or `PERISCOPE_AI_BASE_URL`.
 - Unset variables are left as `${NAME}` instead of becoming an empty string, so configuration mistakes fail loudly downstream.
 - Expansion is recursive through dicts, lists, and tuples; non-string values are left unchanged.
 
@@ -817,14 +817,12 @@ guide mentioned.
 
 | Variable | Read by | Effect |
 |---|---|---|
-| `HORIZON_PATH` | `src/mcp/horizon_adapter.py` | Where the repository lives, used to locate the config and corpus when `horizon_path` is not passed to the tool. The MCP error `Horizon repository was not found. Pass horizon_path or set HORIZON_PATH.` refers to this. |
-| `HORIZON_MCP_SECRETS_PATH` | `src/mcp/horizon_adapter.py` | Explicit path to the MCP secrets file. If it is set but the file is missing, the server fails with `HZ_SECRETS_NOT_FOUND` rather than silently falling back. |
-| `HORIZON_API_URL` | `src/setup/presets.py` | Base URL of the profile-preset catalog (`/api/presets`). Defaults to `https://horizon1123.top`, **an upstream service this fork does not deploy** — point it at your own instance, or stay offline with the variable below. |
-| `HORIZON_OFFLINE` | `src/setup/presets.py`, `src/setup/wizard.py` | Set to `1` / `true` / `yes` to skip all network access in the wizard and preset loading; presets then come from the local files only. |
+| `PERISCOPE_PATH` | `src/mcp/pipeline_adapter.py` | Where the repository lives, used to locate the config and corpus when `periscope_path` is not passed to the tool. The MCP error `Periscope repository was not found. Pass periscope_path or set PERISCOPE_PATH.` refers to this. |
+| `PERISCOPE_MCP_SECRETS_PATH` | `src/mcp/pipeline_adapter.py` | Explicit path to the MCP secrets file. If it is set but the file is missing, the server fails with `PS_SECRETS_NOT_FOUND` rather than silently falling back. |
 
 ## Email Subscription
 
-Email delivery is optional and disabled unless `email.enabled` is `true`. Horizon uses SMTP to send daily summaries and IMAP to check subscribe/unsubscribe requests.
+Email delivery is optional and disabled unless `email.enabled` is `true`. Periscope uses SMTP to send daily summaries and IMAP to check subscribe/unsubscribe requests.
 
 ```json
 {
@@ -838,7 +836,7 @@ Email delivery is optional and disabled unless `email.enabled` is `true`. Horizo
     "imap_port": 993,
     "email_address": "xxx@qq.com",
     "password_env": "EMAIL_PASSWORD",
-    "sender_name": "Horizon Daily",
+    "sender_name": "Periscope Daily",
     "subscribe_keyword": "SUBSCRIBE",
     "unsubscribe_keyword": "UNSUBSCRIBE"
   }
@@ -847,13 +845,13 @@ Email delivery is optional and disabled unless `email.enabled` is `true`. Horizo
 
 - `enabled`: Turns email subscription handling and daily email delivery on or off.
 - `smtp_server` / `smtp_port`: SMTP server used to send emails.
-- `smtp_username`: Optional SMTP login username. If omitted, Horizon uses `email_address`.
+- `smtp_username`: Optional SMTP login username. If omitted, Periscope uses `email_address`.
 - `imap_enabled`: Turns IMAP subscribe/unsubscribe checks on or off. Set it to `false` for send-only SMTP providers.
 - `imap_server` / `imap_port`: IMAP server used to scan incoming subscription requests when `imap_enabled` is `true`.
 - `email_address`: Sender account and mailbox checked for subscription requests.
 - `password_env`: Environment variable containing the email password or app password. Defaults to `EMAIL_PASSWORD`.
 - `sender_name`: Display name shown in sent emails.
-- `subscribe_keyword` / `unsubscribe_keyword`: Keywords Horizon looks for in incoming email subjects.
+- `subscribe_keyword` / `unsubscribe_keyword`: Keywords Periscope looks for in incoming email subjects.
 
 Resend SMTP example:
 
@@ -869,7 +867,7 @@ Resend SMTP example:
     "imap_server": "",
     "imap_port": 993,
     "email_address": "noreply@example.com",
-    "sender_name": "Horizon Daily"
+    "sender_name": "Periscope Daily"
   }
 }
 ```
@@ -878,13 +876,13 @@ Set `RESEND_API_KEY` in `.env`. Recipients are loaded from `<data-dir>/subscribe
 
 ## Webhook Notification
 
-Webhook notification is optional and disabled unless `webhook.enabled` is `true`. Horizon can call Feishu/Lark, DingTalk, Slack, Discord, or any custom webhook endpoint when the pipeline succeeds or fails.
+Webhook notification is optional and disabled unless `webhook.enabled` is `true`. Periscope can call Feishu/Lark, DingTalk, Slack, Discord, or any custom webhook endpoint when the pipeline succeeds or fails.
 
 ```json
 {
   "webhook": {
     "enabled": true,
-    "url_env": "HORIZON_WEBHOOK_URL",
+    "url_env": "PERISCOPE_WEBHOOK_URL",
     "delivery": "summary",
     "overview_position": "first",
     "platform": "generic",
@@ -900,21 +898,21 @@ Webhook notification is optional and disabled unless `webhook.enabled` is `true`
 ```
 
 - `enabled`: Turns webhook delivery on or off. The default is `false`.
-- `url_env`: Environment variable that contains the webhook URL. For example, set `HORIZON_WEBHOOK_URL=https://...` in `.env`.
+- `url_env`: Environment variable that contains the webhook URL. For example, set `PERISCOPE_WEBHOOK_URL=https://...` in `.env`.
 - `delivery`: Controls how messages are sent. Use `summary` for one full message, or `summary_and_items` for one overview message followed by one message per selected item.
 - `overview_position`: Controls where the overview is sent in `summary_and_items` mode. Use `first` for the traditional order, or `last` to send item details in reverse and keep the overview as the newest chat message.
 - `platform`: Optional webhook platform hint. Use `generic` by default, or `feishu` / `lark` to enable platform-specific card rendering.
 - `layout`: Controls the message layout. Use `markdown` for templated Markdown delivery, or `collapsible` with `platform: "feishu"` / `"lark"` for a single Feishu Card JSON 2.0 message with each item in a collapsed panel.
 - `fallback_layout`: Reserved fallback layout for unsupported platform/layout combinations. The current safe fallback is `markdown`.
 - `languages`: Optional webhook-only language filter. Use `["zh"]` or `["en"]` to send only selected languages; use `null` or omit it to send all configured `ai.languages`.
-- `request_body`: Optional request body. If empty, Horizon sends a `GET` request. If provided, Horizon sends a `POST` request.
+- `request_body`: Optional request body. If empty, Periscope sends a `GET` request. If provided, Periscope sends a `POST` request.
 - `headers`: Optional custom headers, one `Key: Value` pair per line.
 
-When `request_body` is a JSON object or array, Horizon renders placeholders and serializes it as JSON. When it is a string, Horizon renders it directly and detects JSON if the rendered string is valid JSON.
+When `request_body` is a JSON object or array, Periscope renders placeholders and serializes it as JSON. When it is a string, Periscope renders it directly and detects JSON if the rendered string is valid JSON.
 
 ### Delivery Modes And Layouts
 
-`delivery` controls how many webhook messages Horizon sends:
+`delivery` controls how many webhook messages Periscope sends:
 
 - `summary`: Sends one message containing the full daily summary. This is simple, but some chat platforms may reject long messages.
 - `summary_and_items`: Sends one overview message plus one message per selected item. In each item message, `#{summary}` contains only that item's Markdown body. This is useful for platforms that reject or truncate long messages.
@@ -922,7 +920,7 @@ When `request_body` is a JSON object or array, Horizon renders placeholders and 
 `layout` controls how each message is rendered:
 
 - `markdown`: Uses your `request_body` template for each message. This is the default and works with generic webhooks, DingTalk, Slack, Discord, Feishu, and Lark.
-- `collapsible`: Currently supported for `platform: "feishu"` or `"lark"`. Horizon ignores `request_body` and builds one Feishu/Lark Card JSON 2.0 message with each item in a collapsed panel.
+- `collapsible`: Currently supported for `platform: "feishu"` or `"lark"`. Periscope ignores `request_body` and builds one Feishu/Lark Card JSON 2.0 message with each item in a collapsed panel.
 
 For platforms without a platform-specific layout, keep `layout: "markdown"` and choose the message count with `delivery`.
 
@@ -932,7 +930,7 @@ Example `summary_and_items` Markdown delivery config:
 {
   "webhook": {
     "enabled": true,
-    "url_env": "HORIZON_WEBHOOK_URL",
+    "url_env": "PERISCOPE_WEBHOOK_URL",
     "delivery": "summary_and_items",
     "overview_position": "last",
     "platform": "generic",
@@ -944,7 +942,7 @@ Example `summary_and_items` Markdown delivery config:
 }
 ```
 
-With `summary_and_items`, Horizon sends one overview plus one message per selected item. `overview_position: "last"` sends item messages first and keeps the overview as the newest chat message; omit it or set `"first"` to send the overview first.
+With `summary_and_items`, Periscope sends one overview plus one message per selected item. `overview_position: "last"` sends item messages first and keeps the overview as the newest chat message; omit it or set `"first"` to send the overview first.
 
 ### Webhook Templates
 
@@ -976,7 +974,7 @@ When `delivery` is `summary_and_items`, item messages also include:
 | `#{item_url}` | Current item URL |
 | `#{item_score}` | Current item analysis score |
 
-For webhook delivery, Horizon flattens HTML disclosure blocks such as `<details><summary>...</summary>` in `#{summary}` into plain Markdown link lists. This makes the generated summary easier to render in chat products. Saved Markdown files, GitHub Pages, and email content are unchanged.
+For webhook delivery, Periscope flattens HTML disclosure blocks such as `<details><summary>...</summary>` in `#{summary}` into plain Markdown link lists. This makes the generated summary easier to render in chat products. Saved Markdown files, GitHub Pages, and email content are unchanged.
 
 Use `#{key?limit=N&split=DELIM}` to truncate long values by splitting on `DELIM` and keeping segments until the total character count reaches `N`.
 
@@ -986,21 +984,21 @@ Use `#{key?limit=N&split=DELIM}` to truncate long values by splitting on `DELIM`
 
 ### DingTalk
 
-In DingTalk, create a custom group robot and use a custom keyword such as `Horizon`. The keyword must appear in the body content.
+In DingTalk, create a custom group robot and use a custom keyword such as `Periscope`. The keyword must appear in the body content.
 
 ```json
 {
   "msgtype": "markdown",
   "markdown": {
-    "title": "Horizon #{date} Daily",
-    "text": "Horizon result: #{result}\n\nHorizon important items: #{important_items}/#{all_items}\n\n#{summary}"
+    "title": "Periscope #{date} Daily",
+    "text": "Periscope result: #{result}\n\nPeriscope important items: #{important_items}/#{all_items}\n\n#{summary}"
   }
 }
 ```
 
 ### Feishu / Lark
 
-In Feishu or Lark, create a custom group robot and use a custom keyword such as `Horizon`. The keyword must appear in the body content.
+In Feishu or Lark, create a custom group robot and use a custom keyword such as `Periscope`. The keyword must appear in the body content.
 
 Use Card JSON 2.0 for Markdown rendering. The card must include `"schema": "2.0"` and put rich-text Markdown components under `card.body.elements`.
 
@@ -1010,7 +1008,7 @@ To keep the group chat compact while still allowing readers to browse the full b
 {
   "webhook": {
     "enabled": true,
-    "url_env": "HORIZON_WEBHOOK_URL",
+    "url_env": "PERISCOPE_WEBHOOK_URL",
     "platform": "feishu",
     "layout": "collapsible",
     "fallback_layout": "markdown",
@@ -1019,7 +1017,7 @@ To keep the group chat compact while still allowing readers to browse the full b
 }
 ```
 
-With this layout, Horizon sends one interactive card containing the overview and one collapsed panel per selected item. Each panel can be expanded in Feishu to read the full item detail. The regular `request_body` template is ignored for this rendered card.
+With this layout, Periscope sends one interactive card containing the overview and one collapsed panel per selected item. Each panel can be expanded in Feishu to read the full item detail. The regular `request_body` template is ignored for this rendered card.
 
 ```json
 {
@@ -1040,7 +1038,7 @@ With this layout, Horizon sends one interactive card containing the overview and
       "elements": [
         {
           "tag": "markdown",
-          "content": "Horizon result: #{result}\nHorizon important items: #{important_items}/#{all_items}"
+          "content": "Periscope result: #{result}\nPeriscope important items: #{important_items}/#{all_items}"
         },
         {
           "tag": "hr"
@@ -1075,7 +1073,7 @@ uv run periscope-webhook --dry-run
 
 ## WeChat Notification
 
-Horizon sends briefings to your WeChat through the iLink Bot API, following
+Periscope sends briefings to your WeChat through the iLink Bot API, following
 Tencent's `openclaw-weixin` client protocol. Enable it in your configuration:
 
 ```json
@@ -1107,7 +1105,7 @@ Keep this file between scheduled runs; on POSIX it is written with mode `0600`.
 
 **WeChat limits:** a user message provides the context required for replies.
 Live testing of this integration observed a limit of 10 replies per context;
-Horizon tracks an estimate, reminds you when it runs low, and stops on a server
+Periscope tracks an estimate, reminds you when it runs low, and stops on a server
 rejection. Send the bot another message to refresh the context. Long or
 multilingual briefings may exhaust the budget partway through. A daily budget
 reset has not been confirmed; the API response remains authoritative.
@@ -1127,15 +1125,15 @@ docker compose run --rm --entrypoint uv periscope-collect run periscope-wechat l
 docker compose run --rm --entrypoint uv periscope-collect run periscope-wechat test --lang zh
 ```
 
-## Static Site
+## Scheduling and Generated Files
 
-Horizon writes generated summaries to `data/summaries/` (or `<data-dir>/summaries/` when `--data-dir` is set) and copies publishable Markdown into `docs/`. The repo also carries upstream's GitHub automation — `.github/workflows/daily-summary.yml.disabled` (daily schedule template), `tests.yml`, and `deploy-docs.yml` (GitHub Pages publish) — and **none of it runs on this platform: AtomGit executes no GitHub-syntax workflows** (`check_tasks_num` is 0 on every pull request, checked). So do **not** rename `daily-summary.yml.disabled` and do not expect `docs/` to become a site; here `docs/` is plain Markdown in the repository.
+Periscope writes generated summaries to `data/summaries/` (or `<data-dir>/summaries/` when `--data-dir` is set). The repository keeps one GitHub-syntax automation file, `.github/workflows/tests.yml`, and **it does not run on this platform: AtomGit executes no GitHub-syntax workflows** (`check_tasks_num` is 0 on every pull request, checked). `docs/` is plain Markdown in the repository, not a built site.
 
-What works instead on `NLY22/periscope`: schedule whatever can run a shell — `cron` / `systemd timer` around `uv run periscope --hours 24`, or `docker compose run --rm periscope-collect --hours 24` — and read the results from `data/summaries/`. The workflow files are kept because they would work if this repo were mirrored to GitHub (`deploy-docs.yml` publishes nothing here, since it never runs on AtomGit); replacing it with the platform's static hosting, or deleting it, is an open decision listed in the project status.
+What works instead on `NLY22/periscope`: schedule whatever can run a shell — `cron` / `systemd timer` around `uv run periscope --hours 24`, or `docker compose run --rm periscope-collect --hours 24` — and read the results from `data/summaries/`. The workflow file is kept because it would work if this repo were mirrored to GitHub; on this platform verification is a human running the commands above.
 
 ## MCP Server
 
-Periscope ships an MCP server for AI assistants and MCP-compatible clients: **27 tools**, covering the staged pipeline (`hz_validate_config`, `hz_fetch_items`, `hz_score_items`, `hz_filter_items`, `hz_enrich_items`, `hz_generate_summary`, `hz_run_pipeline`), the per-run artifacts (`hz_list_runs`, `hz_get_run_*`), the evidence layer (`hz_corpus_stats`, `hz_corpus_search`, `hz_corpus_recent`, `hz_corpus_import`, `hz_list_claims`, `hz_get_claim`) and the research loop (`hz_research_start`, `hz_research_followup`, `hz_research_step`, `hz_research_draft`, `hz_research_edit`, `hz_research_answer`, `hz_research_status`, `hz_research_list`).
+Periscope ships an MCP server for AI assistants and MCP-compatible clients: **27 tools**, covering the staged pipeline (`ps_validate_config`, `ps_fetch_items`, `ps_score_items`, `ps_filter_items`, `ps_enrich_items`, `ps_generate_summary`, `ps_run_pipeline`), the per-run artifacts (`ps_list_runs`, `ps_get_run_*`), the evidence layer (`ps_corpus_stats`, `ps_corpus_search`, `ps_corpus_recent`, `ps_corpus_import`, `ps_list_claims`, `ps_get_claim`) and the research loop (`ps_research_start`, `ps_research_followup`, `ps_research_step`, `ps_research_draft`, `ps_research_edit`, `ps_research_answer`, `ps_research_status`, `ps_research_list`).
 
 ```bash
 uv run periscope-mcp

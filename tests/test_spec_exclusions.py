@@ -170,7 +170,7 @@ def test_the_cookie_guide_does_not_sell_an_account_pool() -> None:
     old_copy = (
         "## 4. 多账号轮询（防封策略）\n"
         "如果你有多个 X 账号，可以为每个账号导出 cookie\n"
-        "Horizon 会自动轮询使用这些 cookie，大幅提升稳定性。\n"
+        "Periscope 会自动轮询使用这些 cookie，大幅提升稳定性。\n"
         "⚠️ 账号安全：建议使用小号/备用号，避免主账号风险"
     )
     assert sum(p in old_copy for p in ("防封", "多账号轮询", "大幅提升稳定性", "建议使用")) == 4

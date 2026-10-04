@@ -3,7 +3,7 @@
     "Example of a user export Periscope can ingest:",
     "  uv run python scripts/import_corpus.py --file data/export.example.json --data-dir data --dry-run",
     "  uv run python scripts/import_corpus.py --file data/export.example.json --data-dir data",
-    "Same payload on POST /api/import and hz_corpus_import.",
+    "Same payload on POST /api/import and ps_corpus_import.",
     "Replace the example content with what your own account can already see.",
     "Rules that matter: tier is declared, never inferred from text markers;",
     "source_type must be one of the 14 registered families (it picks the",

@@ -199,7 +199,7 @@ def test_fetch_all_sources_walks_every_enabled_source(monkeypatch) -> None:
     from rich.console import Console
 
     from src.models import Config
-    from src.orchestrator import HorizonOrchestrator
+    from src.orchestrator import Orchestrator
 
     config = Config.model_validate({
         "ai": {"provider": "openai", "model": "test", "api_key_env": "KEY"},
@@ -223,7 +223,7 @@ def test_fetch_all_sources_walks_every_enabled_source(monkeypatch) -> None:
     config.corpus.enabled = False     # keep persist_to_corpus a no-op
     config.analysis.enabled = False
 
-    orch = HorizonOrchestrator.__new__(HorizonOrchestrator)
+    orch = Orchestrator.__new__(Orchestrator)
     orch.config = config
     orch.console = Console(record=True, quiet=True)
     orch.icons = {"fetch": "*", "detail": "-"}
@@ -241,13 +241,13 @@ def test_fetch_all_sources_walks_every_enabled_source(monkeypatch) -> None:
     monkeypatch.setattr(httpx, "AsyncClient", offline_client)
 
     reached = []
-    original = HorizonOrchestrator._fetch_with_progress
+    original = Orchestrator._fetch_with_progress
 
     async def recording(self, name, scraper, since):
         reached.append(name)
         return await original(self, name, scraper, since)
 
-    monkeypatch.setattr(HorizonOrchestrator, "_fetch_with_progress", recording)
+    monkeypatch.setattr(Orchestrator, "_fetch_with_progress", recording)
 
     asyncio.run(orch.fetch_all_sources(datetime(2026, 9, 29, tzinfo=timezone.utc)))
 

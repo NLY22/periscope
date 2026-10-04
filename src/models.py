@@ -1,4 +1,4 @@
-"""Core data models for Horizon."""
+"""Core data models for Periscope."""
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -533,7 +533,7 @@ class OpenBBConfig(BaseModel):
 
     Provider credentials (FMP, Benzinga, Polygon, Intrinio, Tiingo, etc.)
     are resolved by openbb from environment variables / its own user
-    settings file, so Horizon does not need to pass them explicitly.
+    settings file, so Periscope does not need to pass them explicitly.
     """
 
     enabled: bool = True
@@ -582,7 +582,7 @@ class GDELTConfig(BaseModel):
     timespan: Optional[str] = None  # e.g. "24h"; overrides since-derived window
     language: Optional[str] = None  # sourcelang filter, e.g. "english"; None = no filter
     country: Optional[str] = None  # sourcecountry filter; None = no filter
-    category: Optional[str] = None  # Horizon category label for downstream grouping
+    category: Optional[str] = None  # Periscope category label for downstream grouping
     profile: ProfileRoute = None
 
 
@@ -685,7 +685,7 @@ class YouTubeConfig(BaseModel):
 
 
 class CorpusConfig(BaseModel):
-    """Persistent evidence corpus (Periscope addition over Horizon).
+    """Persistent evidence corpus (Periscope addition over Periscope).
 
     When enabled, every fetched item is stored in a local SQLite database
     with FTS5 full-text search and SimHash near-duplicate clustering, so
@@ -881,7 +881,7 @@ class EmailConfig(BaseModel):
     smtp_username: Optional[str] = None
     email_address: str
     password_env: str = "EMAIL_PASSWORD"
-    sender_name: str = "Horizon Daily"
+    sender_name: str = "Periscope Daily"
     subscribe_keyword: str = "SUBSCRIBE"
     unsubscribe_keyword: str = "UNSUBSCRIBE"
     enabled: bool = False

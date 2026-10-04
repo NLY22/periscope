@@ -192,7 +192,7 @@ def test_data_dir_and_config_flags_are_forwarded_to_storage_and_presets(monkeypa
     data_dir = tmp_path / "state"
     data_dir.mkdir()
     (data_dir / "presets.json").touch()
-    config_path = tmp_path / "custom" / "horizon.json"
+    config_path = tmp_path / "custom" / "periscope.json"
     storage_calls = []
     load_presets_calls = []
 
@@ -204,7 +204,7 @@ def test_data_dir_and_config_flags_are_forwarded_to_storage_and_presets(monkeypa
     monkeypatch.setattr(wizard, "StorageManager", RecordingStorage)
     monkeypatch.setattr(
         "sys.argv",
-        ["horizon-wizard", "--data-dir", str(data_dir), "--config", str(config_path)],
+        ["periscope-wizard", "--data-dir", str(data_dir), "--config", str(config_path)],
     )
 
     with pytest.raises(_StopWizard):
@@ -212,7 +212,7 @@ def test_data_dir_and_config_flags_are_forwarded_to_storage_and_presets(monkeypa
 
     assert storage_calls == [{"data_dir": str(data_dir), "config_path": str(config_path)}]
     assert load_presets_calls == [
-        {"presets_path": str(data_dir / "presets.json"), "prefer_api": True}
+        {"presets_path": str(data_dir / "presets.json")}
     ]
 
 
@@ -226,13 +226,13 @@ def test_data_dir_and_config_default_to_data_directory(monkeypatch):
 
     _prepare_main(monkeypatch, load_presets_calls)
     monkeypatch.setattr(wizard, "StorageManager", RecordingStorage)
-    monkeypatch.setattr("sys.argv", ["horizon-wizard"])
+    monkeypatch.setattr("sys.argv", ["periscope-wizard"])
 
     with pytest.raises(_StopWizard):
         wizard.main()
 
     assert storage_calls == [{"data_dir": "data", "config_path": None}]
-    assert load_presets_calls == [{"presets_path": str(Path("data/presets.json")), "prefer_api": True}]
+    assert load_presets_calls == [{"presets_path": str(Path("data/presets.json"))}]
 
 
 def test_missing_custom_presets_falls_back_to_bundled_file(monkeypatch, tmp_path):
@@ -245,14 +245,14 @@ def test_missing_custom_presets_falls_back_to_bundled_file(monkeypatch, tmp_path
     _prepare_main(monkeypatch, load_presets_calls)
     monkeypatch.setattr(wizard, "StorageManager", RecordingStorage)
     monkeypatch.setattr(
-        "sys.argv", ["horizon-wizard", "--data-dir", str(tmp_path / "state")]
+        "sys.argv", ["periscope-wizard", "--data-dir", str(tmp_path / "state")]
     )
 
     with pytest.raises(_StopWizard):
         wizard.main()
 
     assert load_presets_calls == [
-        {"presets_path": str(Path("data/presets.json")), "prefer_api": True}
+        {"presets_path": str(Path("data/presets.json"))}
     ]
 
 
@@ -271,7 +271,7 @@ def test_log_level_flag_is_forwarded_to_configure_logging(monkeypatch):
         "configure_logging",
         lambda console, level=None: logging_calls.append(level),
     )
-    monkeypatch.setattr("sys.argv", ["horizon-wizard", "--log-level", "debug"])
+    monkeypatch.setattr("sys.argv", ["periscope-wizard", "--log-level", "debug"])
 
     with pytest.raises(_StopWizard):
         wizard.main()

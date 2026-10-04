@@ -1,6 +1,6 @@
 """Evidence corpus: a persistent, searchable store of every fetched item.
 
-Horizon's original design was stateless-by-default: each run fetched,
+Periscope's original design was stateless-by-default: each run fetched,
 analysed, published a daily briefing, and the raw material drifted away.
 Periscope's research loop needs the opposite — everything ever collected
 stays queryable, so the agent can answer not just "what does the web say

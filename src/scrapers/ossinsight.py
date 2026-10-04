@@ -65,7 +65,7 @@ class OSSInsightScraper(BaseScraper):
             response = await self.client.get(
                 self.BASE_URL,
                 params=params,
-                headers={"Accept": "application/json", "User-Agent": "Horizon/1.0"},
+                headers={"Accept": "application/json", "User-Agent": "Periscope/1.0"},
                 timeout=20.0,
             )
             response.raise_for_status()

@@ -44,12 +44,12 @@ _TEST_URL = "https://example.com/webhook"
 class TestRender:
     def test_simple_replacement(self):
         template = "Hello #{name}, today is #{date}"
-        variables = {"name": "Horizon", "date": "2026-04-24"}
-        assert _render(template, variables) == "Hello Horizon, today is 2026-04-24"
+        variables = {"name": "Periscope", "date": "2026-04-24"}
+        assert _render(template, variables) == "Hello Periscope, today is 2026-04-24"
 
     def test_no_matching_vars(self):
         template = "Hello #{unknown}"
-        variables = {"name": "Horizon"}
+        variables = {"name": "Periscope"}
         assert _render(template, variables) == "Hello #{unknown}"
 
     def test_empty_template(self):
@@ -73,23 +73,23 @@ class TestRender:
 
 class TestRenderDictAndList:
     def test_simple_dict(self):
-        obj = {"title": "Horizon #{date}", "count": "#{item_count} items"}
+        obj = {"title": "Periscope #{date}", "count": "#{item_count} items"}
         variables = {"date": "2026-04-24", "item_count": 15}
         result = _render(obj, variables)
-        assert result == {"title": "Horizon 2026-04-24", "count": "15 items"}
+        assert result == {"title": "Periscope 2026-04-24", "count": "15 items"}
 
     def test_nested_dict(self):
         obj = {
             "msg_type": "interactive",
             "card": {
                 "schema": "2.0",
-                "header": {"title": "Horizon #{date}"},
+                "header": {"title": "Periscope #{date}"},
                 "body": {"elements": [{"tag": "markdown", "content": "#{summary}"}]},
             },
         }
         variables = {"date": "2026-04-24", "summary": "## AI News\nLine 1"}
         result = _render(obj, variables)
-        assert result["card"]["header"]["title"] == "Horizon 2026-04-24"
+        assert result["card"]["header"]["title"] == "Periscope 2026-04-24"
         assert result["card"]["body"]["elements"][0]["content"] == "## AI News\nLine 1"
 
     def test_list(self):
@@ -490,7 +490,7 @@ class TestWebhookNotifier:
         config = WebhookConfig(
             enabled=True,
             url_env=_TEST_URL_ENV,
-            request_body='{"msg_type": "post", "content": "Horizon #{date} #{item_count} items"}',
+            request_body='{"msg_type": "post", "content": "Periscope #{date} #{item_count} items"}',
         )
         notifier = WebhookNotifier(config)
 
@@ -514,7 +514,7 @@ class TestWebhookNotifier:
             body_bytes = call_kwargs["content"]
             body_str = body_bytes.decode("utf-8")
             parsed = json.loads(body_str)
-            assert parsed["content"] == "Horizon 2026-04-24 15 items"
+            assert parsed["content"] == "Periscope 2026-04-24 15 items"
         del os.environ[_TEST_URL_ENV]
 
     def test_post_request_with_json_str_body_containing_summary(self):
@@ -546,7 +546,7 @@ class TestWebhookNotifier:
             mock_client_cls.return_value = mock_client
 
             # summary without special chars — should parse fine
-            summary = "Horizon daily report: 10 items"
+            summary = "Periscope daily report: 10 items"
             _run_async(notifier.notify({"summary": summary}))
             mock_client.post.assert_called_once()
 
@@ -662,7 +662,7 @@ class TestWebhookNotifier:
                 "msg_type": "interactive",
                 "card": {
                     "schema": "2.0",
-                    "header": {"title": "Horizon #{date}"},
+                    "header": {"title": "Periscope #{date}"},
                     "body": {
                         "elements": [{"tag": "markdown", "content": "#{summary}"}]
                     },
@@ -692,7 +692,7 @@ class TestWebhookNotifier:
 
             body_str = call_kwargs["content"].decode("utf-8")
             parsed = json.loads(body_str)
-            assert parsed["card"]["header"]["title"] == "Horizon 2026-04-24"
+            assert parsed["card"]["header"]["title"] == "Periscope 2026-04-24"
             assert parsed["card"]["body"]["elements"][0]["content"] == "## News\nLine 1"
         del os.environ[_TEST_URL_ENV]
 
@@ -791,7 +791,7 @@ class TestWebhookConfigModel:
     def test_full_config(self):
         config = WebhookConfig(
             enabled=True,
-            url_env="HORIZON_WEBHOOK_URL",
+            url_env="PERISCOPE_WEBHOOK_URL",
             request_body='{"msg_type":"post"}',
             headers="Authorization: Bearer xxx",
             delivery="summary_and_items",
@@ -802,7 +802,7 @@ class TestWebhookConfigModel:
             languages=["zh"],
         )
         assert config.enabled is True
-        assert config.url_env == "HORIZON_WEBHOOK_URL"
+        assert config.url_env == "PERISCOPE_WEBHOOK_URL"
         assert config.delivery == "summary_and_items"
         assert config.overview_position == "last"
         assert config.platform == "feishu"
@@ -870,7 +870,7 @@ class TestSendDailySummary:
         notifier = WebhookNotifier(config)
         summarizer = DailySummarizer()
         items = [_make_item()]
-        summary = "# Horizon Daily\nTest summary"
+        summary = "# Periscope Daily\nTest summary"
 
         with patch.object(notifier, "notify", new_callable=AsyncMock) as mock_notify:
             _run_async(
@@ -886,7 +886,7 @@ class TestSendDailySummary:
             mock_notify.assert_called_once()
             vars = mock_notify.call_args[0][0]
             assert vars["message_kind"] == "summary"
-            assert vars["message_title"] == "Horizon 2026-04-24 Daily"
+            assert vars["message_title"] == "Periscope 2026-04-24 Daily"
             assert vars["summary"] == summary
             assert vars["important_items"] == 1
             assert vars["all_items"] == 10
@@ -918,7 +918,7 @@ class TestSendDailySummary:
                 )
             )
             vars = mock_notify.call_args[0][0]
-            assert vars["message_title"] == "Horizon 2026-04-24 日报"
+            assert vars["message_title"] == "Periscope 2026-04-24 日报"
             assert vars["language"] == "zh"
         del os.environ[_TEST_URL_ENV]
 
@@ -955,7 +955,7 @@ class TestSendDailySummary:
             # First call: overview
             overview_vars = mock_notify.call_args_list[0][0][0]
             assert overview_vars["message_kind"] == "overview"
-            assert overview_vars["message_title"] == "Horizon 2026-04-24 Overview"
+            assert overview_vars["message_title"] == "Periscope 2026-04-24 Overview"
 
             # Second call: first item
             item1_vars = mock_notify.call_args_list[1][0][0]
@@ -1012,7 +1012,7 @@ class TestSendDailySummary:
             assert second_vars["item_index"] == 1
             assert second_vars["item_url"] == "https://example.com/test"
             assert third_vars["message_kind"] == "overview"
-            assert third_vars["message_title"] == "Horizon 2026-04-24 Overview"
+            assert third_vars["message_title"] == "Periscope 2026-04-24 Overview"
         del os.environ[_TEST_URL_ENV]
 
     def test_feishu_collapsible_layout_builds_single_card_message(self):
@@ -1270,7 +1270,7 @@ class TestSendDailySummary:
                 )
             )
             overview_vars = mock_notify.call_args_list[0][0][0]
-            assert overview_vars["message_title"] == "Horizon 2026-04-24 总览"
+            assert overview_vars["message_title"] == "Periscope 2026-04-24 总览"
         del os.environ[_TEST_URL_ENV]
 
 # ── send_failure_notification ──
@@ -1301,7 +1301,7 @@ class TestSendFailureNotification:
             assert vars["important_items"] == 0
             assert vars["all_items"] == 0
             assert vars["message_kind"] == "failure"
-            assert vars["message_title"] == "Horizon generation failed"
+            assert vars["message_title"] == "Periscope generation failed"
             assert "something went wrong" in vars["summary"]
         del os.environ[_TEST_URL_ENV]
 

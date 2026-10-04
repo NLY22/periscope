@@ -1,7 +1,7 @@
 """OpenBB Platform scraper.
 
 Pulls company news (and optionally filings) from the OpenBB SDK and maps
-them into ContentItem instances so the rest of the Horizon pipeline
+them into ContentItem instances so the rest of the Periscope pipeline
 (deduplication, AI scoring, enrichment, summarization) treats them the
 same way as RSS or Hacker News items.
 
@@ -21,7 +21,7 @@ Design notes:
   keep the orchestrator's event loop responsive.
 * Provider credentials (FMP/Benzinga/Polygon/Intrinio/...) are read by
   the OpenBB SDK from its own settings/environment and are not passed
-  through Horizon.
+  through Periscope.
 """
 
 from __future__ import annotations
