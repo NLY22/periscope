@@ -47,7 +47,7 @@ def save_session(tmp_path, **kwargs):
 def test_status_forwards_paths_and_never_prints_credentials(monkeypatch, tmp_path, capsys):
     save_session(tmp_path, context_sends=4)
     calls = use_config(monkeypatch, tmp_path, enabled=True)
-    monkeypatch.setattr("sys.argv", ["horizon-wechat", "-d", str(tmp_path), "-c", "config.json", "status"])
+    monkeypatch.setattr("sys.argv", ["periscope-wechat", "-d", str(tmp_path), "-c", "config.json", "status"])
     wechat_cli.main()
     assert calls == [(str(tmp_path), "config.json")]
     output = capsys.readouterr().err
@@ -57,7 +57,7 @@ def test_status_forwards_paths_and_never_prints_credentials(monkeypatch, tmp_pat
 
 def test_missing_session_exits_with_login_hint(monkeypatch, tmp_path, capsys):
     use_config(monkeypatch, tmp_path)
-    monkeypatch.setattr("sys.argv", ["horizon-wechat", "status"])
+    monkeypatch.setattr("sys.argv", ["periscope-wechat", "status"])
     with pytest.raises(SystemExit) as exc:
         wechat_cli.main()
     assert exc.value.code == 1 and "login" in capsys.readouterr().err
@@ -70,14 +70,14 @@ def test_dry_run_needs_neither_session_nor_network(monkeypatch, tmp_path, capsys
         raise AssertionError("Offline preview must not construct a notifier or read credentials")
 
     monkeypatch.setattr(wechat_cli, "WeChatNotifier", unexpected)
-    monkeypatch.setattr("sys.argv", ["horizon-wechat", "test", "--dry-run"])
+    monkeypatch.setattr("sys.argv", ["periscope-wechat", "test", "--dry-run"])
     wechat_cli.main()
     assert "No message was sent" in capsys.readouterr().err
 
 
 def test_sending_test_requires_enabled_config(monkeypatch, tmp_path):
     use_config(monkeypatch, tmp_path)
-    monkeypatch.setattr("sys.argv", ["horizon-wechat", "test"])
+    monkeypatch.setattr("sys.argv", ["periscope-wechat", "test"])
     with pytest.raises(SystemExit) as exc:
         wechat_cli.main()
     assert exc.value.code == 1

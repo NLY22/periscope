@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from src.models import ContentItem, SourceType
-from src.orchestrator import HorizonOrchestrator
+from src.orchestrator import Orchestrator
 
 
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -29,7 +29,7 @@ def item(
 
 
 def merge(items: list[ContentItem]) -> list[ContentItem]:
-    orchestrator = object.__new__(HorizonOrchestrator)
+    orchestrator = object.__new__(Orchestrator)
     return orchestrator.merge_cross_source_duplicates(items)
 
 

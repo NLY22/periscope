@@ -20,12 +20,12 @@ from src.models import (
 )
 from src.ai.summarizer import DailySummarizer
 from src.ai.enricher import EnrichmentBatchResult
-from src.mcp.server import hz_get_metrics
-from src.mcp.service import HorizonPipelineService
+from src.mcp.server import ps_get_metrics
+from src.mcp.service import PipelineService
 from src.orchestrator import (
     BalancedDigestResult,
     FetchReport,
-    HorizonOrchestrator,
+    Orchestrator,
     SourceFetchOutcome,
 )
 from src.services.webhook import WebhookDeliveryResult, WebhookDeliveryStatus
@@ -67,10 +67,10 @@ def test_validate_config_smoke(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    service = HorizonPipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=tmp_path / "mcp-runs")
     result = asyncio.run(
         service.validate_config(
-            horizon_path=str(repo_root),
+            periscope_path=str(repo_root),
             config_path=str(config_path),
             check_env=False,
         )
@@ -89,9 +89,9 @@ def test_get_effective_config_can_filter_sources(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    service = HorizonPipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=tmp_path / "mcp-runs")
     result = service.get_effective_config(
-        horizon_path=str(repo_root),
+        periscope_path=str(repo_root),
         config_path=str(config_path),
         sources=["rss"],
     )
@@ -118,8 +118,8 @@ def test_get_effective_config_redacts_expanded_query_and_header_secrets(
     monkeypatch.setenv("URL_USER", "private-user")
     monkeypatch.setenv("URL_PASSWORD", "private-password")
 
-    result = HorizonPipelineService(runs_root=tmp_path / "runs").get_effective_config(
-        horizon_path=str(repo_root), config_path=str(config_path)
+    result = PipelineService(runs_root=tmp_path / "runs").get_effective_config(
+        periscope_path=str(repo_root), config_path=str(config_path)
     )
     rendered = json.dumps(result)
 
@@ -141,14 +141,14 @@ def test_get_effective_config_redacts_expanded_query_and_header_secrets(
 
 
 def test_metrics_tool_smoke() -> None:
-    result = hz_get_metrics()
+    result = ps_get_metrics()
 
     assert result["ok"] is True
-    assert result["tool"] == "hz_get_metrics"
+    assert result["tool"] == "ps_get_metrics"
 
 
 def test_fetch_items_uses_public_orchestrator_api(tmp_path: Path, monkeypatch) -> None:
-    service = HorizonPipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=tmp_path / "mcp-runs")
     monkeypatch.setattr(service, "_profiles", lambda ctx: PROFILES)
     config_path = tmp_path / "config.json"
 
@@ -157,7 +157,7 @@ def test_fetch_items_uses_public_orchestrator_api(tmp_path: Path, monkeypatch) -
         "_build_context",
         lambda **kwargs: (
             SimpleNamespace(
-                horizon_path=tmp_path,
+                periscope_path=tmp_path,
                 config_path=config_path,
                 runtime=SimpleNamespace(),
                 config=SimpleNamespace(),
@@ -195,7 +195,7 @@ def test_fetch_items_uses_public_orchestrator_api(tmp_path: Path, monkeypatch) -
 def test_fetch_items_includes_fetch_report_in_response_and_metadata(
     tmp_path: Path, monkeypatch
 ) -> None:
-    service = HorizonPipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=tmp_path / "mcp-runs")
     monkeypatch.setattr(service, "_profiles", lambda ctx: PROFILES)
     config_path = tmp_path / "config.json"
 
@@ -204,7 +204,7 @@ def test_fetch_items_includes_fetch_report_in_response_and_metadata(
         "_build_context",
         lambda **kwargs: (
             SimpleNamespace(
-                horizon_path=tmp_path,
+                periscope_path=tmp_path,
                 config_path=config_path,
                 runtime=SimpleNamespace(),
                 config=SimpleNamespace(),
@@ -244,7 +244,7 @@ def test_fetch_items_includes_fetch_report_in_response_and_metadata(
 
 
 def test_filter_items_uses_public_filtering_pipeline_api(tmp_path: Path, monkeypatch) -> None:
-    service = HorizonPipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=tmp_path / "mcp-runs")
     monkeypatch.setattr(service, "_profiles", lambda ctx: PROFILES)
     service.run_store.create_run("run-topic-dedup")
 
@@ -288,7 +288,7 @@ def test_filter_items_uses_public_filtering_pipeline_api(tmp_path: Path, monkeyp
 
 
 def test_filter_items_applies_balanced_digest(tmp_path: Path, monkeypatch) -> None:
-    service = HorizonPipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=tmp_path / "mcp-runs")
     monkeypatch.setattr(service, "_profiles", lambda ctx: PROFILES)
     service.run_store.create_run("run-balanced")
     filtering = SimpleNamespace(
@@ -343,7 +343,7 @@ def test_filter_items_applies_balanced_digest(tmp_path: Path, monkeypatch) -> No
 
 
 def test_filter_items_matches_native_filtering_pipeline(tmp_path: Path, monkeypatch) -> None:
-    service = HorizonPipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=tmp_path / "mcp-runs")
     monkeypatch.setattr(service, "_profiles", lambda ctx: PROFILES)
     service.run_store.create_run("run-parity")
     filtering = DigestConfig(max_items=1)
@@ -363,8 +363,8 @@ def test_filter_items_matches_native_filtering_pipeline(tmp_path: Path, monkeypa
         make_item("second", score=9.0),
     ]
 
-    def make_filtering_orchestrator() -> HorizonOrchestrator:
-        orchestrator = HorizonOrchestrator.__new__(HorizonOrchestrator)
+    def make_filtering_orchestrator() -> Orchestrator:
+        orchestrator = Orchestrator.__new__(Orchestrator)
         orchestrator.config = config
         orchestrator.profiles = PROFILES
 
@@ -419,7 +419,7 @@ def test_filter_items_matches_native_filtering_pipeline(tmp_path: Path, monkeypa
 def test_generate_summary_persists_informative_empty_summary(
     tmp_path: Path, monkeypatch
 ) -> None:
-    service = HorizonPipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=tmp_path / "mcp-runs")
     profile_order = ["tech-news", "tech-blog", "finance-news"]
     received_orders = []
 
@@ -472,7 +472,7 @@ def test_generate_summary_persists_informative_empty_summary(
 def test_run_pipeline_skips_enrichment_when_filter_is_empty(
     tmp_path: Path, monkeypatch
 ) -> None:
-    service = HorizonPipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=tmp_path / "mcp-runs")
     calls: list[tuple[str, str]] = []
 
     async def fetch_items(**kwargs):  # type: ignore[no-untyped-def]
@@ -517,7 +517,7 @@ def test_run_pipeline_skips_enrichment_when_filter_is_empty(
 def test_run_pipeline_uses_filtered_stage_when_all_enrichment_fails(
     tmp_path: Path, monkeypatch
 ) -> None:
-    service = HorizonPipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=tmp_path / "mcp-runs")
     calls: list[str] = []
 
     async def fetch_items(**kwargs):  # type: ignore[no-untyped-def]
@@ -559,7 +559,7 @@ def test_run_pipeline_uses_filtered_stage_when_all_enrichment_fails(
 
 
 def test_enrich_items_propagates_batch_failure(tmp_path: Path, monkeypatch) -> None:
-    service = HorizonPipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=tmp_path / "mcp-runs")
     item = make_item("failed", score=9.0)
 
     class FailingOrchestrator:
@@ -580,7 +580,7 @@ def test_enrich_items_propagates_batch_failure(tmp_path: Path, monkeypatch) -> N
 def test_enrich_items_reports_partial_failure_truthfully(
     tmp_path: Path, monkeypatch
 ) -> None:
-    service = HorizonPipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=tmp_path / "mcp-runs")
     service.run_store.create_run("run-partial")
     successful_item = make_item("successful", score=9.0)
     failed_item = make_item("failed", score=8.0)
@@ -621,7 +621,7 @@ def test_enrich_items_reports_partial_failure_truthfully(
 def test_enrich_items_does_not_create_stage_when_all_items_fail(
     tmp_path: Path, monkeypatch
 ) -> None:
-    service = HorizonPipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=tmp_path / "mcp-runs")
     service.run_store.create_run("run-all-failed")
     item = make_item("failed", score=8.0)
 
@@ -645,7 +645,7 @@ def test_enrich_items_does_not_create_stage_when_all_items_fail(
 def test_send_webhook_reports_delivery_failure_truthfully(
     tmp_path: Path, monkeypatch
 ) -> None:
-    service = HorizonPipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=tmp_path / "mcp-runs")
     webhook_config = SimpleNamespace(enabled=True)
     monkeypatch.setattr(
         service,

@@ -102,11 +102,11 @@ def test_send_wire_format(monkeypatch):
     assert base64.b64decode(headers["X-WECHAT-UIN"]).decode().isdigit()
     data = json.loads(call["content"])
     assert data["base_info"]["channel_version"] == "2.4.9"
-    assert data["base_info"]["bot_agent"].startswith("Horizon/")
+    assert data["base_info"]["bot_agent"].startswith("Periscope/")
     msg = data["msg"]
     assert msg["to_user_id"] == "u" and msg["context_token"] == "ctx"
     assert msg["message_type"] == msg["message_state"] == 2
-    assert msg["client_id"].startswith("horizon:")
+    assert msg["client_id"].startswith("periscope:")
     assert msg["item_list"] == [{"type": 1, "text_item": {"text": "中文"}}]
 
 

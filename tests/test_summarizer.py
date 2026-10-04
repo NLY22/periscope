@@ -178,7 +178,7 @@ def test_generate_summary_groups_items_by_profile_with_heading_hierarchy():
         )
     )
 
-    assert result.count("# Horizon Daily") == 1
+    assert result.count("# Periscope Daily") == 1
     assert "## Technology News" in result
     assert "## Technology Blog" in result
     assert "### [Important Item 1]" in result

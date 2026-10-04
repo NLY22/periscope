@@ -529,7 +529,7 @@ def test_enrichment_batch_reports_failure_without_discarding_successes():
 
 
 def test_history_search_reuses_one_call_for_both_languages(tmp_path, monkeypatch):
-    (tmp_path / "horizon-2026-04-01-en.md").write_text(
+    (tmp_path / "periscope-2026-04-01-en.md").write_text(
         "### [Atlas preview](https://example.com/preview) ⭐️ 8/10\n\n"
         "Atlas preview requires manual batch configuration.\n\n---\n",
         encoding="utf-8",

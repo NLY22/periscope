@@ -317,7 +317,7 @@ class FakeOrchestrator:
 def test_mcp_service_exposes_the_four_new_verbs() -> None:
     import inspect
 
-    from src.mcp.service import HorizonPipelineService as S
+    from src.mcp.service import PipelineService as S
 
     for name in ("research_step", "research_draft", "research_edit", "research_answer"):
         assert callable(getattr(S, name)), name
@@ -338,8 +338,8 @@ def test_mcp_tool_list_includes_the_round_verbs() -> None:
 
     tools = asyncio.run(names())
     assert {
-        "hz_research_step", "hz_research_draft", "hz_research_edit",
-        "hz_research_answer", "hz_research_start", "hz_research_followup",
+        "ps_research_step", "ps_research_draft", "ps_research_edit",
+        "ps_research_answer", "ps_research_start", "ps_research_followup",
     } <= tools
 
 

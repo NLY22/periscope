@@ -21,7 +21,7 @@ from src.models import (
     SourceType,
     SourcesConfig,
 )
-from src.orchestrator import HorizonOrchestrator
+from src.orchestrator import Orchestrator
 from src.processing import ProfileRegistry
 
 
@@ -46,8 +46,8 @@ def make_item(item_id: str, score: float, category: str | None) -> ContentItem:
     )
 
 
-def make_orchestrator(digest: DigestConfig) -> HorizonOrchestrator:
-    orchestrator = HorizonOrchestrator.__new__(HorizonOrchestrator)
+def make_orchestrator(digest: DigestConfig) -> Orchestrator:
+    orchestrator = Orchestrator.__new__(Orchestrator)
     orchestrator.config = SimpleNamespace(
         digest=digest,
         processing=ProcessingConfig(
@@ -183,7 +183,7 @@ def test_rejects_settings_for_unknown_profile() -> None:
     )
 
     with pytest.raises(ValueError, match="Unknown processing profile: missing"):
-        HorizonOrchestrator(config, SimpleNamespace())
+        Orchestrator(config, SimpleNamespace())
 
 
 def test_appends_profiles_missing_from_configured_order() -> None:
@@ -197,7 +197,7 @@ def test_appends_profiles_missing_from_configured_order() -> None:
         digest=DigestConfig(profile_order=["tech-news", "tech-blog"]),
     )
 
-    HorizonOrchestrator(config, SimpleNamespace())
+    Orchestrator(config, SimpleNamespace())
 
     assert config.digest.profile_order == [
         "tech-news",
@@ -220,7 +220,7 @@ def test_rejects_unknown_profile_order() -> None:
     )
 
     with pytest.raises(ValueError, match="contains unknown profiles.*missing"):
-        HorizonOrchestrator(config, SimpleNamespace())
+        Orchestrator(config, SimpleNamespace())
 
 
 def test_duplicate_category_warns_and_first_group_wins() -> None:
@@ -280,7 +280,7 @@ def test_run_applies_balanced_digest_before_enrichment(tmp_path, monkeypatch) ->
         ),
     )
     storage = SimpleNamespace()
-    orchestrator = HorizonOrchestrator(config, storage)
+    orchestrator = Orchestrator(config, storage)
     items = [
         make_item("ai", 9.0, "ai"),
         make_item("finance", 8.0, "finance"),
@@ -326,7 +326,7 @@ def test_run_balances_after_twitter_reanalysis(tmp_path, monkeypatch) -> None:
         sources=SourcesConfig(),
         digest=DigestConfig(max_items=1),
     )
-    orchestrator = HorizonOrchestrator(config, SimpleNamespace())
+    orchestrator = Orchestrator(config, SimpleNamespace())
     items = [make_item("first", 9.0, "ai"), make_item("second", 8.0, "ai")]
     enriched_ids: list[str] = []
 

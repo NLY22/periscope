@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.models import Config, ContentItem, SourceType
-from src.orchestrator import HorizonOrchestrator
+from src.orchestrator import Orchestrator
 from src.storage.manager import StorageManager
 from src.web.app import create_app
 
@@ -28,7 +28,7 @@ def client(tmp_path):
                 if isinstance(entry, dict):
                     entry["enabled"] = False
     config = Config.model_validate(cfg)
-    orch = HorizonOrchestrator(config, StorageManager(data_dir=str(tmp_path)))
+    orch = Orchestrator(config, StorageManager(data_dir=str(tmp_path)))
     now = datetime.now(timezone.utc)
     orch.get_corpus().add_items([
         ContentItem(
@@ -124,11 +124,23 @@ def test_panel_repaints_round_state_after_it_changes_the_session() -> None:
     page was reloaded — the P2 surface was invisible in the one place it is
     meant to be used. Verified in a browser against a seeded corpus: after the
     fix, a start renders the draft, a round appends to the timeline, and an
-    edited section keeps its text and picks up 「上游已变 · 未覆盖」.
+    edited section keeps its text and picks up 「新版已变 · 未覆盖」.
     """
     script = (REPO_ROOT / "src" / "web" / "static" / "index.html").read_text(encoding="utf-8")
     ask_block = script.split("async function ask(kind){")[1].split("$('#askBtn').onclick")[0]
     step_block = script.split("async function stepRound(msg){")[1].split("async function ask(")[0]
+
+    assert "async function ask(kind){" in script, (
+        "ask(kind){ is gone from the panel script; the split above would pass vacuously"
+    )
+
+    assert "新版已变 · 未覆盖" in script, (
+        "the stale-section tag is the only thing telling a user their wording survived "
+        "a recompute; it must exist with the current wording"
+    )
+    assert "上游" not in script, (
+        "the panel describes a recomputed draft, not a fork relationship"
+    )
 
     assert "await showSession(r.session_id)" in ask_block, (
         "starting or following up must reload the whole round state, not just the report"

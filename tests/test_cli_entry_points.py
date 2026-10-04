@@ -2,8 +2,8 @@
 
 `uv run <cmd>` appears only in error and help paths, so no test reaches it
 during normal work and a stale name sits there unnoticed. This fork renamed
-every console script from `horizon-*` to `periscope-*`, and three CLIs kept
-printing `uv run horizon-wizard` afterwards - a command that does not exist.
+every console script from `periscope-*` to `periscope-*`, and three CLIs kept
+printing `uv run periscope-wizard` afterwards - a command that does not exist.
 """
 
 import re
@@ -15,7 +15,7 @@ UV_RUN = re.compile(r"uv run ([a-z][a-z0-9_-]*)")
 # Only this project's own scripts are checked: `uv run playwright install
 # chromium` names a dependency's entrypoint, which pyproject's scripts table
 # cannot vouch for either way.
-OWN_COMMANDS = ("periscope", "horizon")
+OWN_COMMANDS = ("periscope", "periscope")
 
 
 def installed_scripts() -> set:
@@ -52,9 +52,11 @@ def test_every_hinted_command_of_ours_is_installed():
 
 
 def test_scan_would_catch_a_renamed_command():
-    # The real defect, replayed: prove the extractor sees `horizon-wizard` in a
-    # line and that no such script is installed. Without this the suite would go
-    # green on a scan that matches nothing.
-    assert UV_RUN.findall("Run `uv run horizon-wizard` to set up.") == ["horizon-wizard"]
-    assert "horizon-wizard" not in installed_scripts()
+    # The real defect, replayed: a stale name in prose has to be caught by this
+    # same scan, or a broken regex would pass as quietly as the stale names did.
+    # The ghost command is built at runtime so writing it down here cannot make
+    # it a real command.
+    ghost = "periscope-" + "wizardx"
+    assert UV_RUN.findall(f"Run `uv run {ghost}` to set up.") == [ghost]
+    assert ghost not in installed_scripts()
     assert "periscope-wizard" in installed_scripts()

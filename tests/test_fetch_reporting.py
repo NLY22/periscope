@@ -10,7 +10,7 @@ import pytest
 from rich.console import Console
 
 from src.models import ContentItem, SourceType
-from src.orchestrator import FetchReport, HorizonOrchestrator, SourceFetchOutcome
+from src.orchestrator import FetchReport, Orchestrator, SourceFetchOutcome
 from src.sources.registry import SCRAPER_BINDINGS
 
 
@@ -29,8 +29,8 @@ def make_item(item_id: str) -> ContentItem:
     )
 
 
-def make_orchestrator() -> HorizonOrchestrator:
-    orchestrator = object.__new__(HorizonOrchestrator)
+def make_orchestrator() -> Orchestrator:
+    orchestrator = object.__new__(Orchestrator)
     orchestrator.console = Console(file=StringIO())
     orchestrator.last_fetch_report = None
     orchestrator.webhook_notifier = None

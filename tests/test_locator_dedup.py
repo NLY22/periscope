@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from src.corpus.sections import claimable_of
 from src.models import ContentItem, Section, SourceType
-from src.orchestrator import HorizonOrchestrator, _deduplication_item_key
+from src.orchestrator import Orchestrator, _deduplication_item_key
 
 NOW = datetime(2026, 9, 29, tzinfo=timezone.utc)
 
@@ -23,9 +23,9 @@ def make(idx: str, **overrides) -> ContentItem:
     return ContentItem(**base)
 
 
-def bare_orchestrator() -> HorizonOrchestrator:
+def bare_orchestrator() -> Orchestrator:
     """No __init__: the merge helper touches no instance state."""
-    return HorizonOrchestrator.__new__(HorizonOrchestrator)
+    return Orchestrator.__new__(Orchestrator)
 
 
 def test_url_locators_keep_the_existing_normalisation() -> None:

@@ -10,7 +10,7 @@ def test_log_level_flag_is_forwarded_to_configure_logging(monkeypatch):
         lambda console, level=None: logging_calls.append(level),
     )
     monkeypatch.setattr(server.mcp, "run", lambda: None)
-    monkeypatch.setattr("sys.argv", ["horizon-mcp", "--log-level", "debug"])
+    monkeypatch.setattr("sys.argv", ["periscope-mcp", "--log-level", "debug"])
 
     server.main()
 
@@ -26,7 +26,7 @@ def test_log_level_defaults_to_info(monkeypatch):
         lambda console, level=None: logging_calls.append(level),
     )
     monkeypatch.setattr(server.mcp, "run", lambda: None)
-    monkeypatch.setattr("sys.argv", ["horizon-mcp"])
+    monkeypatch.setattr("sys.argv", ["periscope-mcp"])
 
     server.main()
 
@@ -38,7 +38,7 @@ def test_main_starts_the_mcp_server(monkeypatch):
 
     monkeypatch.setattr(server, "configure_logging", lambda console, level=None: None)
     monkeypatch.setattr(server.mcp, "run", lambda: run_calls.append(True))
-    monkeypatch.setattr("sys.argv", ["horizon-mcp"])
+    monkeypatch.setattr("sys.argv", ["periscope-mcp"])
 
     server.main()
 

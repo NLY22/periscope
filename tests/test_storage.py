@@ -157,14 +157,14 @@ def test_load_config_expands_env_vars_in_ai_base_url(tmp_path, monkeypatch):
     This is exactly the use case that keeps private/tenant endpoint
     URLs out of version control.
     """
-    monkeypatch.setenv("HORIZON_AI_BASE_URL", "https://private-proxy.example/v1")
+    monkeypatch.setenv("PERISCOPE_AI_BASE_URL", "https://private-proxy.example/v1")
     config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps({
         "ai": {
             "provider": "openai",
             "model": "gpt-4o",
             "api_key_env": "OPENAI_API_KEY",
-            "base_url": "${HORIZON_AI_BASE_URL}",
+            "base_url": "${PERISCOPE_AI_BASE_URL}",
         },
         "sources": {"hackernews": {"enabled": True}},
         "collection": {"time_window_hours": 24},
