@@ -384,6 +384,9 @@ class Corpus:
         "all": ("items_fts", "content"),
         "claimable": ("claim_fts", "claimable"),
     }
+    # Public so the web layer can reject an unknown tier with the right message
+    # instead of duplicating the tuple.
+    SEARCH_TIERS = tuple(_FTS_BY_TIER)
 
     def search(
         self,
@@ -409,7 +412,15 @@ class Corpus:
         research loop uses this to look where it has not looked yet instead of
         re-asking the same slice of the corpus.
         """
-        fts_table, body_column = self._FTS_BY_TIER.get(tier, self._FTS_BY_TIER["all"])
+        if tier not in self._FTS_BY_TIER:
+            # A typo here used to widen the search to every layer silently. The
+            # dangerous direction is exactly that one: someone asks for
+            # author-written text only, gets comments too, and never notices.
+            raise ValueError(
+                f"unknown search tier {tier!r}; expected one of "
+                f"{sorted(self._FTS_BY_TIER)}"
+            )
+        fts_table, body_column = self._FTS_BY_TIER[tier]
         scoped = ""
         params_filter: List[Any] = []
         if source_types:

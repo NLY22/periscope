@@ -120,6 +120,34 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 ---
 
+## 尚未合入（本轮，分支 `fix/search-tier-and-report-honesty`，PR `!14`）
+
+这轮不是新增功能，是**我自己当一次用户**：造一份能独立核对的语料（作者层 / 只有评论区的论坛帖 / 同文转载 / 一个与权威层矛盾的说法），真入库、真开研究会话、真读报告，然后逐条问"这句对吗"。跑法：`cp data/config.example.json data/config.json` → `scripts/import_corpus.py` 导入 5 条探针语料 → `POST /api/research/start` + `/step` → 读 `GET /api/research/<id>`。**全程无 key**（分类器不允许我去翻设置文件里的密钥，我也没重试第二次），所以这验的正是"处处诚实降级"那条主张。
+
+### 跑出来的五件事，四件已修
+
+- **`GET /api/search` 没有 `tier` 参数**（面板的"证据库"永远是全层检索）。更要紧的是 `Corpus.search` 对不认识的 tier **静默回落到全层**——打错"只要作者层"的人拿到的是评论。修法：路由收 `tier`（默认 `all`，跨层是有意的：回帖提到某词也该带你找到主帖），`claimable` 只搜作者亲写层且 snippet 也取自那一层；未知 tier 是 400 + 报出可选值，`Corpus.search` 直接 `ValueError`。实测：同一句人群发言 `tier=all` 命中 1 条、`tier=claimable` 命中 0 条；写错 tier 得 `400 {"detail":"tier must be one of ['all', 'claimable']"}`。
+- **报告的"取证尝试"标签和第一个动作名粘在一起**：`_取证尝试：_baseline(+2)` —— 读者看到下划线，而且 markdown 可能把它当强调符号。标签变成一个带尾空格的常量，两个使用点共用，`removeprefix` 也共用。
+- **每一轮的动作被记两遍**（`research_actions` 6 行 / 3 种动作，`baseline(+2)` 连着两条）。审计表该留全，报告不该骗眼睛，所以修在显示层：连续相同的条目折叠成 `baseline(+2) ×2`（不同结果不折叠，`+2` 与 `+0` 是两件事）。**双走本身我没改**——要先定"同一轮该不该重走阶梯"，而这决定 `new_items` 的语义（现在两次都报 +2，说明计数没记住第一次已收过，等于重复劳动被记成两次收获）。这条留成待决，写在下面。
+- **没有配置时报错让你"照 README 里的模板建"**，而 README 里没有配置模板（它两处都写 `cp data/config.example.json data/config.json`）。新用户第一次跑就被支使去错的地方。改成直接给 `cp data/config.example.json <路径>`。
+- **同文转载在报告的引用列表里是两条**（探针里 `rss:forensics` 与 `rss:mirror` 文本全同，簇 `c1` 折叠正确，统计上不会被数成两家），但读者数引用会数成 2 个来源。**没动**：引用要能指到具体存储条目是它的用处，改成按簇合并会动引用语义。留作待决。
+
+### 顺带确认没问题的（这些是核对，不是断言）
+
+`claim_fts` 确实只索引 `claimable`（那条只有评论区的论坛帖 `claimable` 长度为 0，人群原话在 `claim_fts` 里搜不到，在 `items_fts` 里能）；三条内部取证路径（`src/research/session.py`、`src/analysis/claims.py`、`src/corpus/retrieval.py`）都显式传 tier，不是靠默认；无 key 时报告写"尚未回答：缺少模型调用预算或语料证据"并列出已收集证据与取证尝试，**没有编造答案**；引用核验那句"2/2 条内联标记可解析；每条引用都指向有作者亲写文本的存储条目"经抽查属实。
+
+### 我自己写的文档被这次测试推翻了一处
+
+`docs/selftest.md` 档 3 原来让读者去核对"证据库检索是否只返回作者层（回帖里的词不该命中）"——**面板根本没这个开关**，按这句去测会把正常行为判成缺陷。改成实测的样子：默认跨层是设计，要看作者层用 `?tier=claimable`，写错会 400。这是"扫描器/文档报的错先回读原文"这条规矩又一次生效——这次回读推翻的是我自己的判据。
+
+### 测试
+
+`tests/test_corpus_import.py::test_the_panel_can_restrict_a_search_to_the_author_layer`（含 `ValueError` 那条）、`tests/test_research_p2.py` 新增两条（标签常量与折叠函数，含"不同结果不折叠"的反向用例）。全量 `uv run pytest` **collected 1066、exit=0**。
+
+
+
+---
+
 ## 已合入 main（2026-10-04，`!12` → `8dfab36`）
 
 这一轮不新增能力，做的是**把身份彻底换成 Periscope**：继承来的名字散在 98 个文件里（旧项目名 673 处、它的 MCP 工具前缀 205 处、作者署名 24 处、它托管的两个域名 8 处），而"改名改了一半"比不改更糟——剩下的那些会被读成"重要的部分没改"。
