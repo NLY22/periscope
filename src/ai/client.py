@@ -50,16 +50,19 @@ def _resolve_api_key(config: AIConfig, *, fallback: Optional[str] = None) -> str
 
 
 def _missing_api_key_message(config: AIConfig) -> str:
+    # "your config file" rather than `data/config.json`: the run may be pointed
+    # at any --config/--data-dir, and telling someone to edit a file that is not
+    # the one being loaded sends them to the wrong place.
     expected_env = _DEFAULT_API_KEY_ENVS.get(config.provider)
     if expected_env:
         setup_hint = (
             f"Set {expected_env}=your_api_key in .env or your shell, then set "
-            f'ai.api_key_env to "{expected_env}" in data/config.json.'
+            f'ai.api_key_env to "{expected_env}" in your config file.'
         )
     else:
         setup_hint = (
             "Set the provider API key in .env or your shell, then set "
-            "ai.api_key_env to that environment variable name in data/config.json."
+            "ai.api_key_env to that environment variable name in your config file."
         )
 
     if _looks_like_api_key_value(config.api_key_env):

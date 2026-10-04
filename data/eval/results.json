@@ -1,6 +1,6 @@
 {
   "top_k": 10,
-  "tiering": "marker",
+  "tiering": "sections",
   "configs": [
     {
       "name": "A 旧行为(全量文本, 单词条)",
@@ -431,10 +431,16 @@
   "provenance": {
     "fixture": "data\\eval\\corpus_fixture.json",
     "queries": "data\\eval\\queries.json",
+    "legs": {
+      "expander": "stub",
+      "embedder": "stub",
+      "embedding_model": ""
+    },
     "stub_legs": [
       "expansion-stub",
       "semantic-stub"
     ],
-    "note": "Stub legs prove plumbing, not model quality. Rerun with a real provider (--expander llm --embedder provider) before quoting expansion or semantic gains."
+    "notes": [],
+    "note": "Stub legs prove plumbing, not model quality. A leg that could not be built is reported as off above, never swapped back to a stub."
   }
 }

@@ -242,7 +242,7 @@ def main() -> None:
         except FileNotFoundError:
             console.print("[bold red]Configuration file not found![/bold red]")
             console.print(
-                "Run [bold cyan]uv run horizon-wizard[/bold cyan] to set up your configuration."
+                "Run [bold cyan]uv run periscope-wizard[/bold cyan] to set up your configuration."
             )
             sys.exit(1)
         except ConfigError as e:
@@ -250,9 +250,11 @@ def main() -> None:
             sys.exit(1)
 
         if not config.webhook or not config.webhook.enabled:
-            console.print("[yellow]Webhook is not enabled in config.json.[/yellow]")
             console.print(
-                "Set [cyan]webhook.enabled = true[/cyan] in data/config.json to enable it."
+                f"[yellow]Webhook is not enabled in {storage.config_path}.[/yellow]"
+            )
+            console.print(
+                "Set [cyan]webhook.enabled = true[/cyan] there to enable it."
             )
             sys.exit(1)
 
