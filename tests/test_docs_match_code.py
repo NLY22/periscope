@@ -832,6 +832,18 @@ def _git(*args: str) -> int:
     ).returncode
 
 
+def _git_out(*args: str) -> str:
+    """git's stdout as text, decoded UTF-8 on purpose.
+
+    `text=True` would decode with the OS locale -- on a Chinese Windows that is
+    cp936, and merge subjects containing non-ASCII bytes raise UnicodeDecodeError
+    inside the subprocess reader thread. The repo's own text is UTF-8, so ask for
+    it explicitly.
+    """
+    done = subprocess.run(["git", *args], cwd=str(REPO_ROOT), capture_output=True)
+    return done.stdout.decode("utf-8", errors="replace")
+
+
 def _ref_exists(ref: str) -> bool:
     return _git("rev-parse", "--verify", "--quiet", ref) == 0
 
@@ -874,7 +886,9 @@ def test_the_changelog_merge_state_matches_git() -> None:
     This is the check that would have caught last round's stale wording by
     itself: a section still titled 尚未合入 after its branch landed in `main`.
     The heading is what a reader scans first, so the heading is what has to be
-    true.
+    true. Its counterpart is equally cheap: merge a pull request without ever
+    writing it down, and main's history carries a "!N merge" subject that the
+    changelog cannot match.
     """
     def problems(text: str) -> list[str]:
         found: list[str] = []
@@ -894,15 +908,44 @@ def test_the_changelog_merge_state_matches_git() -> None:
     text = _read(REPO_ROOT / "CHANGELOG.md")
     assert not problems(text), "; ".join(problems(text))
 
-    # Both directions have to bite: the same file with the two titles swapped
-    # onto states git disagrees with must produce exactly two complaints.
-    lines = text.splitlines()
-    open_at = next(i for i, line in enumerate(lines) if line.startswith("## 尚未合入"))
-    merged_at = next(i for i, line in enumerate(lines)
-                     if line.startswith("## 已合入") and _doc_revisions(line))
-    lines[open_at] = "## 尚未合入（本轮，分支 `origin/main`）"
-    lines[merged_at] = f"## 已合入 main（`{'0' * 6}f`）"
-    reported = problems("\n".join(lines))
+    def recorded_pulls(document: str) -> set[str]:
+        # Both notations occur: recent sections write `!12`, the September ones
+        # write `PR #1` / `#4 · P0`. The rule only asks that the number appear --
+        # a number that shows up by coincidence would let an unrecorded merge
+        # through, which is a weaker claim than "sha recorded" but a *satisfiable*
+        # one, and it still caught !13 on the day it was written.
+        return set(re.findall(r"[!#](\d+)", document))
+
+    # What has to be true is not "main's sha is written down" -- the merge commit
+    # a PR produces is unknowable while its changelog entry is being written, so
+    # that form could never be satisfied by the commit that fixes it. The stable
+    # claim is about the pull request number, which the platform puts into every
+    # merge subject ("!12 merge <branch> into main").
+    anchor = "main" if _ref_exists("main") else "origin/main"
+    landed = _git_out("log", "--format=%s", anchor)
+    merged = set(re.findall(r"^!(\d+) merge", landed, re.M))
+    assert merged, "no '!N merge' subjects on main, so this check would pass vacuously"
+    unrecorded = sorted(merged - recorded_pulls(text), key=int)
+    assert not unrecorded, (
+        f"pull requests that landed without a changelog entry: {unrecorded}"
+    )
+
+    # The removal has to take effect: drop the newest landed number from the file
+    # and it must stop being recorded. Proves this is a set difference over the
+    # document, not a statement that is true because nothing was ever checked.
+    newest = max(merged, key=int)
+    stripped = "\n".join(line for line in text.splitlines() if f"!{newest}" not in line)
+    assert newest in recorded_pulls(text) and newest not in recorded_pulls(stripped)
+
+    # Both directions have to bite, and the proof cannot lean on the file's
+    # current state: the first version of this proof searched the real CHANGELOG
+    # for a 尚未合入 heading to tamper with, and blew up with StopIteration the
+    # moment every branch had landed. A synthetic document is the fixture.
+    synthetic = (
+        "## 尚未合入（本轮，分支 `origin/main`）\n\n正文\n\n"
+        f"## 已合入 main（`{'0' * 6}f`）\n\n正文\n"
+    )
+    reported = problems(synthetic)
     assert len(reported) == 2, reported
     assert "origin/main" in reported[0] and "000000f" in reported[1]
 
