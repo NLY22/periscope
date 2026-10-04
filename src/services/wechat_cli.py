@@ -202,7 +202,7 @@ def main() -> None:
             lang = args.lang or (config.ai.languages or ["en"])[0]
             asyncio.run(_run_test(wechat, storage, lang, args.dry_run, get_icons(config.display.icon_style)))
     except FileNotFoundError:
-        console.print("Configuration file not found. Run 'uv run horizon-wizard' to create it.")
+        console.print("Configuration file not found. Run 'uv run periscope-wizard' to create it.")
         sys.exit(1)
     except (ConfigError, ILinkError) as exc:
         console.print(exc.hint() if isinstance(exc, ILinkError) else str(exc), markup=False)
