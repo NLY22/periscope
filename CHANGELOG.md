@@ -128,7 +128,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 ## 已合入 main（2026-10-07，GitHub 侧 `PR #1` 合并 → `8ff1cf9`；AtomGit `!15` 关闭）
 
-> 合并点这次落在 GitHub：`fix/ci-shallow-guards` 在那边被合并成 `8ff1cf9`（GitHub CI 在合并结果上跑绿：`run 37600624167 / success`），随后我把它 fast-forward 回 AtomGit 的 `main`（回读确认 `8ff1cf9`）。AtomGit 上的 `!15` 因此变成"内容已在 main"，已关闭并留评论。**代价要记住**：PR 的讨论与合并记录留在哪一侧，取决于你在哪一侧点的合并——两边各点一次会产生两条互不相干的历史，所以约定是"PR 在 AtomGit、GitHub 只当镜子与 CI"。
+> 合并点这次落在 GitHub：`fix/ci-shallow-guards` 在那边被合并成 `8ff1cf9`（GitHub CI 在合并结果上跑绿：`run 37600624167 / success`），随后我把它 fast-forward 回 AtomGit 的 `main`（回读确认 `8ff1cf9`）。AtomGit 上的 `!15` 因此变成"内容已在 main"，已关闭——**说明没能写成 PR 评论**（该接口两次 `-32603`，回读评论列表为空），所以理由写在 `CHANGELOG.md` 这一节与 `!16` 的正文里。**代价要记住**：PR 的讨论与合并记录留在哪一侧，取决于你在哪一侧点的合并——两边各点一次会产生两条互不相干的历史，所以约定是"PR 在 AtomGit、GitHub 只当镜子与 CI"。
 
 
 **触发这件事的现场**：项目镜像到 GitHub 之后，`.github/workflows/tests.yml` **第一次真的被执行**（本平台从不执行 GitHub 语法的 workflow，这一侧以前只有"文件在那里"）。第一次运行就红了——两条 job 全红，红的全是文档护栏。
@@ -153,7 +153,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 ## 已合入 main（2026-10-07，随 `!15` 的分支一起进 `main` → `8ff1cf9`；AtomGit `!14` 关闭）
 
-> 这一节原本是"尚未合入"。它随 `!15` 一起进了 main，原因是**分支关系**：`fix/ci-shallow-guards` 当初是从 `fix/search-tier-and-report-honesty` 上分出来的（`ed939bc` 的父提交是 `47d29e7`），所以 GitHub 上合并 `#1` 时把两者的内容一并带进了 `main`。AtomGit 的 `!14` 因此也是"内容已在 main"，已关闭并留评论。教训：**堆叠分支合下去时，父分支的 PR 会一起作废** —— 下次要么先合父 PR，要么在 PR 正文里写明叠在谁身上。
+> 这一节原本是"尚未合入"。它随 `!15` 一起进了 main，原因是**分支关系**：`fix/ci-shallow-guards` 当初是从 `fix/search-tier-and-report-honesty` 上分出来的（`ed939bc` 的父提交是 `47d29e7`），所以 GitHub 上合并 `#1` 时把两者的内容一并带进了 `main`。AtomGit 的 `!14` 因此也是"内容已在 main"，已关闭——同样的原因，说明落在仓库内（本节与 `!16` 正文）而不是 PR 评论里。教训：**堆叠分支合下去时，父分支的 PR 会一起作废** —— 下次要么先合父 PR，要么在 PR 正文里写明叠在谁身上。
 
 
 这轮不是新增功能，是**我自己当一次用户**：造一份能独立核对的语料（作者层 / 只有评论区的论坛帖 / 同文转载 / 一个与权威层矛盾的说法），真入库、真开研究会话、真读报告，然后逐条问"这句对吗"。跑法：`cp data/config.example.json data/config.json` → `scripts/import_corpus.py` 导入 5 条探针语料 → `POST /api/research/start` + `/step` → 读 `GET /api/research/<id>`。**全程无 key**（分类器不允许我去翻设置文件里的密钥，我也没重试第二次），所以这验的正是"处处诚实降级"那条主张。
