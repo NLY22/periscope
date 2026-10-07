@@ -120,7 +120,29 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 ---
 
-## 尚未合入（本轮，分支 `fix/search-tier-and-report-honesty`，PR `!14`）
+## 尚未合入（本轮，分支 `fix/ci-shallow-guards`，PR `!15`）
+
+**触发这件事的现场**：项目镜像到 GitHub 之后，`.github/workflows/tests.yml` **第一次真的被执行**（本平台从不执行 GitHub 语法的 workflow，这一侧以前只有"文件在那里"）。第一次运行就红了——两条 job 全红，红的全是文档护栏。
+
+两个根因，都是"本机绿、干净环境红"：
+
+- **`actions/checkout` 默认是 depth=1 的浅克隆**，历史提交不在本地对象库里。于是三条 git 护栏全部假红：`8dfab36`、`9eb09d6` 这些被引用的修订"不存在"，`已合入 main（…）` 的标题被判成"git 不同意"。
+- **符号网的词表是走工作区目录建的**，所以一个被 gitignore 的产物名（`results.llmstub.json`，真腿跑出来的那份结果）在本机"存在"、在干净克隆里不存在：同一份 CHANGELOG 本机绿、CI 红。
+
+修法与验证：
+
+- workflow 两处 `fetch-depth: 0`：CI **真的去核历史**，而不是绕开这些断言。
+- 词表改成 `git ls-files`（拿不到 git 时才回落到遍历工作区，并在实现里写明原因）。新增一条测试：在仓库里建一个未跟踪文件，断言它的名字**不会**进词表，检查完删掉——这条在本机与 CI 上都不是空转。
+- 浅克隆里那两条历史断言改成**明说跳过**（`pytest.skip` 带原因），而不是红：在 depth=1 的检出里"所有修订都不存在"是关于克隆的事实，不是关于文档的判断。
+- 给 `results.llmstub.json` 一个带理由的豁免（运行时产物名，文档引用它是为了说明真腿写到哪）。
+
+**验证手法**：用 `git clone --depth 1` 造了一个假 CI 环境。先跑**改前**的代码——三条红原样复现（根因确认，且不必等 GitHub 那边）。改完提交后再用同一个探针跑：只剩两条 skip，其余全绿。
+
+**数据**：全量 `uv run pytest` **collected 1067、exit=0**（新增 1 条词表测试）。
+
+---
+
+## 尚未合入（分支 `fix/search-tier-and-report-honesty`，PR `!14`）
 
 这轮不是新增功能，是**我自己当一次用户**：造一份能独立核对的语料（作者层 / 只有评论区的论坛帖 / 同文转载 / 一个与权威层矛盾的说法），真入库、真开研究会话、真读报告，然后逐条问"这句对吗"。跑法：`cp data/config.example.json data/config.json` → `scripts/import_corpus.py` 导入 5 条探针语料 → `POST /api/research/start` + `/step` → 读 `GET /api/research/<id>`。**全程无 key**（分类器不允许我去翻设置文件里的密钥，我也没重试第二次），所以这验的正是"处处诚实降级"那条主张。
 

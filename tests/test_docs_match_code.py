@@ -712,6 +712,7 @@ _EXTERNAL_IDENTIFIERS = {
     "past_7_days",                 # an OSSInsight period value the guide calls out as broken
     "x_cookies_stale.json",        # hypothetical stale export in the cookie guide
     "SOURCE_REGISTRY_V2",          # named in the changelog as the invented token a guard rejects
+    "results.llmstub.json",        # a run's output name (gitignored); quoted to say where a real leg writes
     "test_unimplemented_upstream_proposal_is_labelled_everywhere_it_is_linked",
     # ^ the changelog quotes a guard that has since been deleted, together with
     # the page it policed; naming a dead test in a history entry is accurate.
@@ -752,6 +753,24 @@ _SYMBOL_DOC_TARGETS = (
 )
 
 
+def _tracked_names() -> set[str]:
+    """File names git actually tracks.
+
+    Not the working tree: an ignored artifact on one developer's disk (a run's
+    `results.llmstub.json`, `data/corpus.db`) would make a name "real" locally
+    and "nonexistent" on a fresh clone, so the same changelog passed here and
+    failed in CI -- which is how this function came to exist.
+    """
+    done = subprocess.run(["git", "ls-files", "-z"], cwd=str(REPO_ROOT), capture_output=True)
+    if done.returncode == 0 and done.stdout:
+        return {
+            Path(name).name
+            for name in done.stdout.decode("utf-8", errors="replace").split("\0")
+            if name
+        }
+    return {path.name for path in REPO_ROOT.rglob("*") if path.is_file()}
+
+
 def _repo_vocab() -> set[str]:
     vocab = _code_vocab()
     sources = [
@@ -766,7 +785,7 @@ def _repo_vocab() -> set[str]:
     for path in sources:
         if path.exists():
             vocab.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", _read(path)))
-    vocab.update(path.name for path in REPO_ROOT.rglob("*") if path.is_file())
+    vocab.update(_tracked_names())
     # tests/*.py is part of the vocabulary (the changelog names test functions),
     # but this file's own allowlist would otherwise make every exempted name
     # "real" and quietly disarm the check.
@@ -812,6 +831,25 @@ def test_every_doc_quoted_symbol_exists_somewhere() -> None:
     assert not offenders, f"docs name identifiers that exist nowhere in the repo: {offenders}"
 
 
+def test_the_vocabulary_ignores_untracked_files() -> None:
+    """A name is only "real" if the repository actually carries it.
+
+    The vocabulary used to be built by walking the working tree, so a run's
+    ignored artifact made a name real on the machine that ran it and nonexistent
+    on a fresh clone -- the same changelog passed here and failed in CI. Same
+    trap as the flags that were only covered by accident, one layer down: the
+    check has to be built from what is committed.
+    """
+    probe = REPO_ROOT / "data" / "probe_untracked_vocab_check.json"
+    probe.write_text("{}", encoding="utf-8")
+    try:
+        assert _tracked_names(), "git listed nothing, so this check would pass vacuously"
+        assert probe.name not in _tracked_names(), "the probe should be untracked"
+        assert probe.name not in _repo_vocab(), "an untracked file made its name real"
+    finally:
+        probe.unlink()
+
+
 def test_the_symbol_net_is_not_toothless() -> None:
     vocab = _repo_vocab()
     assert "SOURCE_SPECS" in vocab and "auth_token" not in vocab
@@ -844,6 +882,24 @@ def _git_out(*args: str) -> str:
     return done.stdout.decode("utf-8", errors="replace")
 
 
+def _full_history() -> bool:
+    """False in a shallow clone, where git's past is simply not on disk.
+
+    The history checks catch a changelog that lies about `main`. In a depth-1
+    checkout they would instead report every recorded revision as missing --
+    a fact about the clone, not about the document. The workflow asks for
+    `fetch-depth: 0` for exactly this reason; anywhere else the honest move is
+    to skip out loud rather than fail.
+    """
+    done = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"], cwd=str(REPO_ROOT),
+        capture_output=True,
+    )
+    if done.returncode != 0:
+        return False
+    return done.stdout.decode("utf-8", errors="replace").strip() != "true"
+
+
 def _ref_exists(ref: str) -> bool:
     return _git("rev-parse", "--verify", "--quiet", ref) == 0
 
@@ -862,6 +918,8 @@ def test_every_backticked_revision_names_a_real_commit() -> None:
     set. Scope: the hashes a reader can actually copy -- inline spans. The ones
     inside fenced blocks are covered by the same rule as the code they sit in.
     """
+    if not _full_history():
+        pytest.skip("shallow clone: the revisions to check against are not on disk")
     cited = {
         rev
         for path in _SYMBOL_DOC_TARGETS
@@ -890,6 +948,9 @@ def test_the_changelog_merge_state_matches_git() -> None:
     writing it down, and main's history carries a "!N merge" subject that the
     changelog cannot match.
     """
+    if not _full_history():
+        pytest.skip("shallow clone: `main`'s merge history is not on disk")
+
     def problems(text: str) -> list[str]:
         found: list[str] = []
         for heading in re.findall(r"^## (.+)$", text, re.M):
