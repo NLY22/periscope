@@ -40,6 +40,29 @@ from .templates import ReportTemplate, build_skeleton, resolve_template
 
 logger = logging.getLogger(__name__)
 
+# The label and its payload must not touch: the closing `_` of the italic label
+# used to sit directly against the first action name, so the rendered line began
+# with "_取证尝试：_baseline(+2)" -- a stray underscore the reader sees, and an
+# emphasis marker markdown may or may not honour. One constant, one trailing space.
+ATTEMPTS_LABEL = "_取证尝试：_ "
+
+
+def collapse_attempts(labels: List[str]) -> List[str]:
+    """Fold runs of identical attempts into one entry with a multiplier.
+
+    `research_actions` is an audit trail, so a re-walk of the ladder in a later
+    round belongs there in full. The report is a different surface: printing
+    `baseline(+2)；baseline(+2)` makes one gathered batch read like two attempts,
+    which is the opposite of what the widening list is for.
+    """
+    out: List[List[Any]] = []
+    for label in labels:
+        if out and out[-1][0] == label:
+            out[-1][1] += 1
+        else:
+            out.append([label, 1])
+    return [label if n == 1 else f"{label} ×{n}" for label, n in out]
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -1023,7 +1046,7 @@ class ResearchSession:
         if skeleton["open_questions"]:
             for sq in skeleton["open_questions"]:
                 tried = attempts(sq)
-                lines.append(f"- {sq.text}" + (f"（{tried.removeprefix('_取证尝试：_')}）" if tried else ""))
+                lines.append(f"- {sq.text}" + (f"（{tried.removeprefix(ATTEMPTS_LABEL)}）" if tried else ""))
         else:
             lines.append("_（全部子问题已回答）_")
         lines.append("")
@@ -1170,12 +1193,12 @@ class ResearchSession:
             tried = self.store.actions_for(sq.id)
             if not tried:
                 return ""
-            return "_取证尝试：_" + "；".join(
+            return ATTEMPTS_LABEL + "；".join(collapse_attempts([
                 f"{a['action']}"
                 + (f"→{','.join(a['source_types'])}" if a.get("source_types") else "")
                 + f"(+{a['new_items']})"
                 for a in tried
-            )
+            ]))
 
         template = resolve_template(self.report_template, session.question)
         if template is not None:

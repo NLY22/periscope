@@ -393,3 +393,50 @@ def test_a_file_of_only_bad_items_is_reported_rather_than_raising() -> None:
     )
     assert report["items_total_seen"] == 0 and report["items_new"] == 0
     assert [r["index"] for r in report["rejected"]] == ["0", "1"]
+
+
+def test_the_panel_can_restrict_a_search_to_the_author_layer(tmp_path: Path) -> None:
+    """`tier=claimable` is the difference between "find the thread" and "prove it".
+
+    Found by running the flow instead of reading the code: the runbook told a
+    reader to check that the panel's evidence search ignores replies, but the
+    route had no tier parameter at all, and `Corpus.search` answered an unknown
+    tier by quietly searching everything -- the wrong direction for a typo, since
+    the person who misspells "only author text" gets comments anyway.
+    """
+    from fastapi.testclient import TestClient
+
+    from src.orchestrator import Orchestrator
+    from src.storage.manager import StorageManager
+    from src.web.app import create_app
+
+    cfg = json.loads((REPO_ROOT / "data" / "config.example.json").read_text(encoding="utf-8"))
+    for value in cfg["sources"].values():
+        if isinstance(value, dict) and "enabled" in value:
+            value["enabled"] = False
+    orch = Orchestrator(Config.model_validate(cfg), StorageManager(data_dir=str(tmp_path)))
+    with TestClient(create_app(orch)) as client:
+        assert client.post("/api/import", json=payload(note())).status_code == 200
+
+        # The default view is deliberately cross-layer: a reply mentioning a word
+        # should still lead you to the thread it replies to.
+        everything = client.get("/api/search", params={"q": "我觉得"})
+        assert everything.json()["tier"] == "all"
+        assert everything.json()["count"] == 1, "a passer-by's guess stays findable"
+
+        only_author = client.get("/api/search", params={"q": "我觉得", "tier": "claimable"})
+        assert only_author.json()["count"] == 0, (
+            "community text must not answer an author-layer query"
+        )
+
+        author = client.get("/api/search", params={"q": "官方定价", "tier": "claimable"})
+        assert author.json()["count"] == 1
+        assert "明明是" not in author.json()["items"][0]["snippet"], (
+            "the snippet must come from the same layer the search promised"
+        )
+
+        mistaken = client.get("/api/search", params={"q": "官方定价", "tier": "claimabel"})
+        assert mistaken.status_code == 400 and "claimable" in mistaken.text
+
+    with pytest.raises(ValueError, match="unknown search tier"):
+        orch.get_corpus().search("官方定价", tier="everything")

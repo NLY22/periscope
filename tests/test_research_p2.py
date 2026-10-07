@@ -504,3 +504,42 @@ def test_a_contested_claim_becomes_visible_to_the_next_move(corpus) -> None:
         "the planner cannot ask about a contradiction it is never shown"
     )
     assert ctx.contested_claims[0]["id"] == cited[0].id
+
+
+def test_the_widening_label_stays_off_the_first_action_name() -> None:
+    """The report used to print `_取证尝试：_baseline(+2)；baseline(+2)`.
+
+    Two things were wrong with that: the first attempt read as `_baseline`, and
+    an underscore glued to a word is an emphasis marker markdown may or may not
+    honour. The label is one constant now, so both call sites move together --
+    which is what this asserts rather than trusting a literal to stay in sync.
+    """
+    from pathlib import Path
+
+    from src.research.session import ATTEMPTS_LABEL
+
+    source = (Path(__file__).resolve().parents[1] / "src" / "research" / "session.py").read_text(
+        encoding="utf-8"
+    )
+    assert ATTEMPTS_LABEL == "_取证尝试：_ ", "the label must end with a separator, not an underscore"
+    assert source.count("ATTEMPTS_LABEL") >= 3, (
+        "both the renderer and the 未决问题 strip have to use the shared label"
+    )
+    assert '"_取证尝试：_" +' not in source, "a hand-written label came back beside the constant"
+
+
+def test_a_rewalked_ladder_is_not_printed_as_extra_attempts() -> None:
+    """The audit table keeps every attempt; the report must not imply more effort.
+
+    Measured on a real keyless session: one round of the ladder wrote two
+    identical `baseline(+2)` rows, and the report printed them side by side, so
+    the widening list read like the system had tried twice as much as it had.
+    """
+    from src.research.session import collapse_attempts
+
+    assert collapse_attempts(["baseline(+2)", "baseline(+2)", "widen_terms(+0)"]) == [
+        "baseline(+2) ×2", "widen_terms(+0)"
+    ]
+    # Distinct outcomes are never folded -- +2 then +0 is two different facts.
+    assert collapse_attempts(["baseline(+2)", "baseline(+0)"]) == ["baseline(+2)", "baseline(+0)"]
+    assert collapse_attempts([]) == []

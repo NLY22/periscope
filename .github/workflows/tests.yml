@@ -11,6 +11,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The documentation guards read git history on purpose: a changelog
+          # heading that says 已合入 must name a commit that is actually an
+          # ancestor of main, and a cited revision must exist. A depth-1 clone
+          # makes every one of those checks fail for the wrong reason -- which is
+          # exactly what happened on the first run of this workflow.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -34,6 +41,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v4
       - run: uv sync --extra dev
       - run: uv run pytest -q

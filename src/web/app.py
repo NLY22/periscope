@@ -127,19 +127,34 @@ def create_app(orchestrator: Any) -> FastAPI:
         }
 
     @app.get("/api/search")
-    async def search(q: str, limit: int = 20) -> dict[str, Any]:
+    async def search(q: str, limit: int = 20, tier: str = "all") -> dict[str, Any]:
+        """Full-text search over stored evidence.
+
+        `tier` defaults to `all` -- comments, replies and subtitles included --
+        because someone browsing a corpus wants to find the thread even when only
+        a reply mentions the word. `claimable` restricts matches to author-written
+        text, which is the layer evidence linking and claim grading use. An
+        unknown tier is a 400: silently widening to `all` would be the dangerous
+        direction of this particular knob.
+        """
         if not q.strip():
             raise HTTPException(status_code=400, detail="q must not be empty")
         corpus = state.orchestrator.get_corpus()
         if corpus is None:
             raise HTTPException(status_code=503, detail="corpus is disabled in config")
-        rows = corpus.search(q, limit=max(1, min(limit, 100)))
+        if tier not in corpus.SEARCH_TIERS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"tier must be one of {list(corpus.SEARCH_TIERS)}",
+            )
+        rows = corpus.search(q, limit=max(1, min(limit, 100)), tier=tier)
+        body_key = "claimable" if tier == "claimable" else "content"
         for row in rows:
-            body = row.get("content") or ""
+            body = row.get(body_key) or ""
             row["snippet"] = body[:280]
             row.pop("content", None)
             row.pop("metadata", None)
-        return {"query": q, "count": len(rows), "items": rows}
+        return {"query": q, "tier": tier, "count": len(rows), "items": rows}
 
     @app.get("/api/items")
     async def items(limit: int = 30, source: str | None = None) -> dict[str, Any]:
