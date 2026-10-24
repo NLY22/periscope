@@ -169,6 +169,29 @@ def test_followup_revises_tree_and_reinvestigates(env) -> None:
     assert turns == ["user", "report", "user", "report"]
 
 
+def test_turn_history_uses_insertion_order_when_timestamps_tie(env) -> None:
+    _corpus, store = env
+    session_id = store.create_session("ordering").id
+    for role in ("user", "report", "user", "report"):
+        store.add_turn(session_id, role, role)
+
+    rows = store._conn.execute(
+        "SELECT id FROM research_turns WHERE session_id=? ORDER BY rowid",
+        (session_id,),
+    ).fetchall()
+    for row, forced_id in zip(rows, ("z_turn", "y_turn", "b_turn", "a_turn")):
+        store._conn.execute("UPDATE research_turns SET id=? WHERE id=?",
+                            (forced_id, row["id"]))
+    store._conn.execute(
+        "UPDATE research_turns SET created_at='2026-01-01T00:00:00+00:00' WHERE session_id=?",
+        (session_id,),
+    )
+    store._conn.commit()
+
+    assert [turn.role for turn in store.turns(session_id)] == [
+        "user", "report", "user", "report"]
+
+
 def test_followup_unknown_session_raises(env) -> None:
     corpus, store = env
     rs = session(store, corpus, FakePlanner())
