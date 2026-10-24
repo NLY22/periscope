@@ -11,7 +11,8 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
                  budget_seconds: float | None = 30.0) -> tuple[list[dict], dict, dict]:
     """Fill in details, discussions, and transcripts for top-K eligible rows.
 
-    Eligible rows are B站 videos, HN stories, GitHub issues / PRs, V2EX topics, and Stack Overflow questions. Plain top-K
+    Eligible rows are B站 videos, CSDN posts, HN stories, GitHub issues / PRs,
+    V2EX topics, and Stack Overflow questions. Plain top-K
     selection can contain no supported platform item, so the scan skips rows
     that cannot be enriched and spends its limit on the first eligible ones.
 
@@ -26,12 +27,13 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
             "discussion_targets": 0, "discussion_done": 0,
             "discussion_partial": 0}
     bili_targets = []
+    csdn_targets = []
     hn_targets = []
     github_targets = []
     v2ex_targets = []
     stack_targets = []
     for row in merged:
-        if (len(bili_targets) + len(hn_targets) + len(github_targets)
+        if (len(bili_targets) + len(csdn_targets) + len(hn_targets) + len(github_targets)
                 + len(v2ex_targets) + len(stack_targets) >= k):
             break
         source = str(row.get("source") or "")
@@ -64,18 +66,28 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
             if str(question_id).isdigit():
                 stack_targets.append((row, str(question_id), _row_key(row)))
             continue
+        if source == "csdn_search":
+            match = re.match(
+                r"^https?://(?:www\.)?blog\.csdn\.net/[^/]+/article/details/(\d+)(?:[/?#].*)?$",
+                str(row.get("url") or ""), re.IGNORECASE)
+            if match:
+                csdn_targets.append((row, str(row["url"]), _row_key(row)))
+            continue
         bvid = ids.get("bvid")
         if not bvid and (row.get("url") or ""):
             match = re.search(r"(BV[0-9A-Za-z]{10})", row["url"])
             bvid = match.group(1) if match else None
         if bvid:
             bili_targets.append((row, bvid, _row_key(row)))
-    stat["targets"] = (len(bili_targets) + len(hn_targets) + len(github_targets)
+    stat["targets"] = (len(bili_targets) + len(csdn_targets) + len(hn_targets) + len(github_targets)
                         + len(v2ex_targets) + len(stack_targets))
     stat["discussion_targets"] = len(hn_targets)
     stat["bilibili_discussion_targets"] = len(bili_targets)
     stat["bilibili_discussion_done"] = 0
     stat["bilibili_discussion_partial"] = 0
+    stat["csdn_discussion_targets"] = len(csdn_targets)
+    stat["csdn_discussion_done"] = 0
+    stat["csdn_discussion_partial"] = 0
     stat["github_discussion_targets"] = len(github_targets)
     stat["github_discussion_done"] = 0
     stat["github_discussion_partial"] = 0
@@ -126,6 +138,54 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
             if result.discussion_coverage.get("errors"):
                 stat["failed"].extend("%s:%s" % (bvid, e)
                                       for e in result.discussion_coverage["errors"][:1])
+
+    if csdn_targets:
+        try:
+            from periscope.collection.platforms import csdn
+            got = {}
+            for _row, article_url, key in csdn_targets:
+                remaining = remaining_budget()
+                if remaining == 0:
+                    got[key] = ({}, [], {"status": "partial", "article_id": "",
+                                     "fetched_comments": 0, "fetched_roots": 0,
+                                     "fetched_replies": 0, "pages_attempted": 0,
+                                     "truncated_by": ["time_budget"], "errors": []})
+                    continue
+                try:
+                    got[key] = asyncio.run(csdn.fetch_discussion(
+                        article_url, budget_seconds=remaining))
+                except Exception as exc:  # noqa: BLE001 - preserve other sources
+                    stat["failed"].append("csdn:%s:%s" % (
+                        article_url, type(exc).__name__))
+        except Exception as exc:  # noqa: BLE001 - keep enrichment failures local
+            stat["failed"].append("csdn:%s" % type(exc).__name__)
+            got = {}
+
+        for row, article_url, key in csdn_targets:
+            result = got.get(key)
+            if result is None:
+                stat["failed"].append("csdn:%s" % article_url)
+                continue
+            detail, comments, coverage = result
+            patch = {"discussion_coverage": coverage}
+            if detail.get("text"):
+                patch["text"] = detail["text"]
+            if detail.get("article_id"):
+                patch["ids"] = {**(row.get("ids") or {}),
+                                 "article_id": detail["article_id"]}
+            if detail.get("author") and not row.get("author"):
+                patch["author"] = detail["author"]
+            if comments:
+                patch["comments"] = comments
+            row.update(patch)
+            if key:
+                patches[key] = patch
+            stat["csdn_discussion_done"] += 1
+            stat["done"] += 1
+            if coverage.get("status") != "complete":
+                stat["csdn_discussion_partial"] += 1
+            stat["failed"].extend("csdn:%s:%s" % (article_url, error)
+                                  for error in coverage.get("errors", [])[:1])
 
     if hn_targets:
         try:

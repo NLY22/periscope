@@ -28,7 +28,7 @@
 | GitHub | 有（C）：Issues/PR 搜索 | 部分：搜索对象带 issue/PR 正文，最多 1,200 字；未单独读取详情 | 有（C/L）：`--enrich` 按需取 issue 评论；PR 额外读取 review 评论 | 有（C）：PR 行内 review 回复按 `in_reply_to_id` 形成关系 | 部分（C/L）：每种评论最多 2 页、每页 30 条、合计最多保存 60 条；遵守 `--budget` 并标明截断 | 未知：评论补新与历史版本未实现 | 有（C）：讨论与覆盖状态进入通用 community 入库 | C：`platforms/github.py`；可选读取 `GITHUB_TOKEN`；覆盖 API 来源、条数和超时状态。L：2026-10-24 匿名公开 PR `facebook/react#1`，预算 8 秒，2.015 秒收到 11 条评论、保留 3 条，按 `comment_limit` 标为 partial，无错误。 |
 | Stack Overflow | 有（C）：Advanced Search | 有（C/L）：按 question ID 读取题目正文及元数据 | 有（C）：读取题目和答案评论 | 有（C）：答案归属 question；评论归到 question 或对应答案。评论的 `reply_to_user` 不等于评论父 ID，不构造楼中楼 | 部分（C/L）：最多保存 10 个高票答案、60 条评论；答案和评论各取 1 页，按 `--budget` 标记截断 | 未知：评论补新与历史版本未实现 | 有（C）：答案、评论和覆盖状态走通用 community 入库 | C：`platforms/stackoverflow.py` 使用 `/questions/{id}`、`/answers` 和 `/posts/{ids}/comments`。L：2026-10-24 匿名题目 231767，题干 961 字符，返回 51 个答案和 22 条评论，保留 2 个答案、3 条评论，按 `answer_limit` / `comment_limit` 标记 partial，1.750 秒，无错误。 |
 | Hacker News | 有（C）：故事与评论搜索 | 部分（C）：Algolia 搜索故事正文；`--enrich` 可回读官方 Firebase story 元数据 | 有（C/L）：`--enrich` 按 story ID 读取评论节点，最多 60 个节点／故事 | 有（C）：跟随 `kids` 最多 4 层，保留 `parent_id`；本次样本最高深度为 1 | 部分（C/L）：按官方树的子 ID 遍历，受 60 节点、4 层和 `--budget` 限制；单 story 样本实取 5/71 条，按节点上限正确标为 partial | 未知：同 story 重采后的评论版本未实现 | 有（C）：讨论树和覆盖状态进入分片及通用 community 入库路径，隔离 SQLite 回查已通过；未写入真实语料库 | C：`hn_ai` / `hn_ai_monthly` / `hn_cn` 搜索行保留 `objectID`；新增 `periscope/collection/platforms/hackernews.py` 读取官方 Firebase item 树。L：2026-10-24，公开 story 8863，预算 15 秒，实际 2.594 秒，尝试 5 个节点、取得 5 条、报告 71 条，`comment_limit` 截断，无错误。`hn_comments` 仍是独立评论搜索行。 |
-| CSDN | 有（C）：博客与问答搜索 | 部分：搜索摘要，不等于博客/答案全文 | 无（C） | 无（C） | 部分：博客最多 15 页、问答最多 5 页；评论分页未实现 | 未知 | 有：可保存并按文本检索 | C：`catalog/community.py` `csdn_search` / `csdn_ask`。 |
+| CSDN | 有（C）：博客与问答搜索 | 有（C/L）：`csdn_search` 命中可跟进博客正文，最多保存 30,000 字符 | 有（C/L）：匿名接口按需读取，最多 60 个评论／回复节点 | 有（C/L）：API 内嵌回复按 `parentId` 保留父子关系，最多深 4 层 | 部分（C/L）：最多尝试 3 页，每页 20 条；计数与实际页数不一致时标记 partial | 未知：重复采集评论补新与历史版本未实现 | 有（C）：正文、评论和覆盖状态走通用入库 | C：`platforms/csdn.py`、`topics/enrichment.py`；只接受 `blog.csdn.net/{user}/article/details/{id}`，共用剩余预算。L：2026-10-24 匿名 `csdn_search` 搜索得 29 行；命中正文 1,982 字符，8 节点预算下保存 7 条顶层评论和 1 条回复，API 报告 15 条，1.453 秒并按 `comment_limit` 标记 partial，无错误。 |
 | 掘金 | 有（C）：文章与专栏搜索 | 部分：搜索 `brief_content`，没有详情读取 | 无（C） | 无（C） | 部分：offset/cursor 搜索最多 5 页；文章评论未实现 | 未知 | 有：可保存并按文本检索 | C：`catalog/community.py` `juejin_search` / `juejin_column`。 |
 
 > “保存后回查：有”仅指已有通用资料转换/存储/FTS 路径可处理这些行；评论/回复只有在适配器实际返回时才会入库。它不表示话题查询默认自动入库，也不表示平台版本更新已实现。
@@ -73,5 +73,7 @@
 > 2026-10-24 后续实现：HN 故事评论树、GitHub issue/PR 讨论、V2EX 主题回复和 Stack Overflow 答案／评论已接入 `--enrich`。隔离测试覆盖身份字段、回答/回复关系、限额、时限和 SQLite 回查。四者均有一次匿名公开样本；单样本不代表持续在线成功率或全量覆盖。
 
 > 2026-10-24 后续实现：B站评论采集扩展为最多 3 页顶层评论、最多 5 个楼中楼线程和每视频 60 个总节点，并输出 `discussion_coverage`。一次匿名视频样本拿到 4/5 报告节点；第二页为空，状态标记为 partial。该旧接口的分页计数不稳定，后续需验证更多真实视频后再判断覆盖率。
+
+> 2026-10-24 后续实现：CSDN 搜索命中现可补采博客正文及评论树，最多尝试 3 页、保存 60 个节点并保留 `parent_id` 与 `discussion_coverage`。一次匿名样本正文 1,982 字符，评论接口报告 15 条并在单页取得 5 条，接口返回中观察到内嵌回复；单样本不能代表持续成功率或全量覆盖。
 
 历史证据文件：`.periscope-scratch/platform-artifact-audit-20261019.json`、`.periscope-scratch/platform-run-audit-20261019.json`。这些是 2026-10-19 的本地产物检查，不代表 2026-10-24 的在线成功率。

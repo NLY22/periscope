@@ -129,6 +129,12 @@ class TopicService:
         if stat.get("bilibili_discussion_partial"):
             result.notes.append("%d 条 B 站评论达到分页、条数或时间上限；具体覆盖范围随分片保存"
                                 % stat["bilibili_discussion_partial"])
+        if stat.get("csdn_discussion_targets"):
+            breakdown.append("CSDN 正文与评论 %d/%d 条" % (
+                stat.get("csdn_discussion_done", 0), stat["csdn_discussion_targets"]))
+        if stat.get("csdn_discussion_partial"):
+            result.notes.append("%d 条 CSDN 讨论达到分页、条数或时间上限；覆盖详情随分片保存"
+                                % stat["csdn_discussion_partial"])
         if stat.get("discussion_targets"):
             breakdown.append("HN 讨论树 %d/%d 条" % (
                 stat.get("discussion_done", 0), stat["discussion_targets"]))
