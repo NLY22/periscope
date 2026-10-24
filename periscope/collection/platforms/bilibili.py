@@ -27,6 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 import asyncio
+import time
 
 import httpx
 
@@ -38,6 +39,7 @@ ROOT = paths.ROOT
 API_VIEW = "https://api.bilibili.com/x/web-interface/view"
 API_PLAYER = "https://api.bilibili.com/x/player/v2"
 API_REPLY = "https://api.bilibili.com/x/v2/reply"
+API_REPLY_THREAD = "https://api.bilibili.com/x/v2/reply/reply"
 
 HEADERS = {
     "User-Agent": (
@@ -49,7 +51,9 @@ HEADERS = {
 # A subtitle track longer than this is cheap to keep but slow to index; the
 # median lecture-length video measured 6,800 characters.
 MAX_TRANSCRIPT_CHARS = 20000
-MAX_COMMENTS = 10
+MAX_COMMENTS = 60
+MAX_COMMENT_PAGES = 3
+MAX_REPLY_THREADS = 5
 
 
 class SubtitleUnavailable(RuntimeError):
@@ -79,6 +83,7 @@ class Enriched:
     segments: List[Dict[str, Any]] = field(default_factory=list)
     text: str = ""
     comments: List[Dict[str, Any]] = field(default_factory=list)
+    discussion_coverage: Dict[str, Any] = field(default_factory=dict)
     errors: List[str] = field(default_factory=list)
     # True when the subtitle endpoint answered but gave no track list, which on
     # an anonymous client means "locked", not "absent".
@@ -106,6 +111,8 @@ class Enriched:
             }
         if self.comments:
             out["comments"] = self.comments
+        if self.discussion_coverage:
+            out["discussion_coverage"] = self.discussion_coverage
         return out
 
 
@@ -202,38 +209,182 @@ async def _subtitle_body(cli: httpx.AsyncClient, track: Dict[str, Any]):
     return segments, text
 
 
-async def _comments(cli: httpx.AsyncClient, aid: int, limit: int):
-    try:
-        payload = await _json(cli, API_REPLY, {
-            "type": 1, "oid": aid, "sort": 2, "pn": 1, "ps": max(limit, 1),
-        })
-    except Exception:
-        return []
-    out = []
-    stack = [(reply, out, None) for reply in reversed(((payload.get("data") or {}).get("replies") or [])[:max(limit, 0)])]
-    while stack:
-        reply, target, inherited_parent = stack.pop()
-        if not isinstance(reply, dict):
-            continue
+async def _comments(cli: httpx.AsyncClient, aid: int, limit: int,
+                    deadline: float | None = None):
+    """Fetch a bounded slice of top comments and their available reply threads.
+
+    The legacy anonymous endpoint has returned inconsistent page counts in
+    live probes. We follow its page number only while it returns rows and keep
+    any mismatch in `truncated_by`; an empty later page never implies complete
+    coverage when the API still reports more comments.
+    """
+    limit = max(0, int(limit))
+    coverage = {"status": "complete", "fetched_comments": 0,
+                "reported_comments": 0, "fetched_roots": 0,
+                "fetched_replies": 0, "truncated_by": [], "errors": []}
+    out: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    thread_roots = 0
+    if limit == 0:
+        coverage["truncated_by"].append("comment_limit")
+        coverage["status"] = "partial"
+        return out, coverage
+
+    async def request(url: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if deadline is None:
+            return await _json(cli, url, params)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if "time_budget" not in coverage["truncated_by"]:
+                coverage["truncated_by"].append("time_budget")
+            return None
+        try:
+            return await asyncio.wait_for(_json(cli, url, params), timeout=remaining)
+        except asyncio.TimeoutError:
+            if "time_budget" not in coverage["truncated_by"]:
+                coverage["truncated_by"].append("time_budget")
+            return None
+
+    async def capture(reply: Dict[str, Any], target: List[Dict[str, Any]],
+                      inherited_parent: Any = None, *, allow_thread: bool = True) -> None:
+        nonlocal thread_roots
+        if not isinstance(reply, dict) or coverage["fetched_comments"] >= limit:
+            return
+        rpid = reply.get("rpid")
+        identity = str(rpid) if rpid is not None else ""
+        if identity and identity in seen:
+            return
+        if identity:
+            seen.add(identity)
         content, member = reply.get("content"), reply.get("member")
         raw_text = content.get("message") if isinstance(content, dict) else ""
         text = raw_text.strip() if isinstance(raw_text, str) else ""
         children = reply.get("replies")
         if not text and not children:
-            continue
+            return
         author = member.get("uname") if isinstance(member, dict) else ""
         node = {"user": author if isinstance(author, str) else "", "text": text,
-                "likes": _num(reply.get("like")) or 0, "rpid": reply.get("rpid")}
+                "likes": _num(reply.get("like")) or 0, "rpid": rpid}
         parent = reply.get("parent") or inherited_parent
         if parent:
             node["parent_id"] = parent
         if reply.get("ctime"):
             node["created_at"] = reply["ctime"]
         target.append(node)
-        if isinstance(children, list) and children:
-            node["replies"] = []
-            stack.extend((child, node["replies"], node["rpid"]) for child in reversed(children))
-    return out
+        coverage["fetched_comments"] += 1
+
+        inline = children if isinstance(children, list) else []
+        node["replies"] = []
+        for child in inline:
+            if coverage["fetched_comments"] >= limit:
+                coverage["truncated_by"].append("comment_limit")
+                break
+            before = coverage["fetched_comments"]
+            await capture(child, node["replies"], rpid, allow_thread=False)
+            if coverage["fetched_comments"] > before:
+                coverage["fetched_replies"] += 1
+
+        reported_children = _num(reply.get("rcount")) or 0
+        if (allow_thread and rpid is not None and reported_children > len(inline)
+                and thread_roots < MAX_REPLY_THREADS
+                and coverage["fetched_comments"] < limit):
+            thread_roots += 1
+            fetched_thread = 0
+            for page in range(1, MAX_COMMENT_PAGES + 1):
+                remaining = limit - coverage["fetched_comments"]
+                if remaining <= 0:
+                    coverage["truncated_by"].append("comment_limit")
+                    break
+                try:
+                    thread_payload = await request(API_REPLY_THREAD, {
+                        "type": 1, "oid": aid, "root": rpid,
+                        "pn": page, "ps": min(20, remaining),
+                    })
+                except Exception as exc:  # keep captured root and inline replies
+                    coverage["errors"].append("replies:%s" % type(exc).__name__)
+                    break
+                if thread_payload is None:
+                    break
+                thread_data = thread_payload.get("data") or {}
+                thread_rows = thread_data.get("replies") or []
+                reported = _num((thread_data.get("page") or {}).get("count"))
+                if not thread_rows:
+                    if reported_children > fetched_thread:
+                        coverage["truncated_by"].append("reply_page_empty")
+                    break
+                before = coverage["fetched_comments"]
+                for child in thread_rows:
+                    if coverage["fetched_comments"] >= limit:
+                        coverage["truncated_by"].append("comment_limit")
+                        break
+                    await capture(child, node["replies"], rpid, allow_thread=False)
+                delta = coverage["fetched_comments"] - before
+                fetched_thread += delta
+                coverage["fetched_replies"] += delta
+                if reported is None or fetched_thread >= max(0, reported - len(inline)):
+                    break
+                if page == MAX_COMMENT_PAGES:
+                    coverage["truncated_by"].append("reply_page_limit")
+        elif (allow_thread and rpid is not None
+              and reported_children > len(inline)
+              and thread_roots >= MAX_REPLY_THREADS):
+            coverage["truncated_by"].append("reply_thread_limit")
+        elif (allow_thread and reported_children > len(inline)
+              and coverage["fetched_comments"] >= limit):
+            coverage["truncated_by"].append("comment_limit")
+
+        if not node["replies"]:
+            node.pop("replies")
+
+    reported_roots: Optional[int] = None
+    page = 1
+    while page <= MAX_COMMENT_PAGES and coverage["fetched_comments"] < limit:
+        try:
+            page_size = min(20, limit - coverage["fetched_comments"])
+            payload = await request(API_REPLY, {
+                "type": 1, "oid": aid, "sort": 2,
+                "pn": page, "ps": page_size,
+            })
+        except Exception as exc:
+            coverage["errors"].append("comments:%s" % type(exc).__name__)
+            break
+        if payload is None:
+            break
+        data = payload.get("data") or {}
+        rows = data.get("replies") or []
+        reported = _num((data.get("page") or {}).get("count"))
+        if reported is not None:
+            reported_roots = max(reported_roots or 0, reported)
+            coverage["reported_comments"] = max(coverage["reported_comments"], reported)
+        if not rows:
+            if reported_roots is not None and coverage["fetched_roots"] < reported_roots:
+                coverage["truncated_by"].append("comment_page_empty")
+            break
+        for reply in rows:
+            if coverage["fetched_comments"] >= limit:
+                coverage["truncated_by"].append("comment_limit")
+                break
+            before = coverage["fetched_comments"]
+            await capture(reply, out)
+            if coverage["fetched_comments"] > before:
+                coverage["fetched_roots"] += 1
+        if reported_roots is not None and coverage["fetched_roots"] >= reported_roots:
+            break
+        if reported_roots is None and len(rows) < page_size:
+            break
+        if page == MAX_COMMENT_PAGES:
+            if reported_roots is None or coverage["fetched_roots"] < reported_roots:
+                coverage["truncated_by"].append("comment_page_limit")
+            break
+        page += 1
+
+    if (coverage["fetched_comments"] >= limit
+            and (reported_roots is None
+                 or coverage["fetched_roots"] < reported_roots)):
+        coverage["truncated_by"].append("comment_limit")
+    coverage["truncated_by"] = list(dict.fromkeys(coverage["truncated_by"]))
+    coverage["status"] = "partial" if coverage["truncated_by"] or coverage["errors"] else "complete"
+    return out, coverage
 
 
 async def enrich(
@@ -242,6 +393,7 @@ async def enrich(
     with_comments: bool = False,
     comment_limit: int = MAX_COMMENTS,
     timeout: float = 20.0,
+    budget_deadline: float | None = None,
 ) -> Enriched:
     """Fetch counters, cid and (if present) the creator's subtitle track."""
     result = Enriched(bvid=bvid)
@@ -289,7 +441,16 @@ async def enrich(
         # 3. comments, only when asked. They are a lead, never the author's
         # words, so callers that grade evidence should leave this off.
         if with_comments and result.aid:
-            result.comments = await _comments(cli, result.aid, comment_limit)
+            if budget_deadline is not None and budget_deadline <= time.monotonic():
+                result.discussion_coverage = {
+                    "status": "partial", "fetched_comments": 0,
+                    "reported_comments": 0, "fetched_roots": 0,
+                    "fetched_replies": 0, "truncated_by": ["time_budget"],
+                    "errors": [],
+                }
+                return result
+            result.comments, result.discussion_coverage = await _comments(
+                cli, result.aid, comment_limit, deadline=budget_deadline)
 
     return result
 
@@ -300,6 +461,7 @@ async def enrich_many(
     concurrency: int = 4,
     with_comments: bool = False,
     timeout: float = 20.0,
+    budget_seconds: float | None = None,
 ) -> Dict[str, Enriched]:
     """Enrich several videos, bounded concurrency, per-video failure isolated.
 
@@ -309,12 +471,27 @@ async def enrich_many(
     original data and gains an `errors` entry instead.
     """
     sem = asyncio.Semaphore(max(1, concurrency))
+    deadline = (None if budget_seconds is None else
+                time.monotonic() + max(0.0, budget_seconds))
 
     async def one(bvid: str) -> tuple[str, Enriched]:
         async with sem:
             try:
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    skipped = Enriched(bvid=bvid)
+                    if with_comments:
+                        skipped.discussion_coverage = {
+                            "status": "partial", "fetched_comments": 0,
+                            "reported_comments": 0, "fetched_roots": 0,
+                            "fetched_replies": 0,
+                            "truncated_by": ["time_budget"], "errors": [],
+                        }
+                    return bvid, skipped
                 return bvid, await enrich(bvid, with_comments=with_comments,
-                                          timeout=timeout)
+                                          timeout=(min(timeout, remaining)
+                                                   if remaining is not None else timeout),
+                                          budget_deadline=deadline)
             except Exception as exc:  # noqa: BLE001
                 failed = Enriched(bvid=bvid)
                 failed.errors.append("enrich:%s" % type(exc).__name__)

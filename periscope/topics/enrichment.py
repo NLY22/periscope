@@ -73,6 +73,9 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
     stat["targets"] = (len(bili_targets) + len(hn_targets) + len(github_targets)
                         + len(v2ex_targets) + len(stack_targets))
     stat["discussion_targets"] = len(hn_targets)
+    stat["bilibili_discussion_targets"] = len(bili_targets)
+    stat["bilibili_discussion_done"] = 0
+    stat["bilibili_discussion_partial"] = 0
     stat["github_discussion_targets"] = len(github_targets)
     stat["github_discussion_done"] = 0
     stat["github_discussion_partial"] = 0
@@ -95,7 +98,8 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
             from periscope.collection.platforms import bilibili as bilibili_enrich
             got = asyncio.run(bilibili_enrich.enrich_many(
                 [bvid for _row, bvid, _key in bili_targets],
-                concurrency=4, with_comments=True))
+                concurrency=4, with_comments=True,
+                budget_seconds=remaining_budget()))
         except Exception as exc:  # noqa: BLE001
             stat["failed"].append("bilibili:%s" % type(exc).__name__)
             got = {}
@@ -111,10 +115,17 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
                 patches[key] = patch
             if result.metrics or result.has_transcript or result.comments:
                 stat["done"] += 1
+            if result.discussion_coverage:
+                stat["bilibili_discussion_done"] += 1
+                if result.discussion_coverage.get("status") != "complete":
+                    stat["bilibili_discussion_partial"] += 1
             if not result.has_transcript:
                 stat["no_transcript"] += 1
             if result.errors:
                 stat["failed"].extend("%s:%s" % (bvid, e) for e in result.errors[:1])
+            if result.discussion_coverage.get("errors"):
+                stat["failed"].extend("%s:%s" % (bvid, e)
+                                      for e in result.discussion_coverage["errors"][:1])
 
     if hn_targets:
         try:

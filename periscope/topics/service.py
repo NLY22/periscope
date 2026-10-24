@@ -122,6 +122,13 @@ class TopicService:
             breakdown.append("富化 %d/%d 条/%.1fs" % (stat["done"], stat["targets"], stat["elapsed"]))
         else:
             result.notes.append("富化：本次结果里没有可补采的平台详情或讨论")
+        if stat.get("bilibili_discussion_targets"):
+            breakdown.append("B站评论 %d/%d 条" % (
+                stat.get("bilibili_discussion_done", 0),
+                stat["bilibili_discussion_targets"]))
+        if stat.get("bilibili_discussion_partial"):
+            result.notes.append("%d 条 B 站评论达到分页、条数或时间上限；具体覆盖范围随分片保存"
+                                % stat["bilibili_discussion_partial"])
         if stat.get("discussion_targets"):
             breakdown.append("HN 讨论树 %d/%d 条" % (
                 stat.get("discussion_done", 0), stat["discussion_targets"]))
