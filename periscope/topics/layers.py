@@ -187,6 +187,7 @@ def platform_lookup(topic: str, speed: str = SPEED_NORMAL,
                 "kind": r.get("kind") or "community",
                 **({"provenance": r["provenance"]} if r.get("provenance") else {}),
                 **({"published_text": r["published_text"]} if r.get("published_text") else {}),
+                **{key: r[key] for key in ("body_source_url", "discussion_url") if r.get(key)},
                 "_origin": "platform",
                 # Carried through only when the collector actually captured
                 # them; an empty dict is dropped rather than stored as "no

@@ -25,9 +25,9 @@
 | 抖音 | 有（C/H） | 部分：搜索响应描述，最长截为 400 字；无详情读取 | 无（H） | 无（H） | 部分：搜索页滚动/响应监听；详情讨论未实现 | 未知 | 有：通用入库链可保存卡片 | H：317 行，最长 400 字，73 行与标题不同，14 行达到 400 字；没有评论数组。C：`platforms/douyin.py`。 |
 | 快手 | 有（C/H） | 部分：搜索响应文案，非详情正文 | 无（H） | 无（H） | 部分：搜索页滚动/响应监听；详情讨论未实现 | 未知 | 有：通用入库链可保存卡片 | H：60 行，最长 344 字，没有评论/回复数组。C：`platforms/kuaishou.py`。 |
 | V2EX | 有（C） | 部分：sov2ex 索引返回帖子内容，长度/完整度受索引结果限制 | 无（C） | 无（C） | 部分：offset 分页，配置最多 5 页；未验证增量重采 | 未知 | 有：可经通用入库并回查 | C：`catalog/community.py` `v2ex_search`；搜索内容可达约 1,200 字，但没有主题详情/回复链采集。 |
-| GitHub | 有（C）：Issues/PR 搜索 | 部分：搜索对象的 issue/PR `body`；解析层有文本长度限制，未单独取详情 | 无（C）：只取评论数指标，没有评论正文 | 无（C） | 部分：配置每页 30、最多 3 页；未测边界 | 未知 | 有：可保存并按正文检索 | C：`extensions.py` `github_issues`；需把 comment count 与评论内容区分。 |
+| GitHub | 有（C）：Issues/PR 搜索 | 部分：搜索对象带 issue/PR 正文，最多 1,200 字；未单独读取详情 | 有（C/L）：`--enrich` 按需取 issue 评论；PR 额外读取 review 评论 | 有（C）：PR 行内 review 回复按 `in_reply_to_id` 形成关系 | 部分（C/L）：每种评论最多 2 页、每页 30 条、合计最多保存 60 条；遵守 `--budget` 并标明截断 | 未知：评论补新与历史版本未实现 | 有（C）：讨论与覆盖状态进入通用 community 入库 | C：`platforms/github.py`；可选读取 `GITHUB_TOKEN`；覆盖 API 来源、条数和超时状态。L：2026-10-24 匿名公开 PR `facebook/react#1`，预算 8 秒，2.015 秒收到 11 条评论、保留 3 条，按 `comment_limit` 标为 partial，无错误。 |
 | Stack Overflow | 有（C）：Advanced Search | 部分：搜索 API 请求带 `withbody`，可取得题干片段；没有单独详情链路 | 无（C） | 无（C）：未取答案/评论关系 | 部分：每页 30、最多 3 页；实际覆盖待测 | 未知 | 有：可保存并按正文检索 | C：`extensions.py` `stackexchange_search`；answers 数量/题目元数据不等于答案正文。 |
-| Hacker News | 有（C）：故事与评论搜索 | 部分：Algolia 搜索故事正文；旧订阅抓取器可读故事文本 | 部分（C）：`hn_comments` 搜索评论；旧订阅路径每篇最多取 5 条顶层评论 | 无（C）：当前搜索行未保存 story parent ID 或回复父子关系 | 部分：搜索配置有页数上限；订阅仅 top stories 样本 | 未知 | 有：旧路径保存讨论为 community sections；搜索结果可经通用入库 | C：`hn_comments` 行映射为评论自身 permalink，仅 title 可带 story title；`src/scrapers/hackernews.py` 是旧订阅路径，不能算作当前 TopicService 的评论深采。 |
+| Hacker News | 有（C）：故事与评论搜索 | 部分（C）：Algolia 搜索故事正文；`--enrich` 可回读官方 Firebase story 元数据 | 有（C/L）：`--enrich` 按 story ID 读取评论节点，最多 60 个节点／故事 | 有（C）：跟随 `kids` 最多 4 层，保留 `parent_id`；本次样本最高深度为 1 | 部分（C/L）：按官方树的子 ID 遍历，受 60 节点、4 层和 `--budget` 限制；单 story 样本实取 5/71 条，按节点上限正确标为 partial | 未知：同 story 重采后的评论版本未实现 | 有（C）：讨论树和覆盖状态进入分片及通用 community 入库路径，隔离 SQLite 回查已通过；未写入真实语料库 | C：`hn_ai` / `hn_ai_monthly` / `hn_cn` 搜索行保留 `objectID`；新增 `periscope/collection/platforms/hackernews.py` 读取官方 Firebase item 树。L：2026-10-24，公开 story 8863，预算 15 秒，实际 2.594 秒，尝试 5 个节点、取得 5 条、报告 71 条，`comment_limit` 截断，无错误。`hn_comments` 仍是独立评论搜索行。 |
 | CSDN | 有（C）：博客与问答搜索 | 部分：搜索摘要，不等于博客/答案全文 | 无（C） | 无（C） | 部分：博客最多 15 页、问答最多 5 页；评论分页未实现 | 未知 | 有：可保存并按文本检索 | C：`catalog/community.py` `csdn_search` / `csdn_ask`。 |
 | 掘金 | 有（C）：文章与专栏搜索 | 部分：搜索 `brief_content`，没有详情读取 | 无（C） | 无（C） | 部分：offset/cursor 搜索最多 5 页；文章评论未实现 | 未知 | 有：可保存并按文本检索 | C：`catalog/community.py` `juejin_search` / `juejin_column`。 |
 
@@ -63,11 +63,13 @@
 ## 本轮结论
 
 1. 12 个平台均有一定的话题发现入口；这并不等于 12 个平台都具备详情采集。
-2. 明确的讨论正文/回复树入口目前主要见于 B站可选富化和 Hacker News 旧订阅抓取；前者仅第一页有限评论，后者不是当前 TopicService 的统一话题详情路径。
+2. HN 现在有可选、限额的 TopicService 故事评论树富化代码；本轮未做线上运行验证。B站仍是第一页有限评论，不能据此称已覆盖全量回复。
 3. 小红书、知乎、微博、抖音、快手的现存代表产物以搜索卡片/文案为主。对其余平台也不能从搜索配置推断评论与后续更新可用。
-4. 保存与回查的共用底座已能保存结构化评论，但“同对象补新评论并保留历史版本”仍是独立缺口。
+4. 保存与回查的共用底座能保存结构化评论；HN 覆盖状态随分片和资料元数据保存。“同对象补新评论并保留历史版本”仍是独立缺口。
 5. 9 个 HTTP 入口中，6 个无 Cookie 有效查询返回 3–30 行，掘金为空；知乎无 Cookie 请求返回 HTTP 400，微博无 Cookie 请求返回无效 JSON。有效搜索行没有嵌套评论数组。HN 搜索返回独立评论行，但没有保存故事父链接或回复树。
 6. 小红书、抖音、快手的匿名探测都返回 0 卡片，适配器没有暴露具体原因；需要后续单独诊断登录状态、页面加载和选择器/响应结构。
 7. 本次结果是一次小样本观察，不代表持续成功率、全量覆盖或相对 Web Search API 的优势。
+
+> 2026-10-24 后续实现：HN 故事评论树与 GitHub issue/PR 讨论富化已接入 `--enrich`。隔离测试覆盖身份字段、回复树、限额、时限和 SQLite 回查。HN 与 GitHub 各有一次匿名公开样本；单样本不代表持续在线成功率或全量覆盖。
 
 历史证据文件：`.periscope-scratch/platform-artifact-audit-20261019.json`、`.periscope-scratch/platform-run-audit-20261019.json`。这些是 2026-10-19 的本地产物检查，不代表 2026-10-24 的在线成功率。

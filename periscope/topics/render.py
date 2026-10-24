@@ -85,8 +85,20 @@ def render(topic: str, rows: list[dict], info: dict) -> str:
         if comments:
             L.append("    评论: %d 条，首条 %s"
                      % (len(comments), (comments[0].get("text") or "")[:60]))
+        discussion = r.get("discussion_coverage") or {}
+        if discussion:
+            L.append("    讨论覆盖: %s，已取 %s/%s 条，深度 %s/%s%s"
+                     % (discussion.get("status", "unknown"),
+                        discussion.get("attempted_ids", 0),
+                        discussion.get("reported_descendants", "未知"),
+                        discussion.get("max_depth_seen", 0),
+                        discussion.get("max_depth", "未知"),
+                        "，截断: " + ", ".join(discussion["truncated_by"])
+                        if discussion.get("truncated_by") else ""))
         if r.get("url"):
             L.append("    链接: %s" % (r["url"] or "")[:88])
+        if r.get("discussion_url") and r["discussion_url"] != r.get("url"):
+            L.append("    HN讨论: %s" % r["discussion_url"])
         if r.get("body_source_url") and r["body_source_url"] != r.get("url"):
             L.append("    正文出处: %s" % r["body_source_url"])
         if body:
@@ -110,12 +122,15 @@ def json_payload(topic: str, rows: list[dict], info: dict, limit: int) -> dict:
             {"title": r.get("title"), "url": r.get("url"),
              "source": r.get("source"), "kind": r.get("kind"),
              "metrics": r.get("metrics", {}), "ids": r.get("ids", {}),
+             "discussion_url": r.get("discussion_url", ""),
              "document": r.get("document", {}),
              "publishers": r.get("_publishers"), "independent": r.get("_independent"),
              "date": r.get("date"), "score": round(r.get("_score") or 0, 3),
              "body_chars": len(r.get("body") or ""),
              "body_source_url": r.get("body_source_url") or r.get("url"),
              "sources": r.get("sources", []), "provenance": r.get("provenance", {}),
+             "comments": r.get("comments", []),
+             "discussion_coverage": r.get("discussion_coverage", {}),
              "snippet": (r.get("body") or r.get("text") or "")[:400]}
             for r in rows[:limit]
         ],

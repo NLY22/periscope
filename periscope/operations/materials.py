@@ -8,7 +8,8 @@ from src.models import Section
 from src.corpus.sections import marker_sections_to_model
 
 
-_METADATA_FIELDS = ("provenance", "metrics", "ids", "published_text", "body_source_url", "sources", "document")
+_METADATA_FIELDS = ("provenance", "metrics", "ids", "published_text", "body_source_url",
+                    "sources", "document", "discussion_url", "discussion_coverage")
 _CHILD_FIELDS = ("comments", "replies", "children", "answers")
 
 
@@ -78,7 +79,8 @@ def discussion_sections(row: dict, locator: str) -> list[Section]:
         metadata = {"id": identity, "relation": relation}
         if parent:
             metadata["parent_id"] = parent
-        for field in ("likes", "like", "score", "date", "created_at", "published_at"):
+        for field in ("likes", "like", "score", "date", "created_at", "published_at",
+                      "discussion_type", "path", "line", "position"):
             if field in comment and isinstance(comment[field], (str, int, float)):
                 metadata[field] = comment[field]
         own_url = _text(comment.get("url"))

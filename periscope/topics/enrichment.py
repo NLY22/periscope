@@ -1,4 +1,4 @@
-"""Enrich selected video results and return patches for raw run records."""
+"""Enrich selected platform results and return patches for raw run records."""
 
 from __future__ import annotations
 
@@ -7,16 +7,13 @@ import re
 import time
 
 
-def _enrich_topk(merged: list[dict], k: int = 5) -> tuple[list[dict], dict, dict]:
-    """Fill in counters/comments/transcripts for the top-K *enrichable* rows.
+def _enrich_topk(merged: list[dict], k: int = 5, *,
+                 budget_seconds: float | None = 30.0) -> tuple[list[dict], dict, dict]:
+    """Fill in details, discussions, and transcripts for top-K eligible rows.
 
-    "Enrichable" rather than plain top-K, because the two sets do not overlap
-    in practice: on a news topic the top results are articles (they have body
-    text, which the ranking rewards), and an article has no B站 video to
-    enrich. Selecting `merged[:k]` there found zero targets and reported
-    "enriched 0 rows", which looks like a broken feature and is really a
-    selection bug. So the scan skips rows without a video id and enriches the
-    first `k` that have one.
+    Eligible rows are B站 videos, HN stories, and GitHub issues / PRs. Plain top-K
+    selection can contain no supported platform item, so the scan skips rows
+    that cannot be enriched and spends its limit on the first eligible ones.
 
     Returns `(merged, stat, patches)` where `patches` is keyed by URL. The patch
     map exists because the merge **copies** each row into its cluster head: a
@@ -25,55 +22,145 @@ def _enrich_topk(merged: list[dict], k: int = 5) -> tuple[list[dict], dict, dict
     the enrichment visible in the shard and not only on screen.
     """
     stat = {"done": 0, "elapsed": 0.0, "failed": [],
-            "no_transcript": 0, "targets": 0}
-    targets = []
+            "no_transcript": 0, "targets": 0,
+            "discussion_targets": 0, "discussion_done": 0,
+            "discussion_partial": 0}
+    bili_targets = []
+    hn_targets = []
+    github_targets = []
     for row in merged:
-        if len(targets) >= k:
+        if len(bili_targets) + len(hn_targets) + len(github_targets) >= k:
             break
+        source = str(row.get("source") or "")
         ids = row.get("ids") or {}
+        if source in {"hn_ai", "hn_ai_monthly", "hn_cn"}:
+            story_id = ids.get("objectID")
+            if story_id is not None and str(story_id).isdigit():
+                hn_targets.append((row, str(story_id), _row_key(row)))
+            continue
+        if source == "github_issues":
+            match = re.match(
+                r"^https?://github\.com/([^/]+)/([^/]+)/(issues|pull)/(\d+)(?:[/?#].*)?$",
+                str(row.get("url") or ""), re.IGNORECASE)
+            if match:
+                github_targets.append((row, match.group(1), match.group(2),
+                                       match.group(4), match.group(3) == "pull",
+                                       _row_key(row)))
+            continue
         bvid = ids.get("bvid")
         if not bvid and (row.get("url") or ""):
             match = re.search(r"(BV[0-9A-Za-z]{10})", row["url"])
             bvid = match.group(1) if match else None
         if bvid:
-            targets.append((row, bvid, _row_key(row)))
-    if not targets:
+            bili_targets.append((row, bvid, _row_key(row)))
+    stat["targets"] = len(bili_targets) + len(hn_targets) + len(github_targets)
+    stat["discussion_targets"] = len(hn_targets)
+    stat["github_discussion_targets"] = len(github_targets)
+    stat["github_discussion_done"] = 0
+    stat["github_discussion_partial"] = 0
+    if not stat["targets"]:
         return merged, stat, {}
 
-    stat["targets"] = len(targets)
     t0 = time.monotonic()
-    try:
-        from periscope.collection.platforms import bilibili as bilibili_enrich
-    except Exception as exc:  # noqa: BLE001
-        stat["failed"].append("import:%s" % type(exc).__name__)
-        stat["elapsed"] = time.monotonic() - t0
-        return merged, stat, {}
-
-    try:
-        got = asyncio.run(bilibili_enrich.enrich_many(
-            [bvid for _row, bvid, _key in targets],
-            concurrency=4, with_comments=True))
-    except Exception as exc:  # noqa: BLE001
-        stat["failed"].append("run:%s" % type(exc).__name__)
-        stat["elapsed"] = time.monotonic() - t0
-        return merged, stat, {}
+    def remaining_budget() -> float | None:
+        return None if budget_seconds is None else max(0.0, budget_seconds - (time.monotonic() - t0))
 
     patches: dict = {}
-    for row, bvid, key in targets:
-        result = got.get(bvid)
-        if result is None:
-            stat["failed"].append(bvid)
-            continue
-        patch = result.as_patch()
-        row.update(patch)
-        if key:
-            patches[key] = patch
-        if result.metrics or result.has_transcript:
+    if bili_targets:
+        try:
+            from periscope.collection.platforms import bilibili as bilibili_enrich
+            got = asyncio.run(bilibili_enrich.enrich_many(
+                [bvid for _row, bvid, _key in bili_targets],
+                concurrency=4, with_comments=True))
+        except Exception as exc:  # noqa: BLE001
+            stat["failed"].append("bilibili:%s" % type(exc).__name__)
+            got = {}
+
+        for row, bvid, key in bili_targets:
+            result = got.get(bvid)
+            if result is None:
+                stat["failed"].append(bvid)
+                continue
+            patch = result.as_patch()
+            row.update(patch)
+            if key:
+                patches[key] = patch
+            if result.metrics or result.has_transcript or result.comments:
+                stat["done"] += 1
+            if not result.has_transcript:
+                stat["no_transcript"] += 1
+            if result.errors:
+                stat["failed"].extend("%s:%s" % (bvid, e) for e in result.errors[:1])
+
+    if hn_targets:
+        try:
+            from periscope.collection.platforms import hackernews
+            got = asyncio.run(hackernews.enrich_many(
+                [story_id for _row, story_id, _key in hn_targets],
+                concurrency=4, budget_seconds=remaining_budget()))
+        except Exception as exc:  # noqa: BLE001
+            stat["failed"].append("hackernews:%s" % type(exc).__name__)
+            got = {}
+
+        for row, story_id, key in hn_targets:
+            result = got.get(story_id)
+            if result is None:
+                stat["failed"].append("hn:%s" % story_id)
+                continue
+            comments, coverage = result
+            patch = {"discussion_coverage": coverage}
+            if comments:
+                patch["comments"] = comments
+            row.update(patch)
+            if key:
+                patches[key] = patch
+            stat["discussion_done"] += 1
+            if coverage.get("status") != "complete":
+                stat["discussion_partial"] += 1
             stat["done"] += 1
-        if not result.has_transcript:
-            stat["no_transcript"] += 1
-        if result.errors:
-            stat["failed"].extend("%s:%s" % (bvid, e) for e in result.errors[:1])
+            stat["failed"].extend("hn:%s:%s" % (story_id, error)
+                                  for error in coverage.get("errors", [])[:1])
+
+    if github_targets:
+        try:
+            from periscope.collection.platforms import github
+            got = {}
+            for _row, owner, repo, number, is_pull_request, key in github_targets:
+                remaining = remaining_budget()
+                if remaining == 0:
+                    got[key] = ([], {"status": "partial", "fetched_comments": 0,
+                                     "truncated_by": ["time_budget"], "errors": []})
+                    continue
+                try:
+                    got[key] = asyncio.run(github.fetch_discussion(
+                        owner, repo, number, is_pull_request=is_pull_request,
+                        budget_seconds=remaining))
+                except Exception as exc:  # noqa: BLE001 - keep other rows usable
+                    stat["failed"].append("github:%s/%s#%s:%s" % (
+                        owner, repo, number, type(exc).__name__))
+        except Exception as exc:  # noqa: BLE001 - report per-source enrichment failure
+            stat["failed"].append("github:%s" % type(exc).__name__)
+            got = {}
+
+        for row, owner, repo, number, is_pull_request, key in github_targets:
+            result = got.get(key)
+            if result is None:
+                stat["failed"].append("github:%s/%s#%s" % (owner, repo, number))
+                continue
+            comments, coverage = result
+            patch = {"discussion_coverage": coverage}
+            if comments:
+                patch["comments"] = comments
+            row.update(patch)
+            if key:
+                patches[key] = patch
+            stat["github_discussion_done"] += 1
+            stat["done"] += 1
+            if coverage.get("status") != "complete":
+                stat["github_discussion_partial"] += 1
+            stat["failed"].extend(
+                "github:%s/%s#%s:%s" % (owner, repo, number, error)
+                for error in coverage.get("errors", [])[:1])
 
     stat["elapsed"] = time.monotonic() - t0
     return merged, stat, patches

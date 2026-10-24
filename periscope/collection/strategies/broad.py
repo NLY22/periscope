@@ -63,6 +63,14 @@ def _prepare(entry: SourceEntry, topic: str, pages: int):
 def _linked_row(entry: SourceEntry, row: dict, observed: str) -> dict | None:
     row = dict(row)
     url = str(row.get("url") or "").strip()
+    if entry.key in {"hn_ai", "hn_ai_monthly", "hn_cn"}:
+        story_id = str((row.get("ids") or {}).get("objectID") or "").strip()
+        if story_id.isdigit():
+            row["discussion_url"] = "https://news.ycombinator.com/item?id=" + story_id
+            if url and url != row["discussion_url"]:
+                row["body_source_url"] = url
+            elif not url:
+                url = row["discussion_url"]
     if entry.key == "hf_model_search":
         url = "https://huggingface.co/" + quote(url, safe="/") if url else ""
     elif entry.key == "hf_dataset_search":

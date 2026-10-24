@@ -11,6 +11,7 @@ EXTRA_SOURCES = (
            "community", items_path="items", title="title", url_field="html_url",
            date_field="created_at", author_field="user.login", text_field="body",
            queries=("",), query_param="query", page_param="page", per_page=30,
+           id_fields=("number", "repository_url", "pull_request.url"),
            max_pages=3, min_interval=6.5, metrics=("comments",)),
     Source("stackexchange_search", "Stack Overflow 问题检索", "https://api.stackexchange.com/2.3/search/advanced?q={query}&site=stackoverflow&filter=withbody&pagesize={per_page}&page={page}",
            "community", items_path="items", title="title", url_field="link",

@@ -107,11 +107,30 @@ class TopicService:
         return api_succeeded
 
     def _enrich(self, request: TopicRequest, result: TopicResult, breakdown: list[str]) -> None:
-        result.merged, stat, patches = self.enrich_lookup(result.merged, k=max(1, request.limit))
+        if self.enrich_lookup is _enrich_topk:
+            result.merged, stat, patches = self.enrich_lookup(
+                result.merged, k=max(1, request.limit),
+                budget_seconds=None if request.budget == 0 else request.budget)
+        else:
+            # Preserve the original injected callback contract for embedders.
+            result.merged, stat, patches = self.enrich_lookup(
+                result.merged, k=max(1, request.limit))
         if stat["targets"]:
             breakdown.append("富化 %d/%d 条/%.1fs" % (stat["done"], stat["targets"], stat["elapsed"]))
         else:
-            result.notes.append("富化：本次结果里没有可富化的视频条目")
+            result.notes.append("富化：本次结果里没有可补采的平台详情或讨论")
+        if stat.get("discussion_targets"):
+            breakdown.append("HN 讨论树 %d/%d 条" % (
+                stat.get("discussion_done", 0), stat["discussion_targets"]))
+        if stat.get("discussion_partial"):
+            result.notes.append("%d 条 HN 讨论树达到深度、条数或时间上限；覆盖详情随分片保存"
+                                % stat["discussion_partial"])
+        if stat.get("github_discussion_targets"):
+            breakdown.append("GitHub 讨论 %d/%d 条" % (
+                stat.get("github_discussion_done", 0), stat["github_discussion_targets"]))
+        if stat.get("github_discussion_partial"):
+            result.notes.append("%d 条 GitHub 讨论达到条数、分页或时间上限；覆盖详情随分片保存"
+                                % stat["github_discussion_partial"])
         if stat["failed"]:
             result.notes.append("富化失败: %s" % ", ".join(stat["failed"][:3]))
         if stat["no_transcript"]:

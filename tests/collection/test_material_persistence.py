@@ -18,11 +18,19 @@ def test_query_round_trip_keeps_comment_text_author_and_reply_parent(scratch_pat
     row = {"_origin": "platform", "source": "bili_search", "kind": "community",
            "title": "A video description", "url": "https://www.bilibili.com/video/BV1234567890",
            "text": "Creator description",
+           "discussion_url": "https://news.ycombinator.com/item?id=123",
+           "discussion_coverage": {"status": "partial", "attempted_ids": 1,
+                                   "reported_descendants": 12, "truncated_by": ["comment_limit"]},
            "provenance": {"source_key": "bili_search", "method": "http",
                           "observed_at": "2026-10-24T00:00:00+00:00"},
            "comments": [
                {"rpid": 21, "user": "Alice", "text": "parentcommentneedle", "likes": 3,
-                "replies": [{"rpid": 22, "user": "Bob", "text": "deepreplyneedle"}]}]}
+                "url": "https://news.ycombinator.com/item?id=21",
+                "replies": [{"rpid": 22, "user": "Bob", "text": "deepreplyneedle",
+                             "url": "https://news.ycombinator.com/item?id=22"}]},
+               {"id": "31", "user": "Reviewer", "text": "inline reviewneedle",
+                "discussion_type": "review", "path": "src/main.py", "line": 12,
+                "url": "https://github.com/org/project/pull/7#discussion_r31"}]}
     path = runs.write("investigation", [row])
     converted = runs.ingestable_rows(runs.read(path))
     items, skipped = ingest.build(converted, [])
@@ -47,11 +55,16 @@ def test_query_round_trip_keeps_comment_text_author_and_reply_parent(scratch_pat
         reply = next(s for s in sections if "deepreplyneedle" in s["text"])
         assert reply["tier"] == "community" and reply["author"] == "Bob"
         assert str(reply["meta"]["parent_id"]) == "21"
-        assert reply["locator"]
+        assert reply["locator"] == "https://news.ycombinator.com/item?id=22"
         parent = next(s for s in sections if "parentcommentneedle" in s["text"])
         assert parent["author"] == "Alice" and parent["meta"]["likes"] == 3
+        review = next(s for s in sections if "inline reviewneedle" in s["text"])
+        assert review["meta"]["discussion_type"] == "review"
+        assert review["meta"]["path"] == "src/main.py" and review["meta"]["line"] == 12
         assert metadata["source_key"] == "bili_search"
         assert metadata["provenance"]["source_key"] == "bili_search"
+        assert metadata["discussion_url"] == "https://news.ycombinator.com/item?id=123"
+        assert metadata["discussion_coverage"]["status"] == "partial"
     finally:
         with_corpus.close()
 
