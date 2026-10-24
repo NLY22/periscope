@@ -165,6 +165,12 @@ class TopicService:
         if stat.get("juejin_discussion_partial"):
             result.notes.append("%d 条掘金讨论受评论分页或楼中楼预览范围限制；覆盖详情随分片保存"
                                 % stat["juejin_discussion_partial"])
+        if stat.get("zhihu_discussion_targets"):
+            breakdown.append("知乎回答与评论 %d/%d 条" % (
+                stat.get("zhihu_discussion_done", 0), stat["zhihu_discussion_targets"]))
+        if stat.get("zhihu_discussion_partial"):
+            result.notes.append("%d 条知乎资料受匿名正文权限、评论分页或时间预算限制；可复用已配置会话"
+                                % stat["zhihu_discussion_partial"])
         if stat["failed"]:
             result.notes.append("富化失败: %s" % ", ".join(stat["failed"][:3]))
         if stat["no_transcript"]:

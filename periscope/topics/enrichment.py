@@ -11,7 +11,7 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
                  budget_seconds: float | None = 30.0) -> tuple[list[dict], dict, dict]:
     """Fill in details, discussions, and transcripts for top-K eligible rows.
 
-    Eligible rows are B站 videos, CSDN and Juejin posts, HN stories, GitHub issues / PRs,
+    Eligible rows are B站 videos, CSDN/Juejin posts, Zhihu answers, HN stories, GitHub issues / PRs,
     V2EX topics, and Stack Overflow questions. Plain top-K
     selection can contain no supported platform item, so the scan skips rows
     that cannot be enriched and spends its limit on the first eligible ones.
@@ -33,9 +33,11 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
     v2ex_targets = []
     stack_targets = []
     juejin_targets = []
+    zhihu_targets = []
     for row in merged:
         if (len(bili_targets) + len(csdn_targets) + len(hn_targets) + len(github_targets)
-                + len(v2ex_targets) + len(stack_targets) + len(juejin_targets) >= k):
+                + len(v2ex_targets) + len(stack_targets) + len(juejin_targets)
+                + len(zhihu_targets) >= k):
             break
         source = str(row.get("source") or "")
         ids = row.get("ids") or {}
@@ -83,6 +85,13 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
             if str(article_id).isdigit():
                 juejin_targets.append((row, str(article_id), _row_key(row)))
             continue
+        if source == "zhihu_search":
+            match = re.match(
+                r"^https?://(?:www\.)?zhihu\.com/question/\d+/answer/(\d+)(?:[/?#].*)?$",
+                str(row.get("url") or ""), re.IGNORECASE)
+            if match:
+                zhihu_targets.append((row, match.group(1), _row_key(row)))
+            continue
         bvid = ids.get("bvid")
         if not bvid and (row.get("url") or ""):
             match = re.search(r"(BV[0-9A-Za-z]{10})", row["url"])
@@ -90,7 +99,8 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
         if bvid:
             bili_targets.append((row, bvid, _row_key(row)))
     stat["targets"] = (len(bili_targets) + len(csdn_targets) + len(hn_targets) + len(github_targets)
-                        + len(v2ex_targets) + len(stack_targets) + len(juejin_targets))
+                        + len(v2ex_targets) + len(stack_targets) + len(juejin_targets)
+                        + len(zhihu_targets))
     stat["discussion_targets"] = len(hn_targets)
     stat["bilibili_discussion_targets"] = len(bili_targets)
     stat["bilibili_discussion_done"] = 0
@@ -110,6 +120,9 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
     stat["juejin_discussion_targets"] = len(juejin_targets)
     stat["juejin_discussion_done"] = 0
     stat["juejin_discussion_partial"] = 0
+    stat["zhihu_discussion_targets"] = len(zhihu_targets)
+    stat["zhihu_discussion_done"] = 0
+    stat["zhihu_discussion_partial"] = 0
     if not stat["targets"]:
         return merged, stat, {}
 
@@ -414,6 +427,51 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
             if coverage.get("status") != "complete":
                 stat["juejin_discussion_partial"] += 1
             stat["failed"].extend("juejin:%s:%s" % (article_id, error)
+                                  for error in coverage.get("errors", [])[:1])
+
+    if zhihu_targets:
+        try:
+            from periscope.collection.platforms import zhihu
+        except Exception as exc:  # noqa: BLE001 - keep other platform results usable
+            stat["failed"].append("zhihu:%s" % type(exc).__name__)
+            got = {}
+        else:
+            got = {}
+            for _row, answer_id, key in zhihu_targets:
+                remaining = remaining_budget()
+                if remaining == 0:
+                    got[key] = ({}, [], {"status": "partial", "fetched_comments": 0,
+                                         "truncated_by": ["time_budget"], "errors": []})
+                    continue
+                try:
+                    got[key] = asyncio.run(zhihu.fetch_discussion(
+                        "https://www.zhihu.com/answer/%s" % answer_id,
+                        budget_seconds=remaining))
+                except Exception as exc:  # noqa: BLE001 - preserve other source results
+                    stat["failed"].append("zhihu:%s:%s" % (answer_id, type(exc).__name__))
+
+        for row, answer_id, key in zhihu_targets:
+            result = got.get(key)
+            if result is None:
+                stat["failed"].append("zhihu:%s" % answer_id)
+                continue
+            detail, comments, coverage = result
+            patch = {"discussion_coverage": coverage,
+                     "ids": {**(row.get("ids") or {}), "answer_id": answer_id}}
+            if detail.get("text"):
+                patch["text"] = detail["text"]
+            if detail.get("author") and not row.get("author"):
+                patch["author"] = detail["author"]
+            if comments:
+                patch["comments"] = comments
+            row.update(patch)
+            if key:
+                patches[key] = patch
+            stat["zhihu_discussion_done"] += 1
+            stat["done"] += 1
+            if coverage.get("status") != "complete":
+                stat["zhihu_discussion_partial"] += 1
+            stat["failed"].extend("zhihu:%s:%s" % (answer_id, error)
                                   for error in coverage.get("errors", [])[:1])
 
     stat["elapsed"] = time.monotonic() - t0
