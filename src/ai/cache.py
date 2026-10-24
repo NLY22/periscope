@@ -39,6 +39,11 @@ class ResponseCache:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.path))
         self._conn.execute("PRAGMA journal_mode=WAL")
+        # Same portability fix as Corpus: with the file default, SQLite spills
+        # sort/index work into TMP/TEMP, and an unwritable temp directory
+        # surfaces as "unable to open database file" against a perfectly good
+        # database. Sorting on a GROUP BY is enough to need it.
+        self._conn.execute("PRAGMA temp_store=MEMORY")
         self._conn.execute(
             """CREATE TABLE IF NOT EXISTS llm_cache (
                    key TEXT PRIMARY KEY,

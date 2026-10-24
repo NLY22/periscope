@@ -43,8 +43,8 @@ def test_config_defaults_and_limits():
             WeChatConfig(chunk_size=limit)
 
 
-def test_session_persistence_ignores_old_fields_and_keeps_credentials_private(tmp_path):
-    path = tmp_path / "wechat_session.json"
+def test_session_persistence_ignores_old_fields_and_keeps_credentials_private(scratch_path):
+    path = scratch_path / "wechat_session.json"
     session(context_sends=3).save(path)
     if sys.platform != "win32":
         assert os.stat(path).st_mode & 0o777 == 0o600
@@ -54,7 +54,7 @@ def test_session_persistence_ignores_old_fields_and_keeps_credentials_private(tm
     loaded = WeChatSession.load(path)
     assert loaded.ready and loaded.remaining_budget == 7
     assert loaded.bot_token == "test-token"
-    assert WeChatSession.load(tmp_path / "missing.json") is None
+    assert WeChatSession.load(scratch_path / "missing.json") is None
     path.write_text('{"user_id": "u"}')
     with pytest.raises(ValueError):
         WeChatSession.load(path)
@@ -197,17 +197,17 @@ class FakeClient:
         self.sent.append((user, text, context_token))
 
 
-def notifier(tmp_path, monkeypatch, saved=None, fake=None, **config):
+def notifier(scratch_path, monkeypatch, saved=None, fake=None, **config):
     if saved:
-        saved.save(tmp_path / "wechat_session.json")
-    result = WeChatNotifier(WeChatConfig(**{"enabled": True, **config}), StorageManager(str(tmp_path)))
+        saved.save(scratch_path / "wechat_session.json")
+    result = WeChatNotifier(WeChatConfig(**{"enabled": True, **config}), StorageManager(str(scratch_path)))
     fake = fake or FakeClient()
     monkeypatch.setattr(result, "client", lambda: fake)
     return result, fake
 
 
-def test_send_summary_chunks_and_persists_budget_across_languages(tmp_path, monkeypatch):
-    sender, fake = notifier(tmp_path, monkeypatch, session(), chunk_size=400)
+def test_send_summary_chunks_and_persists_budget_across_languages(scratch_path, monkeypatch):
+    sender, fake = notifier(scratch_path, monkeypatch, session(), chunk_size=400)
     result = run(sender.send_daily_summary("a" * 900, "en"))
     assert result.sent and result.chunks_sent == 3
     assert all(user == "user@im.wechat" and token == "ctx-1" for user, _, token in fake.sent)
@@ -217,18 +217,18 @@ def test_send_summary_chunks_and_persists_budget_across_languages(tmp_path, monk
     assert WeChatSession.load(sender.session_path).context_sends == 4
 
 
-def test_first_context_is_picked_up_before_readiness_check_and_chat_is_not_answered(tmp_path, monkeypatch):
+def test_first_context_is_picked_up_before_readiness_check_and_chat_is_not_answered(scratch_path, monkeypatch):
     fake = FakeClient({"msgs": [message(item_list=[{"type": 1, "text_item": {"text": "帮助"}}])], "get_updates_buf": "buf-2"})
-    sender, _ = notifier(tmp_path, monkeypatch, session(context_token=""), fake)
+    sender, _ = notifier(scratch_path, monkeypatch, session(context_token=""), fake)
     assert run(sender.send_daily_summary("# Briefing", "en")).sent
     assert fake.sent == [("user@im.wechat", "# Briefing", "ctx-2")]
     saved = WeChatSession.load(sender.session_path)
     assert saved.get_updates_buf == "buf-2" and saved.context_sends == 1
 
 
-def test_server_budget_error_stops_partial_delivery_and_new_context_recovers(tmp_path, monkeypatch):
+def test_server_budget_error_stops_partial_delivery_and_new_context_recovers(scratch_path, monkeypatch):
     fake = FakeClient(fail_after=1)
-    sender, _ = notifier(tmp_path, monkeypatch, session(context_sends=9), fake, chunk_size=200)
+    sender, _ = notifier(scratch_path, monkeypatch, session(context_sends=9), fake, chunk_size=200)
     result = run(sender.send_text("a" * 500, "en"))
     assert result.status == WeChatDeliveryStatus.PLATFORM_FAILURE and result.chunks_sent == 1
     assert "Reply to the bot" in fake.sent[0][1]
@@ -240,14 +240,14 @@ def test_server_budget_error_stops_partial_delivery_and_new_context_recovers(tmp
     assert WeChatSession.load(sender.session_path).context_sends == 1
 
 
-def test_stored_budget_is_only_an_estimate_server_can_allow_more(tmp_path, monkeypatch):
-    sender, fake = notifier(tmp_path, monkeypatch, session(context_sends=10))
+def test_stored_budget_is_only_an_estimate_server_can_allow_more(scratch_path, monkeypatch):
+    sender, fake = notifier(scratch_path, monkeypatch, session(context_sends=10))
     assert run(sender.send_text("next")).sent
     assert len(fake.sent) == 1
 
 
-def test_receive_timeout_does_not_block_delivery(tmp_path, monkeypatch):
-    sender, fake = notifier(tmp_path, monkeypatch, session(), FakeClient(ILinkError("stale", errcode=-14)))
+def test_receive_timeout_does_not_block_delivery(scratch_path, monkeypatch):
+    sender, fake = notifier(scratch_path, monkeypatch, session(), FakeClient(ILinkError("stale", errcode=-14)))
     assert run(sender.send_failure("2026-09-21", "generation failed")).sent
     assert "generation failed" in fake.sent[0][1]
 
@@ -257,14 +257,14 @@ def test_receive_timeout_does_not_block_delivery(tmp_path, monkeypatch):
     (httpx.ConnectError("down"), WeChatDeliveryStatus.NETWORK_FAILURE),
     (RuntimeError("unexpected"), WeChatDeliveryStatus.INTERNAL_FAILURE),
 ])
-def test_delivery_failure_results(tmp_path, monkeypatch, error, status):
-    sender, _ = notifier(tmp_path, monkeypatch, session(), FakeClient(send_error=error))
+def test_delivery_failure_results(scratch_path, monkeypatch, error, status):
+    sender, _ = notifier(scratch_path, monkeypatch, session(), FakeClient(send_error=error))
     result = run(sender.send_text("briefing"))
     assert result.status == status and result.chunks_sent == 0
 
 
-def test_disabled_filtered_missing_and_stale_sessions_do_not_send(tmp_path, monkeypatch):
-    sender, fake = notifier(tmp_path, monkeypatch, session(), enabled=False)
+def test_disabled_filtered_missing_and_stale_sessions_do_not_send(scratch_path, monkeypatch):
+    sender, fake = notifier(scratch_path, monkeypatch, session(), enabled=False)
     assert run(sender.send_text("x")).status == WeChatDeliveryStatus.DISABLED
     assert fake.polls == 0
     sender.config.enabled = True

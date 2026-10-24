@@ -17,7 +17,7 @@ def quiet_cli(monkeypatch):
     monkeypatch.setattr(wechat_cli, "load_dotenv", lambda: None)
 
 
-def use_config(monkeypatch, tmp_path, **wechat):
+def use_config(monkeypatch, scratch_path, **wechat):
     calls = []
     config = SimpleNamespace(
         wechat=WeChatConfig(**wechat), ai=SimpleNamespace(languages=["zh"]),
@@ -27,7 +27,7 @@ def use_config(monkeypatch, tmp_path, **wechat):
     class Storage(StorageManager):
         def __init__(self, data_dir, config_path):
             calls.append((data_dir, config_path))
-            super().__init__(str(tmp_path))
+            super().__init__(str(scratch_path))
 
         def load_config(self):
             return config
@@ -36,35 +36,35 @@ def use_config(monkeypatch, tmp_path, **wechat):
     return calls
 
 
-def save_session(tmp_path, **kwargs):
+def save_session(scratch_path, **kwargs):
     saved = WeChatSession(**{
         "bot_token": "test-private-token", "user_id": "u@im.wechat", "context_token": "test-context", **kwargs,
     })
-    saved.save(tmp_path / "wechat_session.json")
+    saved.save(scratch_path / "wechat_session.json")
     return saved
 
 
-def test_status_forwards_paths_and_never_prints_credentials(monkeypatch, tmp_path, capsys):
-    save_session(tmp_path, context_sends=4)
-    calls = use_config(monkeypatch, tmp_path, enabled=True)
-    monkeypatch.setattr("sys.argv", ["periscope-wechat", "-d", str(tmp_path), "-c", "config.json", "status"])
+def test_status_forwards_paths_and_never_prints_credentials(monkeypatch, scratch_path, capsys):
+    save_session(scratch_path, context_sends=4)
+    calls = use_config(monkeypatch, scratch_path, enabled=True)
+    monkeypatch.setattr("sys.argv", ["periscope-wechat", "-d", str(scratch_path), "-c", "config.json", "status"])
     wechat_cli.main()
-    assert calls == [(str(tmp_path), "config.json")]
+    assert calls == [(str(scratch_path), "config.json")]
     output = capsys.readouterr().err
     assert "u@im.wechat" in output and "6/10" in output and "Ready to deliver" in output
     assert "test-private-token" not in output and "test-context" not in output
 
 
-def test_missing_session_exits_with_login_hint(monkeypatch, tmp_path, capsys):
-    use_config(monkeypatch, tmp_path)
+def test_missing_session_exits_with_login_hint(monkeypatch, scratch_path, capsys):
+    use_config(monkeypatch, scratch_path)
     monkeypatch.setattr("sys.argv", ["periscope-wechat", "status"])
     with pytest.raises(SystemExit) as exc:
         wechat_cli.main()
     assert exc.value.code == 1 and "login" in capsys.readouterr().err
 
 
-def test_dry_run_needs_neither_session_nor_network(monkeypatch, tmp_path, capsys):
-    use_config(monkeypatch, tmp_path)
+def test_dry_run_needs_neither_session_nor_network(monkeypatch, scratch_path, capsys):
+    use_config(monkeypatch, scratch_path)
 
     def unexpected(*args, **kwargs):
         raise AssertionError("Offline preview must not construct a notifier or read credentials")
@@ -75,8 +75,8 @@ def test_dry_run_needs_neither_session_nor_network(monkeypatch, tmp_path, capsys
     assert "No message was sent" in capsys.readouterr().err
 
 
-def test_sending_test_requires_enabled_config(monkeypatch, tmp_path):
-    use_config(monkeypatch, tmp_path)
+def test_sending_test_requires_enabled_config(monkeypatch, scratch_path):
+    use_config(monkeypatch, scratch_path)
     monkeypatch.setattr("sys.argv", ["periscope-wechat", "test"])
     with pytest.raises(SystemExit) as exc:
         wechat_cli.main()
@@ -127,15 +127,15 @@ def test_login_stops_on_verification_failure_or_repeated_expiry(fast_login, stat
     assert asyncio.run(wechat_cli._wait_for_login(LoginClient(statuses), [])) is None
 
 
-def test_force_login_withholds_old_token(monkeypatch, tmp_path):
-    save_session(tmp_path)
+def test_force_login_withholds_old_token(monkeypatch, scratch_path):
+    save_session(scratch_path)
     seen = []
 
     async def wait(client, tokens):
         seen.append(tokens)
 
     monkeypatch.setattr(wechat_cli, "_wait_for_login", wait)
-    storage = StorageManager(str(tmp_path))
+    storage = StorageManager(str(scratch_path))
     asyncio.run(wechat_cli._run_login(WeChatConfig(), storage, False))
     assert seen == []
     with pytest.raises(SystemExit):
@@ -143,7 +143,7 @@ def test_force_login_withholds_old_token(monkeypatch, tmp_path):
     assert seen == [[]]
 
 
-def test_login_saves_first_context_without_consuming_reply_budget(monkeypatch, tmp_path, capsys):
+def test_login_saves_first_context_without_consuming_reply_budget(monkeypatch, scratch_path, capsys):
     async def wait(client, tokens):
         return {"status": "confirmed", "bot_token": "test-token", "ilink_user_id": "u@im.wechat"}
 
@@ -161,7 +161,7 @@ def test_login_saves_first_context_without_consuming_reply_budget(monkeypatch, t
 
     monkeypatch.setattr(wechat_cli, "_wait_for_login", wait)
     monkeypatch.setattr("src.services.wechat.ILinkClient", Inbox)
-    asyncio.run(wechat_cli._run_login(WeChatConfig(), StorageManager(str(tmp_path)), False))
-    saved = WeChatSession.load(tmp_path / "wechat_session.json")
+    asyncio.run(wechat_cli._run_login(WeChatConfig(), StorageManager(str(scratch_path)), False))
+    saved = WeChatSession.load(scratch_path / "wechat_session.json")
     assert saved.context_token == "context" and saved.get_updates_buf == "next"
     assert saved.context_sends == 0 and "Connected" in capsys.readouterr().err

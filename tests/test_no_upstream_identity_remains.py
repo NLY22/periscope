@@ -39,6 +39,9 @@ ALLOWLIST = {
     # A changelog and the phase plans record what things were *called* then.
     "CHANGELOG.md": (OLD_PROJECT, OLD_PREFIX, OLD_HOST),
     "docs/superpowers/": (OLD_PROJECT, OLD_PREFIX, OLD_PEOPLE),
+    # This dated survey records the original codebase's provenance and compares
+    # its architecture. Retain attribution without allowing old runtime names.
+    "docs/foundation-survey-2026-10-19.md": (OLD_PROJECT, OLD_PEOPLE),
 }
 
 _BINARY = re.compile(r"\.(png|jpe?g|gif|ico|woff2?|graffle|pyc|db|zip|lock)$", re.I)
@@ -47,7 +50,7 @@ _BINARY = re.compile(r"\.(png|jpe?g|gif|ico|woff2?|graffle|pyc|db|zip|lock)$", r
 def _allowed_for(relative: str) -> set[str]:
     allowed: set[str] = set()
     for prefix, tokens in ALLOWLIST.items():
-        if relative.startswith(prefix):
+        if relative == prefix or (prefix.endswith("/") and relative.startswith(prefix)):
             allowed.update(token.lower() for token in tokens)
     return allowed
 
@@ -128,3 +131,10 @@ def test_the_scan_would_report_a_planted_name() -> None:
         OLD_PROJECT
     ]
     assert offenders_in("README.md", "# Periscope\n") == []
+
+
+def test_historical_survey_exception_is_exact_and_excludes_runtime_identity() -> None:
+    name = "docs/foundation-survey-2026-10-19.md"
+    assert offenders_in(name, OLD_PROJECT + "/" + OLD_PEOPLE) == []
+    assert offenders_in(name, OLD_PREFIX + " " + OLD_HOST) == [OLD_PREFIX, OLD_HOST]
+    assert offenders_in(name + ".extra", OLD_PROJECT) == [OLD_PROJECT]

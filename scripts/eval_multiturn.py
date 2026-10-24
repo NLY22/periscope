@@ -36,6 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from src._scratch import scratch_dir  # noqa: E402
 from src.analysis.claims import Claim, ClaimStore, EvidenceLink  # noqa: E402
 from src.corpus.store import Corpus  # noqa: E402
 from src.corpus.trust import classify, distinct_publishers, noisy_or  # noqa: E402
@@ -55,12 +56,33 @@ def make_item(
     title: str,
     content: str,
     author: Optional[str] = "tester",
+    url: str = "",
 ) -> ContentItem:
+    """An item whose URL matches its declared source.
+
+    The URL is not decoration: `publisher_of` derives the publisher from the
+    site, so a fixture that declares `SourceType.REDDIT` but points at
+    `example.com` is describing something that cannot exist - a Reddit post on a
+    personal domain. The publisher rule then reads `example.com` as the
+    publisher of all six anonymous reposts, and the flood-resistance guarantee
+    silently stops holding.
+
+    The default host therefore follows the source type. Pass `url` explicitly
+    for a case that needs a particular site.
+    """
+    host = {
+        SourceType.REDDIT: "www.reddit.com/r/test/comments",
+        SourceType.HACKERNEWS: "news.ycombinator.com/item",
+        SourceType.TWITTER: "twitter.com/i/status",
+        SourceType.V2EX: "www.v2ex.com/t",
+        SourceType.BILIBILI: "www.bilibili.com/video",
+        SourceType.DISCOURSE: "forum.example.org/t",
+    }.get(source, "example.com")
     return ContentItem(
         id=f"mt:{idx}",
         source_type=source,
         title=title,
-        url=f"https://example.com/{idx}",
+        url=url or f"https://{host}/{idx}",
         content=content,
         author=author,
         published_at=NOW,
@@ -246,11 +268,15 @@ def measure_flood(tmp_path: Path, reposts: int = 6) -> Dict[str, Any]:
     corpus = Corpus(tmp_path / "flood.db")
     template = "据传该公司估值已达 100 亿美元，即将上市，内部人士透露。"
     items = [
+        # The one genuine analysis: a named outlet, so it is the single vote.
         make_item("real", SourceType.RSS, "深度分析：估值与上市",
                   "审计报告显示该公司 2026 年营收 12 亿元，上市申请已于 2026-08-11 提交交易所。",
-                  author="独立分析师"),
+                  author="独立分析师", url="https://finance-daily.example/real"),
     ]
     items += [
+        # Anonymous reposts. They sit on a platform host and carry no author, so
+        # they have no identifiable publisher and cast no vote - which is what
+        # makes the curve below flat.
         make_item(f"spam{i}", SourceType.REDDIT, f"转发{i}", template, author=None)
         for i in range(reposts)
     ]
@@ -326,10 +352,7 @@ def measure_soft_spot(tmp_path: Path) -> Dict[str, Any]:
 
 
 async def run(branches: List[int], out: Path) -> Dict[str, Any]:
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
+    with scratch_dir("eval-multiturn-") as root:
         recompute = []
         for count in branches:
             recompute.append(await measure_recompute(root / f"r{count}", count))

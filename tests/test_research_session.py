@@ -54,8 +54,8 @@ def item(idx: str, title: str, content: str) -> ContentItem:
 
 
 @pytest.fixture()
-def env(tmp_path):
-    corpus = Corpus(tmp_path / "r.db")
+def env(scratch_path):
+    corpus = Corpus(scratch_path / "r.db")
     corpus.add_items(
         [
             item("1", "DeepSeek-V4 发布", "DeepSeek 发布 V4 模型，代码能力提升明显。"),
@@ -186,14 +186,14 @@ def test_followup_without_planner_still_reinvestigates(env) -> None:
 
 
 # ---------------------------------------------------------------- persistence
-def test_state_survives_reopen(env, tmp_path) -> None:
+def test_state_survives_reopen(env, scratch_path) -> None:
     corpus, store = env
     planner = FakePlanner(subs=["DeepSeek-V4 的性能如何"])
     rs = session(store, corpus, planner)
     report = asyncio.run(rs.start("重启测试"))
     corpus.close()
     # reopen: same file, same session, same answers
-    corpus2 = Corpus(tmp_path / "r.db")
+    corpus2 = Corpus(scratch_path / "r.db")
     store2 = ResearchStore(corpus2)
     rs2 = session(store2, corpus2, planner=None)
     sqs = store2.subquestions(report.session_id)

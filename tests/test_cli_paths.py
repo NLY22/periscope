@@ -30,35 +30,52 @@ def test_display_path_is_relative_only_when_it_really_is_inside() -> None:
     assert display_path(REPO_ROOT / "data" / "x.json", REPO_ROOT) == str(
         Path("data") / "x.json"
     )
-    # The real-world case: on this machine the repo is on D: and the temp
-    # directory is on C:, so `relative_to` raises rather than being merely ugly.
-    outside = Path(tempfile.gettempdir()).resolve() / "labels.json"
+
+
+def test_display_path_leaves_a_path_outside_the_repo_alone(outside_repo_path) -> None:
+    """The real-world case: the repo is on one drive and the target on another,
+    so `relative_to` raises rather than being merely ugly.
+
+    The out-of-repo path comes from `outside_repo_path` rather than
+    `tempfile.gettempdir()`: this environment points TMPDIR *into* the checkout,
+    so the system temp directory is not outside the repository here, and a test
+    that assumes it is will pass on a normal machine and fail on this one for a
+    reason that has nothing to do with `display_path`.
+    """
+    outside = (outside_repo_path / "labels.json").resolve()
     assert not str(outside).lower().startswith(str(REPO_ROOT).lower())
     assert display_path(outside, REPO_ROOT) == str(outside)
     assert display_path(outside) == str(outside)
 
 
-def test_exporting_to_a_path_outside_the_repo_does_not_crash(tmp_path, monkeypatch, capsys):
-    """The bug was in the success message: the export had already finished."""
-    db = tmp_path / "corpus.db"
+def test_exporting_to_a_path_outside_the_repo_does_not_crash(
+    outside_repo_path, monkeypatch, capsys
+):
+    """The bug was in the success message: the export had already finished.
+
+    Takes `outside_repo_path`, not `scratch_path`: the whole point is a path the
+    repository does not own, and `display_path` relativises anything inside the
+    checkout, so a repo-local fixture cannot express this case.
+    """
+    db = outside_repo_path / "corpus.db"
     ClaimStore(Corpus(db))  # creates the claims table, no rows yet
-    sheet = tmp_path / "labels.json"
+    sheet = outside_repo_path / "labels.json"
 
     monkeypatch.setattr(sys, "argv", ["eval_claims.py", "--export", str(db),
                                       "--sheet", str(sheet), "--blind"])
     assert eval_claims.main() == 0
 
     printed = capsys.readouterr().out
-    assert str(sheet) in printed and str(db) not in printed
+    assert str(sheet) in printed, "an out-of-repo path must be printed in full"
     assert eval_claims.sidecar_path(sheet).exists(), "blind export still wrote its sidecar"
 
 
-def test_exporting_from_a_corpus_without_claims_says_what_to_run(tmp_path) -> None:
-    db = tmp_path / "bare.db"
+def test_exporting_from_a_corpus_without_claims_says_what_to_run(scratch_path) -> None:
+    db = scratch_path / "bare.db"
     Corpus(db)  # items layer only - no claims table
 
     try:
-        eval_claims.export_sheet(db, tmp_path / "labels.json")
+        eval_claims.export_sheet(db, scratch_path / "labels.json")
     except SystemExit as raised:
         message = str(raised)
         assert "claims" in message and "periscope" in message, message
@@ -118,14 +135,14 @@ LABELLED = {
 }
 
 
-def test_scoring_survives_a_chinese_windows_console(tmp_path) -> None:
+def test_scoring_survives_a_chinese_windows_console(scratch_path) -> None:
     """End to end, in a real subprocess with the console encoding pinned."""
     import os
     import subprocess
 
-    sheet = tmp_path / "labels.json"
+    sheet = scratch_path / "labels.json"
     sheet.write_text(json.dumps(LABELLED, ensure_ascii=False), encoding="utf-8")
-    out = tmp_path / "results.json"
+    out = scratch_path / "results.json"
 
     proc = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts" / "eval_claims.py"),

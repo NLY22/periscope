@@ -59,15 +59,15 @@ def make_item(item_id: str, score: float | None = None) -> ContentItem:
         ),
     )
     return item
-def test_validate_config_smoke(tmp_path: Path) -> None:
+def test_validate_config_smoke(scratch_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    config_path = tmp_path / "config.json"
+    config_path = scratch_path / "config.json"
     config_path.write_text(
         (repo_root / "data" / "config.example.json").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
 
-    service = PipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=scratch_path / "mcp-runs")
     result = asyncio.run(
         service.validate_config(
             periscope_path=str(repo_root),
@@ -81,15 +81,15 @@ def test_validate_config_smoke(tmp_path: Path) -> None:
     assert result["missing_env"] == []
 
 
-def test_get_effective_config_can_filter_sources(tmp_path: Path) -> None:
+def test_get_effective_config_can_filter_sources(scratch_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    config_path = tmp_path / "config.json"
+    config_path = scratch_path / "config.json"
     config_path.write_text(
         (repo_root / "data" / "config.example.json").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
 
-    service = PipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=scratch_path / "mcp-runs")
     result = service.get_effective_config(
         periscope_path=str(repo_root),
         config_path=str(config_path),
@@ -102,7 +102,7 @@ def test_get_effective_config_can_filter_sources(tmp_path: Path) -> None:
 
 
 def test_get_effective_config_redacts_expanded_query_and_header_secrets(
-    tmp_path: Path, monkeypatch
+    scratch_path: Path, monkeypatch
 ) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     config = json.loads((repo_root / "data" / "config.example.json").read_text(encoding="utf-8"))
@@ -110,7 +110,7 @@ def test_get_effective_config_redacts_expanded_query_and_header_secrets(
     config["sources"]["rss"][1]["url"] = "https://${URL_USER}:${URL_PASSWORD}@example.com/private"
     config["webhook"]["headers"] = "Authorization: Bearer ${AUTH_TOKEN}\nX-Trace: useful"
     config["webhook"]["request_body"] = {"api_key": "${BODY_KEY}", "message": "useful"}
-    config_path = tmp_path / "config.json"
+    config_path = scratch_path / "config.json"
     config_path.write_text(json.dumps(config), encoding="utf-8")
     monkeypatch.setenv("FEED_TOKEN", "feed-secret")
     monkeypatch.setenv("AUTH_TOKEN", "header-secret")
@@ -118,7 +118,7 @@ def test_get_effective_config_redacts_expanded_query_and_header_secrets(
     monkeypatch.setenv("URL_USER", "private-user")
     monkeypatch.setenv("URL_PASSWORD", "private-password")
 
-    result = PipelineService(runs_root=tmp_path / "runs").get_effective_config(
+    result = PipelineService(runs_root=scratch_path / "runs").get_effective_config(
         periscope_path=str(repo_root), config_path=str(config_path)
     )
     rendered = json.dumps(result)
@@ -147,17 +147,17 @@ def test_metrics_tool_smoke() -> None:
     assert result["tool"] == "ps_get_metrics"
 
 
-def test_fetch_items_uses_public_orchestrator_api(tmp_path: Path, monkeypatch) -> None:
-    service = PipelineService(runs_root=tmp_path / "mcp-runs")
+def test_fetch_items_uses_public_orchestrator_api(scratch_path: Path, monkeypatch) -> None:
+    service = PipelineService(runs_root=scratch_path / "mcp-runs")
     monkeypatch.setattr(service, "_profiles", lambda ctx: PROFILES)
-    config_path = tmp_path / "config.json"
+    config_path = scratch_path / "config.json"
 
     monkeypatch.setattr(
         service,
         "_build_context",
         lambda **kwargs: (
             SimpleNamespace(
-                periscope_path=tmp_path,
+                periscope_path=scratch_path,
                 config_path=config_path,
                 runtime=SimpleNamespace(),
                 config=SimpleNamespace(),
@@ -193,18 +193,18 @@ def test_fetch_items_uses_public_orchestrator_api(tmp_path: Path, monkeypatch) -
 
 
 def test_fetch_items_includes_fetch_report_in_response_and_metadata(
-    tmp_path: Path, monkeypatch
+    scratch_path: Path, monkeypatch
 ) -> None:
-    service = PipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=scratch_path / "mcp-runs")
     monkeypatch.setattr(service, "_profiles", lambda ctx: PROFILES)
-    config_path = tmp_path / "config.json"
+    config_path = scratch_path / "config.json"
 
     monkeypatch.setattr(
         service,
         "_build_context",
         lambda **kwargs: (
             SimpleNamespace(
-                periscope_path=tmp_path,
+                periscope_path=scratch_path,
                 config_path=config_path,
                 runtime=SimpleNamespace(),
                 config=SimpleNamespace(),
@@ -243,8 +243,8 @@ def test_fetch_items_includes_fetch_report_in_response_and_metadata(
     assert service.run_store.load_meta(result["run_id"])["fetch_report"] == result["fetch_report"]
 
 
-def test_filter_items_uses_public_filtering_pipeline_api(tmp_path: Path, monkeypatch) -> None:
-    service = PipelineService(runs_root=tmp_path / "mcp-runs")
+def test_filter_items_uses_public_filtering_pipeline_api(scratch_path: Path, monkeypatch) -> None:
+    service = PipelineService(runs_root=scratch_path / "mcp-runs")
     monkeypatch.setattr(service, "_profiles", lambda ctx: PROFILES)
     service.run_store.create_run("run-topic-dedup")
 
@@ -255,7 +255,7 @@ def test_filter_items_uses_public_filtering_pipeline_api(tmp_path: Path, monkeyp
             [make_item("item-1", score=9.0), make_item("item-2", score=8.0)],
             SimpleNamespace(
                 runtime=SimpleNamespace(),
-                config_path=tmp_path / "config.json",
+                config_path=scratch_path / "config.json",
                 config=SimpleNamespace(digest=SimpleNamespace()),
             ),
         ),
@@ -287,8 +287,8 @@ def test_filter_items_uses_public_filtering_pipeline_api(tmp_path: Path, monkeyp
     assert service.run_store.load_items("run-topic-dedup", "filtered")[0]["id"] == "item-1"
 
 
-def test_filter_items_applies_balanced_digest(tmp_path: Path, monkeypatch) -> None:
-    service = PipelineService(runs_root=tmp_path / "mcp-runs")
+def test_filter_items_applies_balanced_digest(scratch_path: Path, monkeypatch) -> None:
+    service = PipelineService(runs_root=scratch_path / "mcp-runs")
     monkeypatch.setattr(service, "_profiles", lambda ctx: PROFILES)
     service.run_store.create_run("run-balanced")
     filtering = SimpleNamespace(
@@ -303,7 +303,7 @@ def test_filter_items_applies_balanced_digest(tmp_path: Path, monkeypatch) -> No
             [make_item("item-1", score=9.0), make_item("item-2", score=8.0)],
             SimpleNamespace(
                 runtime=SimpleNamespace(),
-                config_path=tmp_path / "config.json",
+                config_path=scratch_path / "config.json",
                 config=SimpleNamespace(digest=filtering),
             ),
         ),
@@ -342,8 +342,8 @@ def test_filter_items_applies_balanced_digest(tmp_path: Path, monkeypatch) -> No
     assert result["group_counts"] == {"other": 1}
 
 
-def test_filter_items_matches_native_filtering_pipeline(tmp_path: Path, monkeypatch) -> None:
-    service = PipelineService(runs_root=tmp_path / "mcp-runs")
+def test_filter_items_matches_native_filtering_pipeline(scratch_path: Path, monkeypatch) -> None:
+    service = PipelineService(runs_root=scratch_path / "mcp-runs")
     monkeypatch.setattr(service, "_profiles", lambda ctx: PROFILES)
     service.run_store.create_run("run-parity")
     filtering = DigestConfig(max_items=1)
@@ -387,7 +387,7 @@ def test_filter_items_matches_native_filtering_pipeline(tmp_path: Path, monkeypa
             items,
             SimpleNamespace(
                 runtime=SimpleNamespace(),
-                config_path=tmp_path / "config.json",
+                config_path=scratch_path / "config.json",
                 config=config,
             ),
         ),
@@ -417,9 +417,9 @@ def test_filter_items_matches_native_filtering_pipeline(tmp_path: Path, monkeypa
 
 
 def test_generate_summary_persists_informative_empty_summary(
-    tmp_path: Path, monkeypatch
+    scratch_path: Path, monkeypatch
 ) -> None:
-    service = PipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=scratch_path / "mcp-runs")
     profile_order = ["tech-news", "tech-blog", "finance-news"]
     received_orders = []
 
@@ -470,9 +470,9 @@ def test_generate_summary_persists_informative_empty_summary(
 
 
 def test_run_pipeline_skips_enrichment_when_filter_is_empty(
-    tmp_path: Path, monkeypatch
+    scratch_path: Path, monkeypatch
 ) -> None:
-    service = PipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=scratch_path / "mcp-runs")
     calls: list[tuple[str, str]] = []
 
     async def fetch_items(**kwargs):  # type: ignore[no-untyped-def]
@@ -515,9 +515,9 @@ def test_run_pipeline_skips_enrichment_when_filter_is_empty(
 
 
 def test_run_pipeline_uses_filtered_stage_when_all_enrichment_fails(
-    tmp_path: Path, monkeypatch
+    scratch_path: Path, monkeypatch
 ) -> None:
-    service = PipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=scratch_path / "mcp-runs")
     calls: list[str] = []
 
     async def fetch_items(**kwargs):  # type: ignore[no-untyped-def]
@@ -558,8 +558,8 @@ def test_run_pipeline_uses_filtered_stage_when_all_enrichment_fails(
     assert result["enrich"]["status"] == "failure"
 
 
-def test_enrich_items_propagates_batch_failure(tmp_path: Path, monkeypatch) -> None:
-    service = PipelineService(runs_root=tmp_path / "mcp-runs")
+def test_enrich_items_propagates_batch_failure(scratch_path: Path, monkeypatch) -> None:
+    service = PipelineService(runs_root=scratch_path / "mcp-runs")
     item = make_item("failed", score=9.0)
 
     class FailingOrchestrator:
@@ -578,9 +578,9 @@ def test_enrich_items_propagates_batch_failure(tmp_path: Path, monkeypatch) -> N
 
 
 def test_enrich_items_reports_partial_failure_truthfully(
-    tmp_path: Path, monkeypatch
+    scratch_path: Path, monkeypatch
 ) -> None:
-    service = PipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=scratch_path / "mcp-runs")
     service.run_store.create_run("run-partial")
     successful_item = make_item("successful", score=9.0)
     failed_item = make_item("failed", score=8.0)
@@ -619,9 +619,9 @@ def test_enrich_items_reports_partial_failure_truthfully(
 
 
 def test_enrich_items_does_not_create_stage_when_all_items_fail(
-    tmp_path: Path, monkeypatch
+    scratch_path: Path, monkeypatch
 ) -> None:
-    service = PipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=scratch_path / "mcp-runs")
     service.run_store.create_run("run-all-failed")
     item = make_item("failed", score=8.0)
 
@@ -643,9 +643,9 @@ def test_enrich_items_does_not_create_stage_when_all_items_fail(
 
 
 def test_send_webhook_reports_delivery_failure_truthfully(
-    tmp_path: Path, monkeypatch
+    scratch_path: Path, monkeypatch
 ) -> None:
-    service = PipelineService(runs_root=tmp_path / "mcp-runs")
+    service = PipelineService(runs_root=scratch_path / "mcp-runs")
     webhook_config = SimpleNamespace(enabled=True)
     monkeypatch.setattr(
         service,

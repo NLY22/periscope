@@ -115,7 +115,7 @@ def test_every_verdict_is_from_the_declared_vocabulary() -> None:
 
 
 # --------------------------------------------------------------------- routes
-def test_the_tieba_probe_reproduces_the_recorded_conclusion(tmp_path) -> None:
+def test_the_tieba_probe_reproduces_the_recorded_conclusion(scratch_path) -> None:
     """§14.2 said: PC/mobile/thread blocked, /f/good reachable, JSON signed."""
     async def run() -> list:
         async with client_for({
@@ -189,25 +189,25 @@ def test_a_probe_reports_ok_only_for_a_real_pass() -> None:
 
 # ------------------------------------------------------------------ live gate
 def test_the_script_refuses_to_fetch_without_the_online_flag(
-    tmp_path: Path, capsys,
+    scratch_path: Path, capsys,
 ) -> None:
     """A probe that silently hits third-party sites is a side effect nobody asked for."""
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
     import spike_sources
 
-    before = set(tmp_path.iterdir())
+    before = set(scratch_path.iterdir())
     code = spike_sources.main(["--source", "tieba", "--kw", "python",
-                               "--out", str(tmp_path / "r.json")])
+                               "--out", str(scratch_path / "r.json")])
     assert code == 2
-    assert set(tmp_path.iterdir()) == before, "no result file without --online"
+    assert set(scratch_path.iterdir()) == before, "no result file without --online"
     assert "--online" in capsys.readouterr().err
 
 
-def test_the_script_also_refuses_xhs_without_a_url(tmp_path: Path, capsys) -> None:
+def test_the_script_also_refuses_xhs_without_a_url(scratch_path: Path, capsys) -> None:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
     import spike_sources
 
     with pytest.raises(SystemExit) as exc:
         spike_sources.main(["--source", "xiaohongshu", "--online",
-                            "--out", str(tmp_path / "r.json")])
+                            "--out", str(scratch_path / "r.json")])
     assert "note id" in str(exc.value)

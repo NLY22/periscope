@@ -150,8 +150,8 @@ def test_a_community_only_import_has_no_claimable_text_at_all() -> None:
 
 
 # ------------------------------------------------------------------- storage
-def test_importing_twice_reports_the_second_run_as_no_new_items(tmp_path: Path) -> None:
-    corpus = Corpus(tmp_path / "c.db")
+def test_importing_twice_reports_the_second_run_as_no_new_items(scratch_path: Path) -> None:
+    corpus = Corpus(scratch_path / "c.db")
     first = import_payload(corpus, payload(note()), now=NOW)
     second = import_payload(corpus, payload(note()), now=NOW)
     corpus.close()
@@ -159,8 +159,8 @@ def test_importing_twice_reports_the_second_run_as_no_new_items(tmp_path: Path) 
     assert second["items_new"] == 0 and second["items_total_seen"] == 1
 
 
-def test_imported_items_are_searchable_and_their_crowd_text_is_not(tmp_path: Path) -> None:
-    corpus = Corpus(tmp_path / "c.db")
+def test_imported_items_are_searchable_and_their_crowd_text_is_not(scratch_path: Path) -> None:
+    corpus = Corpus(scratch_path / "c.db")
     import_payload(corpus, payload(note()), now=NOW)
     hits = corpus.search("每百万 token", tier="claimable", limit=5)
     crowd = corpus.search("我觉得明明是", tier="claimable", limit=5)
@@ -170,8 +170,8 @@ def test_imported_items_are_searchable_and_their_crowd_text_is_not(tmp_path: Pat
     assert everything, "community text stays reachable as a lead"
 
 
-def test_a_bad_item_is_reported_without_losing_the_good_ones(tmp_path: Path) -> None:
-    corpus = Corpus(tmp_path / "c.db")
+def test_a_bad_item_is_reported_without_losing_the_good_ones(scratch_path: Path) -> None:
+    corpus = Corpus(scratch_path / "c.db")
     result = import_payload(
         corpus, payload(note(), note(source_type="xiaohongshu")), now=NOW)
     corpus.close()
@@ -221,7 +221,7 @@ def test_the_mcp_exposes_the_import_verb() -> None:
     )
 
 
-def test_the_web_endpoint_imports_and_the_panel_can_find_it(tmp_path: Path) -> None:
+def test_the_web_endpoint_imports_and_the_panel_can_find_it(scratch_path: Path) -> None:
     from fastapi.testclient import TestClient
 
     from src.orchestrator import Orchestrator
@@ -232,7 +232,7 @@ def test_the_web_endpoint_imports_and_the_panel_can_find_it(tmp_path: Path) -> N
     for value in cfg["sources"].values():
         if isinstance(value, dict) and "enabled" in value:
             value["enabled"] = False
-    orch = Orchestrator(Config.model_validate(cfg), StorageManager(data_dir=str(tmp_path)))
+    orch = Orchestrator(Config.model_validate(cfg), StorageManager(data_dir=str(scratch_path)))
     with TestClient(create_app(orch)) as client:
         result = client.post("/api/import", json=payload(note()))
         assert result.status_code == 200, result.text
@@ -300,9 +300,9 @@ def test_an_ocr_block_is_claimable_but_discounted_by_its_confidence() -> None:
 
 
 def test_the_example_imports_once_and_adds_nothing_on_the_second_run(
-    tmp_path: Path,
+    scratch_path: Path,
 ) -> None:
-    corpus = Corpus(tmp_path / "c.db")
+    corpus = Corpus(scratch_path / "c.db")
     payload = json.loads(EXAMPLE.read_text(encoding="utf-8"))
     first = import_payload(corpus, payload, now=NOW)
     second = import_payload(corpus, payload, now=NOW)
@@ -311,12 +311,12 @@ def test_the_example_imports_once_and_adds_nothing_on_the_second_run(
     corpus.close()
 
 
-def test_the_cli_can_dry_run_the_shipped_example(tmp_path: Path, capsys) -> None:
+def test_the_cli_can_dry_run_the_shipped_example(scratch_path: Path, capsys) -> None:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
     import import_corpus
 
     code = import_corpus.main([
-        "--file", str(EXAMPLE), "--data-dir", str(tmp_path), "--dry-run", "--json",
+        "--file", str(EXAMPLE), "--data-dir", str(scratch_path), "--dry-run", "--json",
     ])
     assert code == 0
     report = json.loads(capsys.readouterr().out)
@@ -324,10 +324,10 @@ def test_the_cli_can_dry_run_the_shipped_example(tmp_path: Path, capsys) -> None
     # two is not comparing two different schemas.
     assert report["items_total_seen"] == 4 and report["items_new"] == 0
     assert report["dry_run"] is True
-    assert not list(tmp_path.glob("corpus.db")), "a dry run must not create the database"
+    assert not list(scratch_path.glob("corpus.db")), "a dry run must not create the database"
 
 
-def test_the_cli_script_reports_counts_and_rejects_per_item(tmp_path: Path, capsys) -> None:
+def test_the_cli_script_reports_counts_and_rejects_per_item(scratch_path: Path, capsys) -> None:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
     import import_corpus
 
@@ -336,12 +336,12 @@ def test_the_cli_script_reports_counts_and_rejects_per_item(tmp_path: Path, caps
     for value in cfg["sources"].values():
         if isinstance(value, dict) and "enabled" in value:
             value["enabled"] = False
-    (tmp_path / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
+    (scratch_path / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
 
-    export = tmp_path / "export.json"
+    export = scratch_path / "export.json"
     export.write_text(json.dumps(payload(note(), note(source_type="bogus"))), encoding="utf-8")
     code = import_corpus.main([
-        "--file", str(export), "--data-dir", str(tmp_path), "--json",
+        "--file", str(export), "--data-dir", str(scratch_path), "--json",
     ])
     assert code == 0
     report = json.loads(capsys.readouterr().out)
@@ -350,7 +350,7 @@ def test_the_cli_script_reports_counts_and_rejects_per_item(tmp_path: Path, caps
 
 
 # --------------------------------------------------------------------- preview
-def test_preview_and_write_agree_because_they_are_the_same_loop(tmp_path: Path) -> None:
+def test_preview_and_write_agree_because_they_are_the_same_loop(scratch_path: Path) -> None:
     """The panel's 只校验 button has to predict the 入库 button exactly.
 
     The CLI used to preview with the strict parser, so a file with one typo
@@ -364,7 +364,7 @@ def test_preview_and_write_agree_because_they_are_the_same_loop(tmp_path: Path) 
     assert seen["rejected"][0]["index"] == "2"
     assert seen["claimable_nonempty"] == 2
 
-    corpus = Corpus(tmp_path / "c.db")
+    corpus = Corpus(scratch_path / "c.db")
     dry = import_payload(corpus, mixed, now=NOW, dry_run=True)
     assert dry == seen, "import_payload(dry_run=True) must not diverge from preview_payload"
     assert corpus.search("每百万 token", tier="claimable", limit=5) == [], "dry run wrote rows"
@@ -395,7 +395,7 @@ def test_a_file_of_only_bad_items_is_reported_rather_than_raising() -> None:
     assert [r["index"] for r in report["rejected"]] == ["0", "1"]
 
 
-def test_the_panel_can_restrict_a_search_to_the_author_layer(tmp_path: Path) -> None:
+def test_the_panel_can_restrict_a_search_to_the_author_layer(scratch_path: Path) -> None:
     """`tier=claimable` is the difference between "find the thread" and "prove it".
 
     Found by running the flow instead of reading the code: the runbook told a
@@ -414,7 +414,7 @@ def test_the_panel_can_restrict_a_search_to_the_author_layer(tmp_path: Path) -> 
     for value in cfg["sources"].values():
         if isinstance(value, dict) and "enabled" in value:
             value["enabled"] = False
-    orch = Orchestrator(Config.model_validate(cfg), StorageManager(data_dir=str(tmp_path)))
+    orch = Orchestrator(Config.model_validate(cfg), StorageManager(data_dir=str(scratch_path)))
     with TestClient(create_app(orch)) as client:
         assert client.post("/api/import", json=payload(note())).status_code == 200
 

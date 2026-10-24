@@ -1,4 +1,5 @@
 .venv/
+.uvcache/
 __pycache__/
 *.pyc
 data/config.json
@@ -6,8 +7,57 @@ data/summaries/
 # a real run's database and the local, model-specific ablation outputs; the
 # committed data/eval/results.json is the one docs/evaluation.md is pinned to
 data/*.db
+data/*.db-*
 data/eval/results.*.json
 .env
+# API keys written to disk so they survive a shell restart (src/ai/client.py
+# falls back to these when the environment variable is unset). Same class of
+# secret as .env.
+data/.*_key
+data/.env
 .pytest_cache/
+# Scratch space for the eval harnesses and the test suite (src/_scratch.py).
+# Ignored because a run must never dirty the checkout: `tests/
+# test_run_does_not_dirty_the_repo.py` pins that, and these directories are
+# created inside the repository precisely because it is the one tree a run has
+# proven it can write to.
+.periscope-scratch/
+# Saved browser sessions for platforms that need a signed-in account
+# (login_window.py / capture_session.py). These are credentials - cookies and
+# localStorage for a real account - so they must never be committed.
+data/cookies/
+# Persistent Chrome profiles. Each holds a live logged-in session for 小红书 /
+# 知乎 / 贴吧, so this is the same class of secret as the cookie files above,
+# only larger and easier to forget.
+.pwprofiles/
+# Playwright's browser cache, kept inside the checkout when the system temp
+# folder is unusable.
+.playwright-browsers/
+.pwtmp/
+# Collector output. `http_items.json` is ~17 MB and `ugc_items.json` a few
+# hundred KB, and both are reproducible from the catalog in a few minutes, so
+# they are build products rather than sources. The per-source files a filtered
+# run writes (`http_items.<keys>.json`) are ignored by the same patterns.
+http_items*.json
+http_items*.txt
+ugc_items*.json
+# B's raw collection shards and experiment outputs. Reproducible and large
+# (fulltext_cache.jsonl alone is ~23 MB); none of them is a source file.
+ugc_*.json
+fulltext_cache.jsonl
+deep_search_*.json
+endpoint_report.json
+search_sites.json
+.benchmark.txt
+.breadth.txt
+.collect_http.txt
+.eval_stress.txt
+.fanout_out.txt
+.fast_mode.txt
+.login_now.txt
+.probe_concurrent.txt
+.probe_source_cost.txt
+.topic_out.txt
+dom_report.json
 nohup.out
 *.log

@@ -19,9 +19,9 @@ def _silence(monkeypatch):
     monkeypatch.setattr(webhook_cli, "load_dotenv", lambda: None)
 
 
-def test_data_dir_and_config_flags_are_forwarded_to_storage_manager(monkeypatch, tmp_path):
-    data_dir = tmp_path / "state"
-    config_path = tmp_path / "custom" / "periscope.json"
+def test_data_dir_and_config_flags_are_forwarded_to_storage_manager(monkeypatch, scratch_path):
+    data_dir = scratch_path / "state"
+    config_path = scratch_path / "custom" / "periscope.json"
     storage_calls = []
 
     class RecordingStorage:

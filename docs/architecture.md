@@ -45,7 +45,7 @@ flowchart LR
 
 **代码落点。** `src/models.py`（`Section` / `ContentItem` / `SOURCE_SPECS` 派生出 `SOURCE_REGISTRY`）· `src/sources/registry.py`（`SCRAPER_BINDINGS`：key → 工厂）· `src/corpus/store.py`（schema v4、`claimable`、`claim_fts`、簇）· `src/corpus/trust.py` · `src/corpus/ingest.py` · `src/analysis/claims.py` · `src/research/session.py` · `src/research/moves.py` · `src/research/drafts.py` · `src/sources/reachability.py`。
 
-**这张图背后的表：12 张普通表 + 2 张 FTS5 虚表**（除 `llm_cache.db` 外都在同一个 `corpus.db` 里，所以三个入口共享状态）：
+**这张图背后的表：14 张普通表 + 2 张 FTS5 虚表**（除 `llm_cache.db` 外都在同一个 `corpus.db` 里，所以三个入口共享状态）：
 
 | 表 | 类型 | 谁建 / 谁写 | 作用 |
 |---|---|---|---|
@@ -61,6 +61,8 @@ flowchart LR
 | `research_drafts` | 普通 | `DraftStore.save` | 草稿每个 revision 的章节（`locked` / `hash` / `stale` / `evidence_ids`） |
 | `research_requests` | 普通 | `DraftStore.open_request` | 系统向用户提的问题及其闭合（`open` → `answered` / `skipped`） |
 | `embeddings` | 普通 | 语义索引（配了 embedding 模型才建） | 按模型名分键的向量侧，缺它检索退化成纯 BM25，不报错 |
+| `engagement_snapshots` | 普通 | `Corpus.record_engagement`（B 层采集） | 平台互动的**时间序列**：`item_id` + `platform` + `collected_at` + `metrics_json`。同一内容今天 100 赞、下周 500 赞，两次都留 |
+| `transcripts` | 普通 | `Corpus.record_transcript`（B 层富化） | 媒体转文本：`method`（`cc`/`asr`/`ocr`/`vlm`）+ 分段 + `confidence`。同法覆盖、异法共存 |
 | `items_fts` | FTS5 虚表 | `Corpus`（`_SCHEMA` 里的触发器同步） | 全文召回：`title` + `content` + `author`，**含社区层**，面板要的是召回 |
 | `claim_fts` | FTS5 虚表 | 同上 | 取证与证据关联只走它，因而**只索引作者亲写层** —— 分层就是靠这两张虚表的差别生效的 |
 
@@ -123,3 +125,9 @@ sequenceDiagram
 **这张图的重点是"局部"。** `step` 不重走整棵树；被点名的分支才算答案，引用编号每轮可以重排而章节身份不变，所以用户的锁不会漂到别的小节。
 
 **代码落点。** `ResearchSession.step` / `_deepen` / `commit_draft`；调用数比值的复现命令是 `uv run python scripts/eval_multiturn.py`（数字出处，不是估的）。
+
+## 当前实现位置
+
+新版话题检索、采集与入库代码现已收拢到 `periscope/`，旧脚本继续兼容。
+目录职责与新版调用关系见 [代码组织说明](code-organization.md)。
+本文原有图表继续描述 `src/` 的证据内核与既有产品链路；两套产品的数据库没有在本次整理中合并。

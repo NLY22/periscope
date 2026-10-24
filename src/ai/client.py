@@ -3,6 +3,7 @@
 import os
 import re
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from anthropic import AsyncAnthropic
@@ -40,10 +41,42 @@ _DEFAULT_API_KEY_ENVS = {
 }
 
 
+def _key_file_candidates(env_name: str) -> list:
+    """Files that may hold the key, checked when the variable is unset.
+
+    Environment variables are per-process. That is normally fine, and it stopped
+    being fine here: a working run earlier in this session lost its key when the
+    shell restarted, and the only way back was to ask for the secret again.
+
+    Order is explicit-before-implicit: `<ENV>_FILE` names a file directly, then
+    the conventional `data/.<provider>_key` beside the config. Read-only lookup -
+    a missing file is not an error.
+    """
+    out = []
+    explicit = os.environ.get("%s_FILE" % env_name)
+    if explicit:
+        out.append(Path(explicit))
+    home = Path(os.path.expanduser("~"))
+    for base in (Path.cwd() / "data", home / ".periscope"):
+        out.append(base / (".%s" % env_name.lower()))
+    return out
+
+
 def _resolve_api_key(config: AIConfig, *, fallback: Optional[str] = None) -> str:
     api_key = os.getenv(config.api_key_env)
     if api_key:
         return api_key
+    # File fallback, so a key survives a shell restart. A file that exists but
+    # is empty is treated as absent rather than as an empty key, which would
+    # otherwise produce a confusing 401 instead of the "not configured" message.
+    for candidate in _key_file_candidates(config.api_key_env):
+        try:
+            if candidate.is_file():
+                text = candidate.read_text(encoding="utf-8").strip()
+                if text:
+                    return text
+        except OSError:
+            continue
     if fallback is not None:
         return fallback
     raise ValueError(_missing_api_key_message(config))

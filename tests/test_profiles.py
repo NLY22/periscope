@@ -54,11 +54,11 @@ def test_rejects_invalid_profile_candidate_lists(route, message):
         registry.validate_source_references({"profile": route})
 
 
-def test_default_profiles_fall_back_to_packaged_resources(tmp_path, monkeypatch):
-    packaged_profiles = tmp_path / "packaged-profiles"
+def test_default_profiles_fall_back_to_packaged_resources(scratch_path, monkeypatch):
+    packaged_profiles = scratch_path / "packaged-profiles"
     source_profiles = Path(__file__).resolve().parents[1] / "profiles"
     shutil.copytree(source_profiles, packaged_profiles)
-    working_dir = tmp_path / "working"
+    working_dir = scratch_path / "working"
     working_dir.mkdir()
     monkeypatch.chdir(working_dir)
     monkeypatch.setattr(profile_module, "BUILTIN_PROFILES_DIR", packaged_profiles)
@@ -68,8 +68,8 @@ def test_default_profiles_fall_back_to_packaged_resources(tmp_path, monkeypatch)
     assert registry.get("tech-news").analysis_prompt
 
 
-def test_rejects_runtime_filter_settings_in_profile(tmp_path):
-    profile_dir = tmp_path / "invalid"
+def test_rejects_runtime_filter_settings_in_profile(scratch_path):
+    profile_dir = scratch_path / "invalid"
     profile_dir.mkdir()
     for name in ("match.md", "analysis.md", "enrichment.md"):
         (profile_dir / name).write_text("prompt", encoding="utf-8")
@@ -91,7 +91,7 @@ def test_rejects_runtime_filter_settings_in_profile(tmp_path):
     )
 
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        ProfileRegistry.load(tmp_path, "invalid")
+        ProfileRegistry.load(scratch_path, "invalid")
 
 
 @pytest.mark.parametrize("threshold", [-0.1, 10.1])
@@ -109,10 +109,10 @@ def test_profile_settings_default_to_no_filter_and_topic_dedup():
     assert defaults.topic_dedup is True
 
 
-def test_rejects_prompt_path_outside_profile_directory(tmp_path):
-    profile_dir = tmp_path / "invalid"
+def test_rejects_prompt_path_outside_profile_directory(scratch_path):
+    profile_dir = scratch_path / "invalid"
     profile_dir.mkdir()
-    (tmp_path / "outside.md").write_text("prompt", encoding="utf-8")
+    (scratch_path / "outside.md").write_text("prompt", encoding="utf-8")
     (profile_dir / "analysis.md").write_text("prompt", encoding="utf-8")
     (profile_dir / "enrichment.md").write_text("prompt", encoding="utf-8")
     (profile_dir / "profile.json").write_text(
@@ -132,4 +132,4 @@ def test_rejects_prompt_path_outside_profile_directory(tmp_path):
     )
 
     with pytest.raises(ValueError, match="escapes"):
-        ProfileRegistry.load(tmp_path, "invalid")
+        ProfileRegistry.load(scratch_path, "invalid")

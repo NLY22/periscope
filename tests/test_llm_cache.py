@@ -31,8 +31,8 @@ class FakeInner:
 
 
 @pytest.fixture()
-def cache(tmp_path):
-    c = ResponseCache(tmp_path / "llm_cache.db")
+def cache(scratch_path):
+    c = ResponseCache(scratch_path / "llm_cache.db")
     yield c
     c.close()
 

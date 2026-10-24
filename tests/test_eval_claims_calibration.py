@@ -45,15 +45,15 @@ def labelled(n_supported=6, n_unsupported=6):
     return sheet(rows)
 
 
-def write(tmp_path: Path, payload) -> Path:
-    path = tmp_path / "claims_labels.json"
+def write(scratch_path: Path, payload) -> Path:
+    path = scratch_path / "claims_labels.json"
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     return path
 
 
-def test_scoring_labelled_claims_also_suggests_thresholds(tmp_path: Path) -> None:
-    out = tmp_path / "claims_results.json"
-    text = eval_claims.score_sheet(write(tmp_path, labelled()), out)
+def test_scoring_labelled_claims_also_suggests_thresholds(scratch_path: Path) -> None:
+    out = scratch_path / "claims_results.json"
+    text = eval_claims.score_sheet(write(scratch_path, labelled()), out)
 
     assert "θ 校准建议" in text, text
     report = json.loads(out.read_text(encoding="utf-8"))
@@ -68,13 +68,13 @@ def test_scoring_labelled_claims_also_suggests_thresholds(tmp_path: Path) -> Non
     assert report["macro_f1"] == pytest.approx(2 / 3, abs=1e-3)
 
 
-def test_a_sheet_without_T_values_says_so_instead_of_inventing_a_threshold(tmp_path: Path) -> None:
+def test_a_sheet_without_T_values_says_so_instead_of_inventing_a_threshold(scratch_path: Path) -> None:
     rows = [
         {"claim_id": f"c{i}", "machine_verdict": v, "human_verdict": v, "independent_sources": 2}
         for i, v in enumerate(["supported", "unsupported"] * 4)
     ]
-    out = tmp_path / "claims_results.json"
-    text = eval_claims.score_sheet(write(tmp_path, sheet(rows)), out)
+    out = scratch_path / "claims_results.json"
+    text = eval_claims.score_sheet(write(scratch_path, sheet(rows)), out)
 
     assert "θ 校准：跳过" in text
     report = json.loads(out.read_text(encoding="utf-8"))
@@ -82,14 +82,14 @@ def test_a_sheet_without_T_values_says_so_instead_of_inventing_a_threshold(tmp_p
     assert report["n"] == 8, "agreement still works without trust values"
 
 
-def test_a_single_class_label_set_cannot_set_a_threshold(tmp_path: Path) -> None:
+def test_a_single_class_label_set_cannot_set_a_threshold(scratch_path: Path) -> None:
     """Fitting on one class would silently produce a confident, meaningless cut."""
     rows = [
         {"claim_id": f"o{i}", "machine_verdict": "supported", "human_verdict": "supported",
          "machine_trust": 0.9 - 0.01 * i, "independent_sources": 3}
         for i in range(5)
     ]
-    text = eval_claims.score_sheet(write(tmp_path, sheet(rows)), tmp_path / "r.json")
+    text = eval_claims.score_sheet(write(scratch_path, sheet(rows)), scratch_path / "r.json")
     assert "θ 校准：跳过" in text
 
 
@@ -115,12 +115,12 @@ def three_class_rows():
     return sheet(rows)
 
 
-def test_a_missing_verdict_class_is_said_before_the_number_it_confuses(tmp_path: Path) -> None:
+def test_a_missing_verdict_class_is_said_before_the_number_it_confuses(scratch_path: Path) -> None:
     """macro-F1 averages over three fixed labels, so an absent class is not a
     low score - it is an unreadable one, and the sheet above the fold looks
     like a mediocre result."""
-    out = tmp_path / "r.json"
-    text = eval_claims.score_sheet(write(tmp_path, labelled()), out)
+    out = scratch_path / "r.json"
+    text = eval_claims.score_sheet(write(scratch_path, labelled()), out)
 
     assert "不可解读" in text, text
     assert "contested" in text.splitlines()[0]
@@ -132,10 +132,10 @@ def test_a_missing_verdict_class_is_said_before_the_number_it_confuses(tmp_path:
     assert report["class_coverage"] == {"supported": 6, "contested": 0, "unsupported": 6}
 
 
-def test_a_class_covering_label_batch_is_not_warned_about(tmp_path: Path) -> None:
+def test_a_class_covering_label_batch_is_not_warned_about(scratch_path: Path) -> None:
     """Prove the check is about coverage, not about the tool being pessimistic."""
-    out = tmp_path / "r.json"
-    text = eval_claims.score_sheet(write(tmp_path, three_class_rows()), out)
+    out = scratch_path / "r.json"
+    text = eval_claims.score_sheet(write(scratch_path, three_class_rows()), out)
 
     assert "不可解读" not in text, text
     report = json.loads(out.read_text(encoding="utf-8"))
@@ -187,10 +187,10 @@ def _leak_item(corpus):
     return item
 
 
-def test_both_arms_disagree_about_what_counts_as_author_text(tmp_path: Path) -> None:
+def test_both_arms_disagree_about_what_counts_as_author_text(scratch_path: Path) -> None:
     from src.corpus.store import Corpus
 
-    corpus = Corpus(tmp_path / "arms.db")
+    corpus = Corpus(scratch_path / "arms.db")
     _leak_item(corpus)
     row = corpus._conn.execute(
         "SELECT content, claimable FROM items WHERE id='x:leak'"
@@ -205,13 +205,13 @@ def test_both_arms_disagree_about_what_counts_as_author_text(tmp_path: Path) -> 
 
 
 def test_scoring_under_a_different_arm_than_the_sheet_refuses_to_be_silent(
-    tmp_path: Path,
+    scratch_path: Path,
 ) -> None:
     payload = three_class_rows()
     payload["tiering"] = "marker"
-    path = tmp_path / "marker-sheet.json"
+    path = scratch_path / "marker-sheet.json"
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    out = tmp_path / "r.json"
+    out = scratch_path / "r.json"
 
     text = eval_claims.score_sheet(path, out, None, "sections")
     report = json.loads(out.read_text(encoding="utf-8"))
@@ -250,32 +250,32 @@ def blind_payload(rows):
     return {"instructions": "盲标", "blind": True, "labels": rows}
 
 
-def split_into_blind_pair(tmp_path: Path, payload, name: str = "blind.json"):
+def split_into_blind_pair(scratch_path: Path, payload, name: str = "blind.json"):
     """Write what `--blind` would write: a sheet without machine columns."""
     rows = [dict(r) for r in payload["labels"]]
     machine = eval_claims.split_machine_columns(rows)
-    sheet_path = tmp_path / name
+    sheet_path = scratch_path / name
     sheet_path.write_text(json.dumps(blind_payload(rows), ensure_ascii=False), encoding="utf-8")
     sidecar = eval_claims.sidecar_path(sheet_path)
     sidecar.write_text(json.dumps({"machine": machine}, ensure_ascii=False), encoding="utf-8")
     return sheet_path, rows, machine
 
 
-def test_a_blind_sheet_carries_no_machine_columns_at_all(tmp_path: Path) -> None:
-    _, rows, machine = split_into_blind_pair(tmp_path, three_class_rows())
+def test_a_blind_sheet_carries_no_machine_columns_at_all(scratch_path: Path) -> None:
+    _, rows, machine = split_into_blind_pair(scratch_path, three_class_rows())
     assert all("machine_verdict" not in r and "machine_trust" not in r for r in rows)
     assert not any("machine_" in json.dumps(r, ensure_ascii=False) for r in rows), rows
     assert machine and all("machine_verdict" in v for v in machine.values())
 
 
-def test_blind_scoring_reproduces_the_visible_numbers(tmp_path: Path) -> None:
+def test_blind_scoring_reproduces_the_visible_numbers(scratch_path: Path) -> None:
     """The sidecar must restore exactly what it took out - or the blind path is
     quietly a different measurement, and the two are not comparable."""
-    visible_path = tmp_path / "visible.json"
+    visible_path = scratch_path / "visible.json"
     visible_path.write_text(json.dumps(three_class_rows(), ensure_ascii=False), encoding="utf-8")
-    visible_text, visible = score_file(visible_path, tmp_path / "visible.out.json")
-    sheet_path, _, _ = split_into_blind_pair(tmp_path, three_class_rows())
-    blind_text, blind = score_file(sheet_path, tmp_path / "blind.out.json")
+    visible_text, visible = score_file(visible_path, scratch_path / "visible.out.json")
+    sheet_path, _, _ = split_into_blind_pair(scratch_path, three_class_rows())
+    blind_text, blind = score_file(sheet_path, scratch_path / "blind.out.json")
 
     for key in ("n", "accuracy", "macro_f1", "class_coverage", "threshold_pairs", "thresholds_suggested"):
         assert blind[key] == visible[key], key
@@ -284,26 +284,26 @@ def test_blind_scoring_reproduces_the_visible_numbers(tmp_path: Path) -> None:
     assert "非盲标" in visible_text
 
 
-def test_a_blind_sheet_without_its_sidecar_fails_loudly(tmp_path: Path) -> None:
-    sheet_path, rows, _ = split_into_blind_pair(tmp_path, three_class_rows())
+def test_a_blind_sheet_without_its_sidecar_fails_loudly(scratch_path: Path) -> None:
+    sheet_path, rows, _ = split_into_blind_pair(scratch_path, three_class_rows())
     eval_claims.sidecar_path(sheet_path).unlink()
 
     with pytest.raises(SystemExit) as raised:
-        eval_claims.score_sheet(sheet_path, tmp_path / "r.json")
+        eval_claims.score_sheet(sheet_path, scratch_path / "r.json")
     assert "--machine" in str(raised.value)
 
 
-def test_an_unlabelled_sheet_is_not_mistaken_for_a_blind_one(tmp_path: Path) -> None:
+def test_an_unlabelled_sheet_is_not_mistaken_for_a_blind_one(scratch_path: Path) -> None:
     """Both shapes lack `machine_verdict`, and only one of them has a sidecar.
 
     Guessing from the columns alone turned "nobody has labelled this yet" into a
     crash with a message about the wrong thing.
     """
     rows = [{"claim_id": f"c{i}", "human_verdict": None} for i in range(3)]
-    path = tmp_path / "empty.json"
+    path = scratch_path / "empty.json"
     path.write_text(json.dumps(sheet(rows), ensure_ascii=False), encoding="utf-8")
 
-    text = eval_claims.score_sheet(path, tmp_path / "r.json")
+    text = eval_claims.score_sheet(path, scratch_path / "r.json")
     assert "无法计分" in text and "--machine" not in text, text
 
 

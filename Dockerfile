@@ -9,6 +9,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # Copy project files
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
+COPY periscope ./periscope
+COPY core ./core
+COPY collectors ./collectors
+COPY tools ./tools
+COPY topic.py ./topic.py
 COPY scripts ./scripts
 COPY data ./data
 COPY profiles ./profiles

@@ -97,8 +97,8 @@ def test_hn_text_post_keeps_the_author_body_claimable() -> None:
 
 
 @pytest.fixture()
-def corpus(tmp_path: Path) -> Corpus:
-    return Corpus(tmp_path / "corpus.db")
+def corpus(scratch_path: Path) -> Corpus:
+    return Corpus(scratch_path / "corpus.db")
 
 
 def test_hn_comments_never_enter_claim_fts(corpus: Corpus) -> None:

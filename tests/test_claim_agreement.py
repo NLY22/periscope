@@ -73,8 +73,8 @@ def test_independence_buckets_show_the_trend_being_claimed() -> None:
 
 # --------------------------------------------------------------------- sheet
 @pytest.fixture()
-def graded_corpus(tmp_path: Path) -> Corpus:
-    corpus = Corpus(tmp_path / "corpus.db")
+def graded_corpus(scratch_path: Path) -> Corpus:
+    corpus = Corpus(scratch_path / "corpus.db")
     corpus.add_items(
         [
             ContentItem(
@@ -122,8 +122,8 @@ def graded_corpus(tmp_path: Path) -> Corpus:
     return corpus
 
 
-def test_export_sheet_lists_linked_claims_with_evidence(graded_corpus: Corpus, tmp_path: Path) -> None:
-    sheet = tmp_path / "labels.json"
+def test_export_sheet_lists_linked_claims_with_evidence(graded_corpus: Corpus, scratch_path: Path) -> None:
+    sheet = scratch_path / "labels.json"
     count = eval_claims.export_sheet(Path(graded_corpus.path), sheet)
     assert count == 2
     payload = json.loads(sheet.read_text(encoding="utf-8"))
@@ -133,21 +133,21 @@ def test_export_sheet_lists_linked_claims_with_evidence(graded_corpus: Corpus, t
     assert first["evidence"] and {"title", "url", "source_type"} <= set(first["evidence"][0])
 
 
-def test_export_needs_a_corpus(tmp_path: Path) -> None:
+def test_export_needs_a_corpus(scratch_path: Path) -> None:
     with pytest.raises(SystemExit):
-        eval_claims.export_sheet(tmp_path / "missing.db", tmp_path / "out.json")
+        eval_claims.export_sheet(scratch_path / "missing.db", scratch_path / "out.json")
 
 
-def test_score_sheet_computes_and_writes(graded_corpus: Corpus, tmp_path: Path) -> None:
-    sheet = tmp_path / "labels.json"
+def test_score_sheet_computes_and_writes(graded_corpus: Corpus, scratch_path: Path) -> None:
+    sheet = scratch_path / "labels.json"
     eval_claims.export_sheet(Path(graded_corpus.path), sheet)
     payload = json.loads(sheet.read_text(encoding="utf-8"))
     payload["labels"][0]["human_verdict"] = "supported"
     payload["labels"][0]["machine_verdict"] = "supported"
-    labeled = tmp_path / "labeled.json"
+    labeled = scratch_path / "labeled.json"
     labeled.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
-    out = tmp_path / "results.json"
+    out = scratch_path / "results.json"
     report = eval_claims.score_sheet(labeled, out)
     assert "accuracy=1.000" in report
     assert "按独立信源数分桶" in report
@@ -155,7 +155,7 @@ def test_score_sheet_computes_and_writes(graded_corpus: Corpus, tmp_path: Path) 
     assert written["n"] == 1 and written["accuracy"] == 1.0
 
 
-def test_score_sheet_without_labels_says_so(tmp_path: Path) -> None:
-    sheet = tmp_path / "empty.json"
+def test_score_sheet_without_labels_says_so(scratch_path: Path) -> None:
+    sheet = scratch_path / "empty.json"
     sheet.write_text(json.dumps({"labels": [{"claim_id": "x", "human_verdict": None}]}), encoding="utf-8")
     assert "无法计分" in eval_claims.score_sheet(sheet, None)

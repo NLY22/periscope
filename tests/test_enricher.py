@@ -528,13 +528,13 @@ def test_enrichment_batch_reports_failure_without_discarding_successes():
     assert result.failures[failed_item.id] == "RuntimeError: AI unavailable"
 
 
-def test_history_search_reuses_one_call_for_both_languages(tmp_path, monkeypatch):
-    (tmp_path / "periscope-2026-04-01-en.md").write_text(
+def test_history_search_reuses_one_call_for_both_languages(scratch_path, monkeypatch):
+    (scratch_path / "periscope-2026-04-01-en.md").write_text(
         "### [Atlas preview](https://example.com/preview) ⭐️ 8/10\n\n"
         "Atlas preview requires manual batch configuration.\n\n---\n",
         encoding="utf-8",
     )
-    tools = ToolRegistry(tmp_path)
+    tools = ToolRegistry(scratch_path)
     tool_calls = []
     execute = tools.execute
 

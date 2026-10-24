@@ -2314,6 +2314,7 @@ dependencies = [
     { name = "openai" },
     { name = "opencc-python-reimplemented" },
     { name = "pydantic" },
+    { name = "pypdf" },
     { name = "python-dateutil" },
     { name = "python-dotenv" },
     { name = "qrcode" },
@@ -2355,6 +2356,7 @@ requires-dist = [
     { name = "playwright", marker = "extra == 'twitter'", specifier = ">=1.40.0" },
     { name = "playwright-stealth", marker = "extra == 'twitter'", specifier = ">=1.0.0" },
     { name = "pydantic", specifier = ">=2.9.0" },
+    { name = "pypdf", specifier = ">=6.0,<7" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
     { name = "python-dateutil", specifier = ">=2.9.0" },
@@ -2757,6 +2759,15 @@ wheels = [
 [package.optional-dependencies]
 crypto = [
     { name = "cryptography" },
+]
+
+[[package]]
+name = "pypdf"
+version = "6.21.1"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/51/e1/32a9c4dbd94618145f8bab5c623bdb0a528f23fc8719afd77ba0278fd377/pypdf-6.21.1.tar.gz", hash = "sha256:2d62c383acd6e0dff0a96322ba8b1135229343b084d73c6f6cfd947fd291afcb" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/85/e6/24c944e473c34e818cf1b98085796fcd780465ecfe17663f2bf8fee1958b/pypdf-6.21.1-py3-none-any.whl", hash = "sha256:553e2d42f5bb3bb2a785a7d3de8ef90bb7df74b5413eff5a7b4388007ea9254b" },
 ]
 
 [[package]]

@@ -53,12 +53,40 @@ CLAIM_TYPES = {"fact", "prediction"}
 
 # Terms too generic to discriminate between claims; kept small on purpose —
 # evidence linking prefers recall, the grader decides precision.
+# Words that carry no subject. Kept deliberately broad because the cost of a
+# missing stopword is asymmetric: `_anchor_terms` picks the rarest terms, and a
+# function word that happens to be rare in this corpus outranks a real subject
+# word and then admits anything containing it. Measured: the claim "Epoch AI
+# collaborated with over 60 leading mathematicians" anchored on `over`, which
+# matched "If you're waiting for a sign", "Team Lead Education", and an AGI
+# policy post - three items with no relation to the claim.
 _STOPWORDS = {
+    # English function words and light verbs
     "the", "and", "for", "with", "from", "that", "this", "have", "has",
     "was", "were", "will", "are", "its", "our", "you", "your", "not",
     "but", "all", "can", "new", "says", "said", "about", "after", "before",
+    "over", "under", "into", "onto", "than", "then", "them", "they", "their",
+    "there", "these", "those", "been", "being", "does", "did", "doing",
+    "more", "most", "much", "many", "less", "least", "very", "just", "only",
+    "also", "even", "still", "such", "some", "any", "each", "both", "few",
+    "other", "another", "same", "own", "when", "where", "which", "while",
+    "who", "whom", "whose", "why", "how", "what", "because", "during",
+    "through", "between", "within", "without", "against", "along", "among",
+    "around", "across", "behind", "below", "above", "upon", "toward",
+    "towards", "since", "until", "unless", "however", "therefore", "thus",
+    "may", "might", "must", "shall", "should", "would", "could", "make",
+    "makes", "made", "using", "used", "use", "get", "gets", "got",
+    "one", "two", "three", "first", "second", "next", "last", "now",
+    "according", "including", "include", "includes", "based", "across",
+    "released", "announced", "introduced", "launched", "reported",
+    # Chinese function words and light verbs
     "因为", "所以", "这个", "那个", "我们", "他们", "可以", "已经", "就是",
     "不是", "什么", "怎么", "觉得", "感觉", "一下", "目前", "相关", "表示",
+    "取得", "获得", "进行", "通过", "以及", "并且", "而且", "但是", "如果",
+    "由于", "为了", "关于", "对于", "根据", "按照", "包括", "其中", "同时",
+    "已经", "曾经", "正在", "将要", "应该", "可能", "必须", "需要", "能够",
+    "综合", "总体", "方面", "情况", "问题", "工作", "时候", "地方", "方式",
+    "发布", "宣布", "推出", "介绍", "报道", "显示", "表明", "认为", "指出",
 }
 
 
@@ -756,25 +784,94 @@ class ClaimAnalyzer:
         return claims
 
     # ----------------------------------------------------------- 2. link
+    def _evidence_terms(self, claim: Claim) -> List[str]:
+        """The terms a supporting item must actually share with the claim.
+
+        Ranked by measured rarity, rarest first, so the caller can require
+        overlap on the terms that actually identify the subject.
+        """
+        return discriminating_terms(claim.text, corpus=self.corpus)
+
+    def _anchor_terms(self, terms: List[str], keep: int = 2) -> List[str]:
+        """The rare terms that decide whether an item is about the same thing.
+
+        Sharing a generic word is not agreement. Measured on the real corpus, a
+        claim about a robot benchmark ("Thinker-WM 在 EWMBench 取得综合总分
+        4.66 分") was matched by an article on Xi Jinping's inspection tour and
+        another on a research vessel, both on the strength of 综合 and 取得 -
+        which occur in 377 and 351 items respectively. The terms that actually
+        identify the claim are 总分 (17 items) and 4.66 (6 items).
+
+        `discriminating_terms` already ranks by document frequency, so the
+        anchors are its head. Two rather than three, because one loose anchor is
+        enough to readmit the noise: `safe` (from "Safe Superintelligence") is
+        common enough to match a NASA space-weather page and an "AI Safety, Trust
+        & Risk" paper, neither of which is about the funding round. Requiring the
+        item to contain one of the two rarest terms is the tighter bar.
+        """
+        if not terms:
+            return []
+        return terms[:keep] if len(terms) > keep else list(terms)
+
+    @staticmethod
+    def _mentions(term: str, blob: str) -> bool:
+        """Does `blob` contain `term` as a word?
+
+        Substring matching is wrong for short latin and numeric terms, and the
+        failure is easy to miss because it looks like a match. Measured: the
+        anchor `60` fired on 600ml (a soft drink), Xbox 360, and 永乐大钟 46 吨 -
+        three items with no relationship to a claim about mathematicians. CJK has
+        no word boundaries, so those stay substring, which is also what the FTS
+        tokenizer does for them.
+        """
+        term = (term or "").lower().strip()
+        if not term:
+            return False
+        if term[0] >= "\u4e00":
+            return term in blob
+        return re.search(r"(?<![0-9a-z])%s(?![0-9a-z])" % re.escape(term),
+                         blob) is not None
+
+    @classmethod
+    def _shares_subject(cls, row: Dict[str, Any], anchors: List[str]) -> bool:
+        """Does this item mention the claim's identifying terms?
+
+        Retrieval alone is not evidence. A link has to contain at least one of
+        the claim's rare terms - the ones that name the subject rather than
+        describe it. Using "some fraction of all terms" was the first attempt and
+        it did not work, because a generic word counts the same as a rare one, so
+        two common words cleared a 2-of-4 bar.
+        """
+        if not anchors:
+            return False
+        blob = ((row.get("title") or "") + " " + (row.get("content") or "")).lower()
+        return any(cls._mentions(t, blob) for t in anchors)
+
     def link_evidence(self, claim: Claim) -> List[EvidenceLink]:
         """Deterministically attach corpus items that mention the claim."""
-        terms = discriminating_terms(claim.text, corpus=self.corpus)
+        terms = self._evidence_terms(claim)
+        anchors = self._anchor_terms(terms)
         rows: List[Dict[str, Any]] = []
-        for size in (len(terms), 3, 2, 1):
-            if size == 0:
+        for size in (len(terms), 3, 2):
+            if size <= 0:
                 break
             query = " ".join(terms[: min(size, len(terms))])
             rows = self.corpus.search(
-                query, limit=self.evidence_per_claim + 4, tier=self._search_tier
+                query, limit=(self.evidence_per_claim + 4) * 3, tier=self._search_tier
             )
             if rows:
                 break
-        # Keep only items that actually share signal with the claim, and
-        # never drop the origin item: it is the assertion's provenance.
+
         links: List[EvidenceLink] = []
         seen_ids = set()
+        rejected = 0
         for row in rows:
             if row["id"] in seen_ids:
+                continue
+            # The origin item is the assertion's own provenance and is always
+            # kept, whatever it shares - it is not corroboration.
+            if row["id"] != claim.item_id and not self._shares_subject(row, anchors):
+                rejected += 1
                 continue
             seen_ids.add(row["id"])
             links.append(
@@ -788,6 +885,7 @@ class ClaimAnalyzer:
             )
             if len(links) >= self.evidence_per_claim:
                 break
+        self.last_rejected_links = rejected
         if claim.item_id not in seen_ids:
             origin = self.corpus._conn.execute(
                 "SELECT id, source_type, cluster_id FROM items WHERE id=?",

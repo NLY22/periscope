@@ -43,3 +43,20 @@ todo.txt
 *.svg
 *.tsx
 .claude/
+
+# Local collection results, browser profiles and analysis artifacts
+.periscope-scratch/
+.uvcache/
+.playwright-browsers/
+.pwprofiles/
+.pwtmp/
+probes/
+http_items*.json
+http_items*.txt
+ugc_*.json
+deep_search_*.json
+fulltext_cache.jsonl
+*.log
+.*.txt
+endpoint_report.json
+search_sites.json

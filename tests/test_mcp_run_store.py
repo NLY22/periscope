@@ -8,8 +8,8 @@ import src._file_utils as file_utils
 from src.mcp.run_store import RunStore
 
 
-def test_create_run_writes_meta(tmp_path: Path) -> None:
-    store = RunStore(tmp_path)
+def test_create_run_writes_meta(scratch_path: Path) -> None:
+    store = RunStore(scratch_path)
 
     run_id = store.create_run()
     meta = store.load_meta(run_id)
@@ -19,8 +19,8 @@ def test_create_run_writes_meta(tmp_path: Path) -> None:
     assert "created_at" in meta
 
 
-def test_save_and_load_stage_items(tmp_path: Path) -> None:
-    store = RunStore(tmp_path)
+def test_save_and_load_stage_items(scratch_path: Path) -> None:
+    store = RunStore(scratch_path)
     run_id = store.create_run("run-fixed")
     items = [{"title": "foo"}, {"title": "bar"}]
 
@@ -32,8 +32,8 @@ def test_save_and_load_stage_items(tmp_path: Path) -> None:
     assert store.has_stage(run_id, "raw") is True
 
 
-def test_update_meta_sets_updated_at(tmp_path: Path) -> None:
-    store = RunStore(tmp_path)
+def test_update_meta_sets_updated_at(scratch_path: Path) -> None:
+    store = RunStore(scratch_path)
     run_id = store.create_run("run-meta")
 
     meta = store.update_meta(run_id, {"status": "done"})
@@ -42,8 +42,8 @@ def test_update_meta_sets_updated_at(tmp_path: Path) -> None:
     assert "updated_at" in meta
 
 
-def test_save_and_load_summary(tmp_path: Path) -> None:
-    store = RunStore(tmp_path)
+def test_save_and_load_summary(scratch_path: Path) -> None:
+    store = RunStore(scratch_path)
     run_id = store.create_run("run-summary")
 
     saved = store.save_summary(run_id, "zh", "# 摘要")
@@ -53,8 +53,8 @@ def test_save_and_load_summary(tmp_path: Path) -> None:
     assert content == "# 摘要"
 
 
-def test_saving_upstream_stage_invalidates_downstream_artifacts(tmp_path: Path) -> None:
-    store = RunStore(tmp_path)
+def test_saving_upstream_stage_invalidates_downstream_artifacts(scratch_path: Path) -> None:
+    store = RunStore(scratch_path)
     run_id = store.create_run("run-invalidation")
     for stage in ("raw", "scored", "filtered", "enriched"):
         store.save_items(run_id, stage, [{"stage": stage}])
@@ -84,48 +84,48 @@ def test_saving_upstream_stage_invalidates_downstream_artifacts(tmp_path: Path) 
     assert "summary_stage" not in meta
 
 
-def test_unsupported_stage_raises(tmp_path: Path) -> None:
-    store = RunStore(tmp_path)
+def test_unsupported_stage_raises(scratch_path: Path) -> None:
+    store = RunStore(scratch_path)
     run_id = store.create_run("run-invalid-stage")
 
     with pytest.raises(ValueError, match="Unsupported stage"):
         store.save_items(run_id, "unknown", [])
 
 
-def test_missing_run_raises(tmp_path: Path) -> None:
-    store = RunStore(tmp_path)
+def test_missing_run_raises(scratch_path: Path) -> None:
+    store = RunStore(scratch_path)
 
     with pytest.raises(FileNotFoundError, match="Run not found"):
         store.run_dir("missing-run")
 
 
-def test_rejects_path_traversal_run_id(tmp_path: Path) -> None:
-    store = RunStore(tmp_path / "runs")
+def test_rejects_path_traversal_run_id(scratch_path: Path) -> None:
+    store = RunStore(scratch_path / "runs")
 
     with pytest.raises(ValueError, match="Invalid run_id"):
         store.create_run("../outside")
 
-    assert not (tmp_path / "outside").exists()
+    assert not (scratch_path / "outside").exists()
 
 
-def test_rejects_unsafe_summary_language(tmp_path: Path) -> None:
-    store = RunStore(tmp_path)
+def test_rejects_unsafe_summary_language(scratch_path: Path) -> None:
+    store = RunStore(scratch_path)
     run_id = store.create_run("run-summary-safe")
 
     with pytest.raises(ValueError, match="Invalid summary language"):
         store.save_summary(run_id, "../zh", "# unsafe")
 
 
-def test_missing_artifact_raises(tmp_path: Path) -> None:
-    store = RunStore(tmp_path)
+def test_missing_artifact_raises(scratch_path: Path) -> None:
+    store = RunStore(scratch_path)
     run_id = store.create_run("run-missing-file")
 
     with pytest.raises(FileNotFoundError, match="Artifact not found"):
         store.read_json(run_id, "does-not-exist.json")
 
 
-def test_list_runs_returns_desc_order(tmp_path: Path) -> None:
-    store = RunStore(tmp_path)
+def test_list_runs_returns_desc_order(scratch_path: Path) -> None:
+    store = RunStore(scratch_path)
     run1 = store.create_run("run-1")
     store.update_meta(run1, {"seq": 1})
     run2 = store.create_run("run-2")
@@ -145,9 +145,9 @@ def test_list_runs_returns_desc_order(tmp_path: Path) -> None:
     ],
 )
 def test_replace_failure_preserves_destination_and_cleans_temp(
-    tmp_path: Path, monkeypatch, filename, save
+    scratch_path: Path, monkeypatch, filename, save
 ) -> None:
-    store = RunStore(tmp_path)
+    store = RunStore(scratch_path)
     run_id = store.create_run("run-atomic")
     destination = store.run_dir(run_id) / filename
     destination.write_text("existing", encoding="utf-8")

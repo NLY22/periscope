@@ -38,8 +38,8 @@ def make_item(idx: str, title: str, content: str) -> ContentItem:
 
 
 @pytest.fixture()
-def corpus(tmp_path: Path) -> Corpus:
-    c = Corpus(tmp_path / "corpus.db")
+def corpus(scratch_path: Path) -> Corpus:
+    c = Corpus(scratch_path / "corpus.db")
     c.add_items([
         make_item("1", "DeepSeek-V4 发布", "DeepSeek-V4 模型 9 月上线，支持百万上下文。"),
         make_item("2", "发布说明", "DeepSeek-V4 定价每百万 token 2 元。"),
@@ -343,7 +343,7 @@ def test_mcp_tool_list_includes_the_round_verbs() -> None:
     } <= tools
 
 
-def test_panel_step_draft_edit_and_answer_round_trip(tmp_path, corpus) -> None:
+def test_panel_step_draft_edit_and_answer_round_trip(scratch_path, corpus) -> None:
     from fastapi.testclient import TestClient
 
     from src.web.app import create_app

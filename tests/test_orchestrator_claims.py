@@ -20,7 +20,7 @@ from src.orchestrator import Orchestrator, _AI_UNSET
 NOW = datetime(2026, 9, 24, 12, 0, 0, tzinfo=timezone.utc)
 
 
-def make_orchestrator(tmp_path, monkeypatch) -> Orchestrator:
+def make_orchestrator(scratch_path, monkeypatch) -> Orchestrator:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     orch = Orchestrator.__new__(Orchestrator)
     orch.config = SimpleNamespace(
@@ -30,7 +30,7 @@ def make_orchestrator(tmp_path, monkeypatch) -> Orchestrator:
             provider="openai", model="gpt-test", api_key_env="DEFINITELY_UNSET_KEY"
         ),
     )
-    orch.storage = SimpleNamespace(data_dir=str(tmp_path))
+    orch.storage = SimpleNamespace(data_dir=str(scratch_path))
     orch.console = Console(record=True, quiet=True)
     orch.icons = {"ai": "*", "fetched": "#"}
     orch._corpus = None
@@ -50,8 +50,8 @@ def make_item(idx: str, title: str, content: str) -> ContentItem:
     )
 
 
-def test_analyze_claims_without_llm_is_deterministic(tmp_path, monkeypatch) -> None:
-    orch = make_orchestrator(tmp_path, monkeypatch)
+def test_analyze_claims_without_llm_is_deterministic(scratch_path, monkeypatch) -> None:
+    orch = make_orchestrator(scratch_path, monkeypatch)
     items = [
         make_item("1", "DeepSeek-V4 发布", "DeepSeek 于 9 月发布 V4 模型，主打代码能力。"),
         make_item("2", "发布说明", "DeepSeek-V4 模型 9 月上线，支持百万上下文。"),
@@ -71,8 +71,8 @@ def test_analyze_claims_without_llm_is_deterministic(tmp_path, monkeypatch) -> N
     assert orch._ai_client_cache is None  # LLM absence cached, not retried
 
 
-def test_analyze_claims_disabled_by_config(tmp_path, monkeypatch) -> None:
-    orch = make_orchestrator(tmp_path, monkeypatch)
+def test_analyze_claims_disabled_by_config(scratch_path, monkeypatch) -> None:
+    orch = make_orchestrator(scratch_path, monkeypatch)
     orch.config.analysis.enabled = False
     corpus = orch._get_corpus()
     assert corpus is not None  # corpus itself stays on
@@ -80,24 +80,32 @@ def test_analyze_claims_disabled_by_config(tmp_path, monkeypatch) -> None:
     assert corpus.stats()["items"] == 0  # nothing else happened either
 
 
-def test_persist_then_analyze_keeps_pipeline_survivable(tmp_path, monkeypatch) -> None:
+def test_persist_then_analyze_keeps_pipeline_survivable(scratch_path, monkeypatch) -> None:
     """Corpus corruption must degrade both stages, never crash run()."""
-    orch = make_orchestrator(tmp_path, monkeypatch)
-    # point the corpus path at something unusable
-    orch.config.corpus.path = str(tmp_path.parent) + "/..//dev/null-impossible/x.db"
+    orch = make_orchestrator(scratch_path, monkeypatch)
+    # Point the corpus path at something unusable. This used to be a
+    # `.../..//dev/null-impossible/x.db` string, which only stayed unusable
+    # because the scratch directory happened to sit outside the checkout: with
+    # a repo-local scratch root that `..` resolves back inside the repository
+    # and the run creates `dev/`. Make the path unusable by construction
+    # instead - a file where a directory has to be - so it holds wherever
+    # scratch lives.
+    blocker = scratch_path / "not-a-directory"
+    blocker.write_text("a file, not a directory", encoding="utf-8")
+    orch.config.corpus.path = str(blocker / "x.db")
     items = [make_item("e", "err", "body")]
     orch.persist_to_corpus(items, NOW)  # swallowed
     asyncio.run(orch.analyze_claims(items))  # swallowed as well
 
 
-def test_analyze_claims_skips_items_the_corpus_has_already_seen(tmp_path, monkeypatch):
+def test_analyze_claims_skips_items_the_corpus_has_already_seen(scratch_path, monkeypatch):
     """A re-fetched item must not buy a second extraction pass.
 
     An item whose source has no publish time has no `since` filter, so it
     comes back every run. INSERT OR IGNORE stops the duplicate row, not the
     duplicate spend.
     """
-    orch = make_orchestrator(tmp_path, monkeypatch)
+    orch = make_orchestrator(scratch_path, monkeypatch)
     calls = []
 
     class RecordingAnalyzer:
@@ -150,9 +158,9 @@ def test_analyze_claims_skips_items_the_corpus_has_already_seen(tmp_path, monkey
     orch._get_corpus().close()
 
 
-def test_linking_and_grading_still_run_when_nothing_is_new(tmp_path, monkeypatch):
+def test_linking_and_grading_still_run_when_nothing_is_new(scratch_path, monkeypatch):
     """Filtering extraction must not skip the free, resumable stages."""
-    orch = make_orchestrator(tmp_path, monkeypatch)
+    orch = make_orchestrator(scratch_path, monkeypatch)
     ran = []
 
     class RecordingAnalyzer:
@@ -186,7 +194,7 @@ def test_linking_and_grading_still_run_when_nothing_is_new(tmp_path, monkeypatch
     orch._get_corpus().close()
 
 
-def test_triage_floor_reaches_the_analyzer_that_picks_claims(tmp_path, monkeypatch) -> None:
+def test_triage_floor_reaches_the_analyzer_that_picks_claims(scratch_path, monkeypatch) -> None:
     """`analysis.triage_min_trust` has to arrive at the ClaimAnalyzer.
 
     The store-level gate is tested (test_trust_p1.py); the hop that was not is
@@ -194,7 +202,7 @@ def test_triage_floor_reaches_the_analyzer_that_picks_claims(tmp_path, monkeypat
     true while the gate is silently dead. The default assertion is the docs'
     claim "0 = 门关闭", so it is pinned from the code side too.
     """
-    orch = make_orchestrator(tmp_path, monkeypatch)
+    orch = make_orchestrator(scratch_path, monkeypatch)
     analyzer = orch._get_claim_analyzer()
     assert analyzer.triage_min_trust == orch.config.analysis.triage_min_trust == 0.0
 

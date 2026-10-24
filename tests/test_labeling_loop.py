@@ -64,8 +64,8 @@ def _item(corpus: Corpus, key: str, source: SourceType, publisher: str) -> Conte
     return item
 
 
-def _graded_corpus(tmp_path: Path) -> tuple[Corpus, ClaimStore]:
-    corpus = Corpus(tmp_path / "loop.db")
+def _graded_corpus(scratch_path: Path) -> tuple[Corpus, ClaimStore]:
+    corpus = Corpus(scratch_path / "loop.db")
     store = ClaimStore(corpus)
     rss = _item(corpus, "rss", SourceType.RSS, "vendor-blog")
     news = _item(corpus, "hn", SourceType.HACKERNEWS, "forum-thread")
@@ -96,11 +96,11 @@ def _label(sheet: Path) -> None:
     sheet.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def test_export_then_score_produces_a_usable_threshold_suggestion(tmp_path: Path) -> None:
-    _graded_corpus(tmp_path)
-    sheet = tmp_path / "labels.json"
+def test_export_then_score_produces_a_usable_threshold_suggestion(scratch_path: Path) -> None:
+    _graded_corpus(scratch_path)
+    sheet = scratch_path / "labels.json"
 
-    assert eval_claims.export_sheet(tmp_path / "loop.db", sheet) == len(CLAIMS)
+    assert eval_claims.export_sheet(scratch_path / "loop.db", sheet) == len(CLAIMS)
     payload = json.loads(sheet.read_text(encoding="utf-8"))
     assert payload["tiering"] == "sections" and payload["blind"] is False
     for row in payload["labels"]:
@@ -110,7 +110,7 @@ def test_export_then_score_produces_a_usable_threshold_suggestion(tmp_path: Path
         assert row["evidence"][0]["claimable_excerpt"], "excerpts, not just titles"
 
     _label(sheet)
-    out = tmp_path / "results.json"
+    out = scratch_path / "results.json"
     text = eval_claims.score_sheet(sheet, out, None, "sections")
     report = json.loads(out.read_text(encoding="utf-8"))
 
@@ -124,17 +124,17 @@ def test_export_then_score_produces_a_usable_threshold_suggestion(tmp_path: Path
     assert report["by_verdict_source"]["llm"] == {"n": 3.0, "agreement": round(1 / 3, 4)}
 
 
-def test_the_blind_loop_reaches_the_same_suggestion(tmp_path: Path) -> None:
+def test_the_blind_loop_reaches_the_same_suggestion(scratch_path: Path) -> None:
     """Blind is the shape the number should be quoted from, so it has to be able
     to reach the same place the visible one does."""
-    _graded_corpus(tmp_path)
-    sheet = tmp_path / "blind.json"
+    _graded_corpus(scratch_path)
+    sheet = scratch_path / "blind.json"
 
-    eval_claims.export_sheet(tmp_path / "loop.db", sheet, blind=True)
+    eval_claims.export_sheet(scratch_path / "loop.db", sheet, blind=True)
     assert "machine_verdict" not in sheet.read_text(encoding="utf-8").split('"labels"')[1]
 
     _label(sheet)
-    out = tmp_path / "blind_results.json"
+    out = scratch_path / "blind_results.json"
     text = eval_claims.score_sheet(sheet, out, None, "sections")
     report = json.loads(out.read_text(encoding="utf-8"))
 
@@ -144,14 +144,14 @@ def test_the_blind_loop_reaches_the_same_suggestion(tmp_path: Path) -> None:
     assert report["class_coverage"]["contested"] == 1
 
 
-def test_applying_the_suggestion_is_what_silences_the_warning(tmp_path: Path) -> None:
+def test_applying_the_suggestion_is_what_silences_the_warning(scratch_path: Path) -> None:
     """The loop's last mile, in both directions: warn while it is unused, and go
     quiet once the configured number matches it."""
-    _graded_corpus(tmp_path)
-    sheet = tmp_path / "labels.json"
-    eval_claims.export_sheet(tmp_path / "loop.db", sheet)
+    _graded_corpus(scratch_path)
+    sheet = scratch_path / "labels.json"
+    eval_claims.export_sheet(scratch_path / "loop.db", sheet)
     _label(sheet)
-    out = tmp_path / "results.json"
+    out = scratch_path / "results.json"
     eval_claims.score_sheet(sheet, out, None, "sections")
     report = json.loads(out.read_text(encoding="utf-8"))
     suggested = report["thresholds_suggested"]
@@ -169,13 +169,13 @@ def test_applying_the_suggestion_is_what_silences_the_warning(tmp_path: Path) ->
     )
 
 
-def test_the_export_refuses_to_score_a_different_arm_than_the_sheet(tmp_path: Path) -> None:
-    _graded_corpus(tmp_path)
-    sheet = tmp_path / "labels.json"
-    eval_claims.export_sheet(tmp_path / "loop.db", sheet, tiering="marker")
+def test_the_export_refuses_to_score_a_different_arm_than_the_sheet(scratch_path: Path) -> None:
+    _graded_corpus(scratch_path)
+    sheet = scratch_path / "labels.json"
+    eval_claims.export_sheet(scratch_path / "loop.db", sheet, tiering="marker")
     _label(sheet)
 
-    text = eval_claims.score_sheet(sheet, tmp_path / "r.json", None, "sections")
+    text = eval_claims.score_sheet(sheet, scratch_path / "r.json", None, "sections")
     assert "两档不能共用同一份 ground truth" in text
     # and the marker arm really does show the crowd text this corpus declares
     excerpt = json.loads(sheet.read_text(encoding="utf-8"))["labels"][0]["evidence"][0]

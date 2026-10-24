@@ -57,24 +57,24 @@ def test_env_token_cannot_be_refreshed() -> None:
     assert EnvTokenAuth("K", environ={"K": "v"}).on_unauthorized() is False
 
 
-def test_loads_netscape_cookie_file(tmp_path: Path) -> None:
-    path = tmp_path / "cookies.txt"
+def test_loads_netscape_cookie_file(scratch_path: Path) -> None:
+    path = scratch_path / "cookies.txt"
     path.write_text(NETSCAPE, encoding="utf-8")
     assert load_cookie_file(path) == {"BDUSS": "secret-value", "BAIDUID": "ABCD:1234"}
 
 
-def test_loads_browser_json_cookie_file(tmp_path: Path) -> None:
-    path = tmp_path / "cookies.json"
+def test_loads_browser_json_cookie_file(scratch_path: Path) -> None:
+    path = scratch_path / "cookies.json"
     path.write_text(BROWSER_JSON, encoding="utf-8")
     assert load_cookie_file(path) == {"BDUSS": "secret-value", "BAIDUID": "ABCD:1234"}
 
 
-def test_unreadable_cookie_file_degrades_to_empty(tmp_path: Path) -> None:
-    assert load_cookie_file(tmp_path / "nope.txt") == {}
+def test_unreadable_cookie_file_degrades_to_empty(scratch_path: Path) -> None:
+    assert load_cookie_file(scratch_path / "nope.txt") == {}
 
 
-def test_cookie_auth_sends_one_cookie_header(tmp_path: Path) -> None:
-    path = tmp_path / "cookies.txt"
+def test_cookie_auth_sends_one_cookie_header(scratch_path: Path) -> None:
+    path = scratch_path / "cookies.txt"
     path.write_text(NETSCAPE, encoding="utf-8")
     headers = CookieFileAuth(path, now=lambda: T0).headers()
     assert set(headers) == {"Cookie"}
@@ -82,12 +82,12 @@ def test_cookie_auth_sends_one_cookie_header(tmp_path: Path) -> None:
     assert pairs == {"BDUSS": "secret-value", "BAIDUID": "ABCD:1234"}
 
 
-def test_missing_cookie_file_degrades_to_no_headers(tmp_path: Path) -> None:
-    assert CookieFileAuth(tmp_path / "nope.txt", now=lambda: T0).headers() == {}
+def test_missing_cookie_file_degrades_to_no_headers(scratch_path: Path) -> None:
+    assert CookieFileAuth(scratch_path / "nope.txt", now=lambda: T0).headers() == {}
 
 
-def test_expired_cookies_are_named_instead_of_silently_sent(tmp_path: Path) -> None:
-    path = tmp_path / "cookies.txt"
+def test_expired_cookies_are_named_instead_of_silently_sent(scratch_path: Path) -> None:
+    path = scratch_path / "cookies.txt"
     path.write_text(
         "# Netscape HTTP Cookie File\n"
         f".example.com\tTRUE\t/\tTRUE\t{STALE}\tBDUSS\told\n",
@@ -98,22 +98,22 @@ def test_expired_cookies_are_named_instead_of_silently_sent(tmp_path: Path) -> N
     assert auth.expired_names == ("BDUSS",)
 
 
-def test_a_stale_file_allows_exactly_one_reload(tmp_path: Path) -> None:
-    path = tmp_path / "cookies.txt"
+def test_a_stale_file_allows_exactly_one_reload(scratch_path: Path) -> None:
+    path = scratch_path / "cookies.txt"
     path.write_text(NETSCAPE, encoding="utf-8")
     auth = CookieFileAuth(path, now=lambda: T0)
     assert auth.on_unauthorized() is True  # re-read from disk
     assert auth.on_unauthorized() is False  # never again for this instance
 
 
-def test_max_age_rejects_a_file_that_is_not_freshly_exported(tmp_path: Path) -> None:
+def test_max_age_rejects_a_file_that_is_not_freshly_exported(scratch_path: Path) -> None:
     """max_age means 'the cookie must be within this far of expiring'.
 
     A cookie expiring in 2030 is not proof of a recently exported file, so a
     one-day max_age rejects it. This is the guard against replaying a cookie
     dump somebody committed months ago.
     """
-    path = tmp_path / "cookies.txt"
+    path = scratch_path / "cookies.txt"
     path.write_text(NETSCAPE, encoding="utf-8")
     auth = CookieFileAuth(path, now=lambda: T0, max_age=timedelta(days=1))
     assert auth.headers() == {}

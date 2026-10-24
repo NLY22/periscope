@@ -394,8 +394,15 @@ def test_architecture_doc_table_list_matches_the_schema_exactly() -> None:
     )
     for table in plain | virtual:
         assert table in text, f"table {table} never appears in the doc"
-    assert len([k for _, k in rows if k == "普通"]) == len(plain) == 12
-    assert len([k for _, k in rows if k == "FTS5 虚表"]) == len(virtual) == 2
+    # Counts are derived from the schema, not pinned to a literal: the equality
+    # above is what catches a table that exists in one place and not the other.
+    # A hardcoded total only adds a second place to update, and it fails with a
+    # less useful message ("14 == 12") when the real question is which table.
+    assert len([k for _, k in rows if k == "普通"]) == len(plain)
+    assert len([k for _, k in rows if k == "FTS5 虚表"]) == len(virtual)
+    assert len(plain) >= 12 and len(virtual) >= 2, (
+        "the schema lost tables; this guard would otherwise pass vacuously"
+    )
 
 
 def test_architecture_doc_names_the_probe_verdicts_and_the_widen_ladder() -> None:
@@ -831,7 +838,7 @@ def test_every_doc_quoted_symbol_exists_somewhere() -> None:
     assert not offenders, f"docs name identifiers that exist nowhere in the repo: {offenders}"
 
 
-def test_the_vocabulary_ignores_untracked_files() -> None:
+def test_the_vocabulary_ignores_untracked_files(scratch_path) -> None:
     """A name is only "real" if the repository actually carries it.
 
     The vocabulary used to be built by walking the working tree, so a run's
@@ -839,15 +846,19 @@ def test_the_vocabulary_ignores_untracked_files() -> None:
     on a fresh clone -- the same changelog passed here and failed in CI. Same
     trap as the flags that were only covered by accident, one layer down: the
     check has to be built from what is committed.
+
+    The probe lives under `scratch_path` (inside the repo, ignored) rather than
+    `data/`: some confined harnesses make `data/` read-only, and a probe that
+    cannot be written would fail the test for a reason unrelated to the rule.
     """
-    probe = REPO_ROOT / "data" / "probe_untracked_vocab_check.json"
+    probe = Path(scratch_path) / "probe_untracked_vocab_check.json"
     probe.write_text("{}", encoding="utf-8")
     try:
         assert _tracked_names(), "git listed nothing, so this check would pass vacuously"
         assert probe.name not in _tracked_names(), "the probe should be untracked"
         assert probe.name not in _repo_vocab(), "an untracked file made its name real"
     finally:
-        probe.unlink()
+        probe.unlink(missing_ok=True)
 
 
 def test_the_symbol_net_is_not_toothless() -> None:
@@ -1028,6 +1039,8 @@ def _options_in(mod_rel: str) -> set[str]:
     # declare the short form first (`"-d", "--data-dir"`), which an
     # `add_argument("--x"` anchored pattern silently misses.
     flags = set(re.findall(r'"--([a-z][a-z0-9-]*)"', text))
+    if "argparse" in text:
+        flags.add("help")
     # Entry points share one parser helper: src/_cli.py contributes --data-dir and
     # --config to whichever CLI imports it. Without this the docs looked like they
     # advertised three flags that do not exist -- they do, they are just declared
@@ -1046,7 +1059,9 @@ _ORCHESTRATOR_FLAGS = {"rm", "entrypoint", "build", "no-cache", "it", "detach", 
 # One command pattern, used by every attribution rule, so the markdown path and
 # the docstring path can never disagree about what counts as a command.
 _COMMAND_PATTERN = re.compile(
-    r"(?:uv run )?(?:python )?(scripts/\w+\.py|periscope-[a-z-]+|periscope)"
+    r"(?:uv run )?(?:python (?:-m )?)?"
+    r"(scripts/\w+\.py|periscope(?:\.[a-z_][a-z_0-9]*)+|periscope-[a-z-]+|periscope)"
+    r"(?![\w.-])"
 )
 
 
@@ -1170,6 +1185,8 @@ def _documented_targets() -> dict[str, set[str]]:
 def _resolve_module(target: str) -> str:
     if target.startswith("scripts/"):
         return target
+    if target.startswith("periscope."):
+        return target.replace(".", "/") + ".py"
     if target == "periscope-collect":        # docker-compose service -> image entrypoint
         return "src/main.py"
     return _entry_points().get(target, "").replace(".", "/") + ".py"
@@ -1193,7 +1210,23 @@ def test_every_documented_command_flag_exists() -> None:
     assert not unknown, f"docs print flags the programs do not accept: {unknown}"
 
 
-def test_the_flag_guard_reads_script_docstrings(tmp_path: Path) -> None:
+def test_flag_guard_recognizes_installed_module_commands() -> None:
+    found = {}
+    _flags_from_lines([
+        "python -m periscope.operations.ingest --help",
+        "python -m periscope.cli.topic --topic test --cached-only",
+        "periscope-topic --topic test",
+    ], _COMMAND_PATTERN, found)
+    assert found == {
+        "periscope.operations.ingest": {"help"},
+        "periscope.cli.topic": {"topic", "cached-only"},
+        "periscope-topic": {"topic"},
+    }
+    assert _resolve_module("periscope.operations.ingest") == "periscope/operations/ingest.py"
+    assert "help" in _options_in("periscope/operations/backfill.py")
+
+
+def test_the_flag_guard_reads_script_docstrings(scratch_path: Path) -> None:
     """Both docstring shapes get read, and each flag lands on the right program.
 
     Two real defects made this rule, and each is one of the two attribution
@@ -1209,7 +1242,7 @@ def test_the_flag_guard_reads_script_docstrings(tmp_path: Path) -> None:
     `test_every_documented_command_flag_exists`.
     """
     def attributed(source: str, target: str = "scripts/own_tool.py") -> dict[str, set[str]]:
-        fake = tmp_path / "own_tool.py"
+        fake = scratch_path / "own_tool.py"
         fake.write_text(source, encoding="utf-8")
         found: dict[str, set[str]] = {}
         _attribute_docstrings(target, fake, found)

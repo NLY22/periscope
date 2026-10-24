@@ -94,22 +94,83 @@ def hamming(a: int, b: int) -> int:
     return bin((a ^ b) & _MASK64).count("1")
 
 
+def _bands(fingerprint: int, band_count: int, band_bits: int) -> list[tuple[int, int]]:
+    """Split a fingerprint into `band_count` slices of `band_bits` bits each.
+
+    Returns (band_index, band_value) pairs so two fingerprints can be compared
+    per band without recomputing the split.
+    """
+    out = []
+    for b in range(band_count):
+        shift = b * band_bits
+        out.append((b, (fingerprint >> shift) & ((1 << band_bits) - 1)))
+    return out
+
+
 def cluster_pairs(
     ids: Iterable[tuple[str, int]], max_distance: int = 3
 ) -> list[tuple[str, str]]:
     """Return pairs of IDs whose fingerprints are within max_distance.
 
-    O(n^2) by design: corpora slices here are per-run (tens to hundreds
-    of items), and correctness beats cleverness at this scale. If the
-    table grows past ~10k rows per window, swap in a multi-table LSH
-    band split.
+    Two implementations behind one contract, because the right one depends on
+    the size of the slice:
+
+    - Small slices (a daily run, tens to hundreds of rows) compare every pair.
+      It is exact and the cost is irrelevant at that size.
+    - Large slices use multi-table LSH banding. The original docstring named this
+      as the fix for "past ~10k rows"; at 89,734 rows the exact path is 4.0
+      billion comparisons and does not finish - a backfill ran 19 minutes of CPU
+      without writing a row.
+
+    The banded path is *approximately* exact, and the approximation is safe in
+    the direction that matters: with `band_count * band_bits >= 64` and
+    `band_bits > max_distance`, any pair within the radius is guaranteed to
+    share a band (pigeonhole: `max_distance` differing bits cannot touch every
+    band), so no true duplicate is missed. It can only admit a few extra
+    candidates, which the exact Hamming check then rejects.
     """
     entries = list(ids)
-    pairs: list[tuple[str, str]] = []
-    for i in range(len(entries)):
-        id_a, fp_a = entries[i]
-        for j in range(i + 1, len(entries)):
-            id_b, fp_b = entries[j]
-            if hamming(fp_a, fp_b) <= max_distance:
-                pairs.append((id_a, id_b))
+    n = len(entries)
+    if n < 2:
+        return []
+
+    # Below this size the quadratic scan is both exact and fast; above it, the
+    # banding pays for itself. 2,000 rows is 2.0M comparisons, well under a
+    # second in Python.
+    if n <= 2000:
+        pairs: list[tuple[str, str]] = []
+        for i in range(n):
+            id_a, fp_a = entries[i]
+            for j in range(i + 1, n):
+                id_b, fp_b = entries[j]
+                if hamming(fp_a, fp_b) <= max_distance:
+                    pairs.append((id_a, id_b))
+        return pairs
+
+    # 4 bands of 16 bits. band_bits (16) > max_distance (3), so a within-radius
+    # pair must agree exactly on at least one band.
+    band_bits = 16
+    band_count = 64 // band_bits
+
+    buckets: dict[tuple[int, int], list[int]] = {}
+    for idx, (_id, fp) in enumerate(entries):
+        for band in _bands(fp, band_count, band_bits):
+            buckets.setdefault(band, []).append(idx)
+
+    seen_pairs: set[tuple[int, int]] = set()
+    pairs = []
+    for members in buckets.values():
+        if len(members) < 2:
+            continue
+        for a in range(len(members)):
+            for b in range(a + 1, len(members)):
+                i, j = members[a], members[b]
+                if i > j:
+                    i, j = j, i
+                key = (i, j)
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                if hamming(entries[i][1], entries[j][1]) <= max_distance:
+                    pairs.append((entries[i][0], entries[j][0]))
     return pairs

@@ -68,8 +68,8 @@ def extract_response(*claims) -> str:
 
 
 @pytest.fixture()
-def corpus(tmp_path):
-    c = Corpus(tmp_path / "analysis.db")
+def corpus(scratch_path):
+    c = Corpus(scratch_path / "analysis.db")
     yield c
     c.close()
 

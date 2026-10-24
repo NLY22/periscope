@@ -82,8 +82,8 @@ def make_item(idx: str, title: str, content: str) -> ContentItem:
 
 
 @pytest.fixture()
-def corpus(tmp_path: Path) -> Corpus:
-    c = Corpus(tmp_path / "corpus.db")
+def corpus(scratch_path: Path) -> Corpus:
+    c = Corpus(scratch_path / "corpus.db")
     c.add_items(
         [
             make_item("paraphrase", "OpenForge 报道", "OpenForge 的估值达到三十亿。"),

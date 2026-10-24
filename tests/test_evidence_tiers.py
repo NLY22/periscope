@@ -73,8 +73,8 @@ def test_marker_lookalike_inside_prose_does_not_split() -> None:
 
 # --------------------------------------------------------------------- store
 @pytest.fixture()
-def corpus(tmp_path: Path) -> Corpus:
-    c = Corpus(tmp_path / "corpus.db")
+def corpus(scratch_path: Path) -> Corpus:
+    c = Corpus(scratch_path / "corpus.db")
     c.add_items(
         [
             make_item("author", AUTHOR_BODY, title="Parser rewrite lands"),
@@ -105,8 +105,8 @@ def test_all_tier_search_still_finds_author_text(corpus: Corpus) -> None:
     assert corpus.search("parser", limit=5, tier="claimable")
 
 
-def test_migration_backfills_claimable_for_a_pre_tiering_database(tmp_path: Path) -> None:
-    path = tmp_path / "old.db"
+def test_migration_backfills_claimable_for_a_pre_tiering_database(scratch_path: Path) -> None:
+    path = scratch_path / "old.db"
     conn = sqlite3.connect(str(path))
     conn.executescript(
         """

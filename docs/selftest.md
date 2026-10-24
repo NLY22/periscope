@@ -129,3 +129,13 @@ uv run python scripts/eval_claims.py --score data/eval/claims_labels.json --tier
 ## 还有一条不是缺陷但容易误会
 
 `.github/workflows/tests.yml` 在**这个平台上不会被执行**（PR 的 `check_tasks_num` 一直是 0）。别把"仓库里有 CI 配置"当成"有 CI 兜底"：每个 PR 仍需人工过一遍，本仓库的护栏实际是**测试**，不是流水线。
+
+## 临时目录放哪：`PERISCOPE_SCRATCH_DIR`
+
+评测 harness 与测试套件需要一块可写的地方放临时数据库。默认顺序是 **`PERISCOPE_SCRATCH_DIR` → 仓库内 `.periscope-scratch/` → 系统临时目录**（见[配置指南的 Scratch directories](configuration.md#scratch-directories)）。
+
+顺序把仓库排在系统临时目录之前是有原因的：一次运行刚刚从这棵树里读出了自己的源码，所以它是唯一**已被证明可写**的位置；系统临时目录则是未经验证的假设。
+
+**受限环境里会看到什么。** 有些沙箱交给进程一个它根本用不了的临时目录：目录建出来了，随后里面每一次读取、写入、`sqlite3.connect` 全被拒绝。这时 `tempfile.TemporaryDirectory` 不会优雅降级——它的 `__exit__` 在清理时抛异常，于是**做对了全部工作的 harness 依然以非零退出并打印 traceback，而不是打印它的表**。这正是这两个脚本以前的表现。现在它们改走 `src/_scratch.py`：候选目录要先通过"写一个探针文件**并且**列目录"才算可用（存在性不算），全都不可用时抛 `ScratchUnavailable`，把试过的每条路径和失败原因一起报出来，而不是让错误在三层之下以 `unable to open database file` 的形式冒出来。
+
+**一条明确的限制**：测试套件自己的 `scratch_path` fixture 走这条通路，但 pytest 内置的 `tmp_path` 在那种环境里仍然救不回来——pytest 用 `mkdir(mode=0o700)` 建每个测试目录，还会剥掉 base 目录的 group/other 位（`_pytest/tmpdir.py`），在 Windows 上这会让受限进程无法穿过该目录。新测试请用 `scratch_path`；需要确认路径**不在仓库内**的场景用 `outside_repo_path`（系统临时目录不可用时它会 skip，而不是伪装成通过）。

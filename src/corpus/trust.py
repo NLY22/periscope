@@ -24,6 +24,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence
+from urllib.parse import urlsplit
 
 from ..models import SOURCE_SPECS, SourceSpec
 
@@ -239,15 +240,114 @@ def trust_score(features: TrustFeatures, weights: TrustWeights = DEFAULT_WEIGHTS
 
 
 # ------------------------------------------------------- independence + gates
+# A URL host that is a platform, not a publisher. `github.com/foo/bar` is not
+# published by GitHub, and `arxiv.org/abs/1234` is not published by arXiv - the
+# host is the *venue*. For these the author field carries the only real publisher
+# signal, so the domain rule must not swallow it.
+#
+# This list has to cover every platform the collectors read, or the rule simply
+# relocates the inflation it exists to prevent: leaving douyin.com out made every
+# 抖音 video share one "publisher" named douyin.com, which is the same failure as
+# one company's staff writers each counting as an outlet.
+_PLATFORM_HOSTS = {
+    # code hosting and package registries
+    "github.com", "gitlab.com", "gitee.com", "bitbucket.org",
+    "npmjs.com", "pypi.org", "crates.io", "hub.docker.com", "libraries.io",
+    # papers and preprints
+    "arxiv.org", "doi.org", "openreview.net", "aclanthology.org",
+    "semanticscholar.org", "openalex.org", "paperswithcode.com",
+    # Q&A and developer writing
+    "stackoverflow.com", "stackexchange.com", "ai.stackexchange.com",
+    "serverfault.com", "superuser.com", "askubuntu.com",
+    "dev.to", "medium.com", "substack.com", "hashnode.com", "blogspot.com",
+    "wordpress.com", "tumblr.com", "ghost.io", "beehiiv.com",
+    "zhihu.com", "wukong.com", "zhidao.baidu.com",
+    # video and social platforms
+    "youtube.com", "youtu.be", "vimeo.com", "twitch.tv",
+    "bilibili.com", "b23.tv", "douyin.com", "kuaishou.com",
+    "xiaohongshu.com", "xhscdn.com", "weibo.com", "s.weibo.com",
+    "twitter.com", "x.com", "threads.net", "tiktok.com",
+    "reddit.com", "news.ycombinator.com", "lobste.rs",
+    "tieba.baidu.com", "douban.com", "hupu.com", "smzdm.com",
+    "producthunt.com",
+    # Subdomains that carry the platform's own content. `_registrable_domain`
+    # reduces `blog.csdn.net` to `blog.csdn.net` (the .net TLD is not in the
+    # multi-part list) and leaves `bbs.hupu.com`, `post.smzdm.com` and
+    # `search.bilibili.com` alone, so the bare parent domains in the list above
+    # never matched them. The result was that CSDN posts, 虎扑 threads and B站
+    # search hits were each treated as their own publisher - the exact inflation
+    # this set exists to prevent, reintroduced through the platform layer.
+    "juejin.cn", "blog.csdn.net", "csdn.net", "bbs.hupu.com", "hupu.com",
+    "post.smzdm.com", "search.bilibili.com", "sspai.com", "oschina.net",
+    "www.oschina.net", "infoq.cn", "www.infoq.cn",
+    # podcast hosts
+    "news.smol.ai", "share.transistor.fm", "podcastindex.org",
+    "buzzsprout.com", "libsyn.com", "anchor.fm", "simplecast.com",
+}
+
+# Note deliberately absent from the set above: vercel.com, blog.google,
+# openai.com, federalregister.gov and every other company, lab or agency site. A
+# corporate blog is published BY that company, so its domain is the publisher and
+# the byline is only a staff writer. Measured on the real corpus, that single
+# distinction is what turns 1,659 Vercel posts by many authors into one publisher
+# instead of 323 - and gives 7,935 byline-less items a publisher they can vote
+# with.
+
+# Hosts whose registrable domain is what matters: news.example.co.uk is
+# `example.co.uk`, but a bare host is fine for the common case.
+_MULTIPART_TLDS = (".co.uk", ".com.cn", ".co.jp", ".com.au", ".co.kr", ".org.uk")
+
+
+def _registrable_domain(url: str) -> str:
+    """The site that published it, from the URL. '' when there is no host."""
+    try:
+        host = urlsplit(url or "").hostname or ""
+    except Exception:
+        return ""
+    host = host.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    for suffix in _MULTIPART_TLDS:
+        if host.endswith(suffix):
+            parts = host.split(".")
+            return ".".join(parts[-3:])
+    return host
+
+
 def publisher_of(author: Optional[str], locator: str = "", url: str = "") -> Optional[str]:
     """Who published it. Missing publisher means the item casts no independence vote.
 
-    Deliberately conservative: folding anonymous posts into one (type, NULL)
-    bucket would let a pile of same-source spam read as independent corroboration.
+    The domain is the publisher, not the byline. This is the whole point of the
+    independence count: three posts on vercel.com by three staff writers are one
+    publisher speaking, and counting them as three inflates every claim verdict
+    built on them. Measured on the real corpus, an author-first rule split fifty
+    domains into 4,119 separate "publishers" - github.com alone into 1,707.
+
+    Two exceptions, both because the host is a venue rather than a publisher:
+
+    - **Platforms** (github.com, arxiv.org, dev.to, reddit.com …): the host says
+      where it was hosted, not who stands behind it. There the author is the only
+      real publisher signal, so it is used instead.
+    - **No author and no usable host**: falls back to the locator conventions
+      (`/u/<name>`, `@<name>`) that the scrapers already emit, and returns None
+      when nothing identifies a source.
+
+    That last case matters and is not a rounding error: an unidentified item must
+    cast no vote at all. Folding anonymous posts into one shared `(type, None)`
+    bucket would make a pile of same-source spam read as independent
+    corroboration, and `no_identified_publisher` is the reported reason a claim
+    resting only on such items stays ungraded. Returning a platform host here
+    would hand every anonymous GitHub or Reddit item the same publisher name and
+    reintroduce exactly that failure.
     """
+    host = _registrable_domain(url)
+    if host and host not in _PLATFORM_HOSTS:
+        return host
+
     name = (author or "").strip()
     if name:
         return name.lower()
+
     for candidate in (locator, url):
         match = re.search(r"(?:^|[/#@])u(?:ser)?/([^/?#&]+)", candidate or "")
         if match:
@@ -255,6 +355,7 @@ def publisher_of(author: Optional[str], locator: str = "", url: str = "") -> Opt
         match = re.match(r"@([\w.\-]+)", (candidate or "").strip())
         if match:
             return match.group(1).lower()
+
     return None
 
 

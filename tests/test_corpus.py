@@ -82,8 +82,8 @@ def test_cluster_pairs_groups_near_dups_only() -> None:
 
 # --------------------------------------------------------------------- store
 @pytest.fixture()
-def corpus(tmp_path):
-    c = Corpus(tmp_path / "corpus" / "evidence.db")
+def corpus(scratch_path):
+    c = Corpus(scratch_path / "corpus" / "evidence.db")
     yield c
     c.close()
 
@@ -202,8 +202,8 @@ def test_fingerprint_column_stays_signed_int64(corpus: Corpus) -> None:
     assert -2**63 <= stored <= 2**63 - 1
 
 
-def test_corpus_reopens_idempotent(tmp_path) -> None:
-    path = tmp_path / "c.db"
+def test_corpus_reopens_idempotent(scratch_path) -> None:
+    path = scratch_path / "c.db"
     c1 = Corpus(path)
     c1.add_items([make_item("x")])
     c1.close()

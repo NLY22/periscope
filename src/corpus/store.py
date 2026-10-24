@@ -127,6 +127,49 @@ CREATE TABLE IF NOT EXISTS runs (
     items_total_seen INTEGER NOT NULL DEFAULT 0,
     note TEXT
 );
+
+-- Engagement is a time series, not a column.
+--
+-- Two reasons this is its own table rather than three integers on `items`:
+-- a like count measured today is not the count it had last week, and the
+-- comparison that matters ("this one is unusual for its platform") needs the
+-- distribution, which means history. A single column would silently overwrite
+-- the observation that made a row rank where it did.
+--
+-- Write-only for now: the analysis layer reads it later, deliberately after
+-- the data exists. Nothing in a search path may depend on this table.
+CREATE TABLE IF NOT EXISTS engagement_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    collected_at TEXT NOT NULL,
+    metrics_json TEXT NOT NULL DEFAULT '{}',
+    source_run TEXT,
+    UNIQUE(item_id, platform, collected_at)
+);
+CREATE INDEX IF NOT EXISTS idx_engagement_item ON engagement_snapshots(item_id);
+CREATE INDEX IF NOT EXISTS idx_engagement_platform
+    ON engagement_snapshots(platform, collected_at);
+
+-- Media-to-text, with the method kept.
+--
+-- `method` is `cc` (creator subtitles), `asr` (transcribed), `ocr`,
+-- `vlm` or `manual_export`. It is not decoration: a subtitle is the creator's
+-- words at one remove, a VLM description is a guess about an image, and the
+-- claim layer has to be able to tell them apart. `confidence` carries the
+-- per-method uncertainty so a later gate can discount instead of dropping.
+CREATE TABLE IF NOT EXISTS transcripts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id TEXT NOT NULL,
+    lang TEXT NOT NULL DEFAULT '',
+    method TEXT NOT NULL,
+    segments_json TEXT NOT NULL DEFAULT '[]',
+    text TEXT NOT NULL DEFAULT '',
+    confidence REAL,
+    fetched_at TEXT NOT NULL,
+    UNIQUE(item_id, lang, method)
+);
+CREATE INDEX IF NOT EXISTS idx_transcripts_item ON transcripts(item_id);
 """
 
 
@@ -146,6 +189,30 @@ class Corpus:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
+        # Keep SQLite's temporary files in memory.
+        #
+        # This is a portability fix, not a tuning knob. With the default
+        # `temp_store=FILE`, SQLite spills sorting and index-merge work into the
+        # directory named by TMP/TEMP, and when that directory is not writable it
+        # fails with `sqlite3.OperationalError: unable to open database file`.
+        # The message names the database, but the file it could not open is a
+        # temporary one - so the failure looks like a corrupt or locked corpus
+        # and is neither.
+        #
+        # The trigger is scale-dependent, which is what made it hard to see: a
+        # few hundred rows never spill, so they insert fine on the same machine,
+        # and the FTS mirrors only need a merge once enough segments accumulate.
+        # Measured on a real backfill: 0/3,000 rows with the file default,
+        # 3,000/3,000 with MEMORY.
+        #
+        # The cost is bounded by SQLite's page cache, and the alternative - a
+        # temp directory that may vanish mid-run - is not a trade worth making.
+        self._conn.execute("PRAGMA temp_store=MEMORY")
+        # 采集与检索可能同时进行：一个进程在写分片入库，另一个在读。
+        # SQLite 默认 busy_timeout 是 0，一旦撞上写锁立刻抛
+        # `database is locked` —— 实测「任意话题」的入库就是这么失败的。
+        # 5 秒足够等一个批次提交完成，而读请求只是稍慢一点。
+        self._conn.execute("PRAGMA busy_timeout=5000")
         # Order matters: a pre-tiering database must grow the `claimable`
         # column *before* _SCHEMA creates claim_fts over it, otherwise the
         # index is built against a missing column and the file corrupts.
@@ -522,30 +589,164 @@ class Corpus:
             "SELECT COUNT(DISTINCT cluster_id) FROM items WHERE cluster_id IS NOT NULL"
         ).fetchone()[0]
         runs = self._conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+        engagement = self._conn.execute(
+            "SELECT COUNT(*) FROM engagement_snapshots"
+        ).fetchone()[0]
+        transcripts = self._conn.execute(
+            "SELECT COUNT(*) FROM transcripts"
+        ).fetchone()[0]
         return {
             "items": total,
             "by_source": by_source,
             "clusters": clusters,
             "runs": runs,
+            "engagement_snapshots": engagement,
+            "transcripts": transcripts,
             "path": str(self.path),
+        }
+
+    # ---------------------------------------------------------- engagement
+    def record_engagement(
+        self,
+        item_id: str,
+        platform: str,
+        metrics: Dict[str, Any],
+        collected_at: Optional[datetime] = None,
+        source_run: Optional[str] = None,
+    ) -> bool:
+        """Append one observation. Idempotent per (item, platform, timestamp).
+
+        Returns True when a row was written, False when the same observation
+        already existed. Empty metrics are not stored: an all-zero snapshot
+        from an endpoint that simply does not report counts would otherwise be
+        indistinguishable from a genuinely unread post.
+        """
+        clean = {k: v for k, v in (metrics or {}).items() if v is not None}
+        if not clean:
+            return False
+        stamp = (collected_at or _utc_now()).astimezone(timezone.utc).isoformat()
+        before = self._conn.total_changes
+        self._conn.execute(
+            """INSERT OR IGNORE INTO engagement_snapshots
+               (item_id, platform, collected_at, metrics_json, source_run)
+               VALUES (?, ?, ?, ?, ?)""",
+            (item_id, platform, stamp,
+             json.dumps(clean, ensure_ascii=False), source_run),
+        )
+        self._conn.commit()
+        return self._conn.total_changes > before
+
+    def latest_engagement(self, item_id: str) -> Optional[Dict[str, Any]]:
+        row = self._conn.execute(
+            """SELECT platform, collected_at, metrics_json
+               FROM engagement_snapshots WHERE item_id=?
+               ORDER BY collected_at DESC LIMIT 1""",
+            (item_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "platform": row["platform"],
+            "collected_at": row["collected_at"],
+            "metrics": json.loads(row["metrics_json"] or "{}"),
+        }
+
+    # ---------------------------------------------------------- transcripts
+    def record_transcript(
+        self,
+        item_id: str,
+        method: str,
+        segments: Iterable[Dict[str, Any]],
+        lang: str = "",
+        text: str = "",
+        confidence: Optional[float] = None,
+        fetched_at: Optional[datetime] = None,
+    ) -> bool:
+        """Store (or replace) the text of one media item.
+
+        Replacing is right here and nowhere else: a transcript is a property of
+        the media, not an observation of it, so a better extraction should win.
+        Engagement is the opposite case and gets append-only snapshots.
+        """
+        segs = list(segments or [])
+        body = text or " ".join(
+            str(s.get("text") or "") for s in segs if isinstance(s, dict)
+        ).strip()
+        if not body:
+            return False
+        stamp = (fetched_at or _utc_now()).astimezone(timezone.utc).isoformat()
+        self._conn.execute(
+            """INSERT INTO transcripts
+               (item_id, lang, method, segments_json, text, confidence, fetched_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(item_id, lang, method) DO UPDATE SET
+                   segments_json=excluded.segments_json,
+                   text=excluded.text,
+                   confidence=excluded.confidence,
+                   fetched_at=excluded.fetched_at""",
+            (item_id, lang, method,
+             json.dumps(segs, ensure_ascii=False), body, confidence, stamp),
+        )
+        self._conn.commit()
+        return True
+
+    def transcript_of(self, item_id: str) -> Optional[Dict[str, Any]]:
+        row = self._conn.execute(
+            """SELECT lang, method, text, confidence, segments_json
+               FROM transcripts WHERE item_id=? ORDER BY fetched_at DESC LIMIT 1""",
+            (item_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "lang": row["lang"],
+            "method": row["method"],
+            "text": row["text"],
+            "confidence": row["confidence"],
+            "segments": json.loads(row["segments_json"] or "[]"),
         }
 
     # ------------------------------------------------------------- clusters
     def recompute_clusters(
-        self, max_distance: int = 3, lookback_rows: int = 500
+        self, max_distance: int = 3, lookback_rows: Optional[int] = 500
     ) -> int:
-        """Group near-duplicate recent items into clusters.
+        """Group near-duplicate items into clusters.
 
         Uses connected components over SimHash pairs within `max_distance`
         Hamming bits. Only the newest `lookback_rows` rows are re-grouped
         to bound per-run cost; older rows keep their historic cluster id.
 
+        `lookback_rows=None` groups the whole table. A daily run adding a few
+        hundred items wants the window - re-comparing twenty thousand rows every
+        morning is wasted work. A backfill wants the whole table: with the
+        window, a first ingest of twenty thousand items clusters only the newest
+        five hundred and leaves the rest permanently ungrouped, so
+        near-duplicates never collapse and every downstream "how many sources
+        agree" count reads high.
+
         Returns the number of rows whose cluster_id changed.
         """
-        rows = self._conn.execute(
-            "SELECT rowid, fingerprint FROM items ORDER BY rowid DESC LIMIT ?",
-            (lookback_rows,),
-        ).fetchall()
+        if lookback_rows is None:
+            rows = self._conn.execute(
+                "SELECT rowid, fingerprint FROM items ORDER BY rowid DESC"
+            ).fetchall()
+            # A whole-table regrouping must start from a clean slate.
+            #
+            # Cluster ids are derived from rowids (`c{min rowid in the group}`),
+            # and that derivation is only meaningful for the pass that produced
+            # it. Leaving stale ids in place lets two passes disagree about what
+            # `c31` means: pass one assigns c31 to 200 rows, pass two assigns c31
+            # to a different 206 rows, and the table then holds 406 rows labelled
+            # c31 that were never similar to each other. Measured on the real
+            # corpus: one cluster of 406 items spanning rowid 31 to 174,326, with
+            # 194 distinct titles - "Show HN: Skyvern", "Show HN: FeyNoBg" and
+            # "Tell HN: Lesswrong" in one group, pairwise Hamming distance 20-37.
+            self._conn.execute("UPDATE items SET cluster_id=NULL")
+        else:
+            rows = self._conn.execute(
+                "SELECT rowid, fingerprint FROM items ORDER BY rowid DESC LIMIT ?",
+                (lookback_rows,),
+            ).fetchall()
         if not rows:
             return 0
         pairs = cluster_pairs(

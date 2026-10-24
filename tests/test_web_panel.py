@@ -18,7 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture()
-def client(tmp_path):
+def client(scratch_path):
     cfg = json.loads((REPO_ROOT / "data" / "config.example.json").read_text(encoding="utf-8"))
     for value in cfg["sources"].values():
         if isinstance(value, dict) and "enabled" in value:
@@ -28,7 +28,7 @@ def client(tmp_path):
                 if isinstance(entry, dict):
                     entry["enabled"] = False
     config = Config.model_validate(cfg)
-    orch = Orchestrator(config, StorageManager(data_dir=str(tmp_path)))
+    orch = Orchestrator(config, StorageManager(data_dir=str(scratch_path)))
     now = datetime.now(timezone.utc)
     orch.get_corpus().add_items([
         ContentItem(
@@ -161,7 +161,7 @@ PANEL_HTML = (
 )
 
 
-def test_panel_script_parses_when_handed_to_node(tmp_path) -> None:
+def test_panel_script_parses_when_handed_to_node(scratch_path) -> None:
     """The panel is one `<script>`; a syntax error blanks the whole page.
 
     There is no browser here to catch it, so the cheapest real parser wins:
@@ -176,7 +176,7 @@ def test_panel_script_parses_when_handed_to_node(tmp_path) -> None:
     html = PANEL_HTML.read_text(encoding="utf-8")
     scripts = re.findall(r"<script>(.*?)</script>", html, re.S)
     assert scripts, "the panel lost its script block"
-    target = tmp_path / "panel.js"
+    target = scratch_path / "panel.js"
     target.write_text("\n".join(scripts), encoding="utf-8")
     result = subprocess.run(
         [node, "--check", str(target)], capture_output=True, text=True

@@ -34,8 +34,8 @@ def make_item(idx: str, source: SourceType, title: str) -> ContentItem:
 
 
 @pytest.fixture()
-def corpus(tmp_path: Path) -> Corpus:
-    c = Corpus(tmp_path / "corpus.db")
+def corpus(scratch_path: Path) -> Corpus:
+    c = Corpus(scratch_path / "corpus.db")
     c.add_items(
         [
             make_item("news1", SourceType.RSS, "first news"),

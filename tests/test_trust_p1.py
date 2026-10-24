@@ -37,12 +37,23 @@ NOW = datetime(2026, 9, 29, 12, 0, tzinfo=timezone.utc)
 
 
 def make_item(corpus: Corpus, idx: str, *, source: SourceType = SourceType.RSS,
-              author: str = "author-a", content: str = "body", trust: bool = True):
+              author: str = "author-a", content: str = "body", trust: bool = True,
+              url: str = ""):
+    """An item whose publisher follows from its URL, as production computes it.
+
+    The URL varies per author because `publisher_of` treats the publishing site
+    as the publisher. A single shared domain would collapse every author in a
+    test into one publisher - which is the intended behaviour and exactly why a
+    fixture that wants distinct publishers has to give them distinct outlets.
+
+    Pass `url` explicitly when the test is about an item with no derivable
+    publisher; the default derives one from the author.
+    """
     item = ContentItem(
         id=f"p1:{idx}",
         source_type=source,
         title=f"title {idx}",
-        url=f"https://e.com/{idx}",
+        url=url or f"https://outlet-{author}.example/{idx}",
         content=content,
         author=author,
         published_at=NOW,
@@ -191,8 +202,8 @@ def test_roc_refuses_to_invent_thresholds_without_two_classes() -> None:
 
 # ------------------------------------------------------- store + claim wiring
 @pytest.fixture()
-def corpus(tmp_path) -> Corpus:
-    c = Corpus(tmp_path / "corpus.db")
+def corpus(scratch_path) -> Corpus:
+    c = Corpus(scratch_path / "corpus.db")
     yield c
     c.close()
 
@@ -204,16 +215,18 @@ def test_store_persists_trust_features_for_audit(corpus: Corpus) -> None:
         "SELECT trust, publisher, trust_features_json FROM items WHERE id='p1:1'"
     ).fetchone()
     assert row["trust"] is not None and 0.0 < row["trust"] < 1.0
-    assert row["publisher"] == "org"
+    # The publisher is the site, not the byline: `make_item` writes the author
+    # into the host for this reason, so the two must agree.
+    assert row["publisher"] == "outlet-org.example"
     features = json.loads(row["trust_features_json"])
     assert features["source_type"] == "rss"
     assert {"prior", "provenance", "template", "freshness"} <= set(features)
 
 
-def test_pre_v4_database_gains_publisher_and_trust(tmp_path) -> None:
+def test_pre_v4_database_gains_publisher_and_trust(scratch_path) -> None:
     import sqlite3
 
-    path = tmp_path / "old.db"
+    path = scratch_path / "old.db"
     conn = sqlite3.connect(str(path))
     conn.executescript(
         """
@@ -233,7 +246,7 @@ CREATE TABLE runs (id INTEGER PRIMARY KEY AUTOINCREMENT, started_at TEXT NOT NUL
     conn.execute(
         """INSERT INTO items (id, source_type, title, url, author, published_at,
                               fetched_at, content, claimable, fingerprint)
-           VALUES ('old:1','v2ex','t','https://e.com/1','someone',
+           VALUES ('old:1','v2ex','t','https://old-forum.example/1','someone',
                    '2026-09-01T00:00:00+00:00','2026-09-01T00:00:00+00:00','body','body',0)"""
     )
     conn.commit()
@@ -244,7 +257,8 @@ CREATE TABLE runs (id INTEGER PRIMARY KEY AUTOINCREMENT, started_at TEXT NOT NUL
         row = migrated._conn.execute(
             "SELECT publisher, trust FROM items WHERE id='old:1'"
         ).fetchone()
-        assert row["publisher"] == "someone"
+        # backfill derives the site from the stored URL, same rule as new rows
+        assert row["publisher"] == "old-forum.example"
         assert row["trust"] is not None
     finally:
         migrated.close()
@@ -273,9 +287,19 @@ def test_independence_collapses_clusters_then_counts_publishers(corpus: Corpus) 
 
 
 def test_anonymous_evidence_reports_why_it_is_ungraded(corpus: Corpus) -> None:
+    """An item nobody can be attributed to must cast no vote at all.
+
+    The URL is a platform host on purpose: that is the realistic shape of an
+    unattributable post (a tweet, a gist, a forum reply), and a platform host
+    identifies a venue rather than a publisher. If the venue counted as the
+    publisher, every anonymous post from that site would share one name and a
+    pile of same-source spam would read as independent corroboration - which is
+    the failure `no_identified_publisher` exists to report.
+    """
     store = ClaimStore(corpus)
     item = make_item(corpus, "anon", source=SourceType.TWITTER, author=None,
-                     content="nobody knows who posted this")
+                     content="nobody knows who posted this",
+                     url="https://twitter.com/i/status/1")
     item_row = corpus._conn.execute(
         "SELECT publisher FROM items WHERE id='p1:anon'").fetchone()
     assert item_row["publisher"] is None

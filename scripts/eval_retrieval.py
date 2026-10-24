@@ -37,6 +37,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src._cli import display_path, force_utf8_output  # noqa: E402
+from src._scratch import scratch_dir  # noqa: E402
 from src.corpus.metrics import evaluate  # noqa: E402
 from src.corpus.retrieval import HybridRetriever  # noqa: E402
 from src.corpus.semantic import EmbeddingIndex  # noqa: E402
@@ -336,10 +337,9 @@ async def main() -> int:
     )
 
     queries = load_queries()
-    import tempfile
 
-    with tempfile.TemporaryDirectory() as tmp:
-        corpus = build_corpus(Path(tmp), args.tiering)
+    with scratch_dir("eval-retrieval-") as tmp:
+        corpus = build_corpus(tmp, args.tiering)
         table = [["配置", "recall@5", f"recall@{args.top_k}", "precision@5", f"nDCG@{args.top_k}", "MRR"]]
         results: Dict[str, Any] = {
             "top_k": args.top_k, "tiering": args.tiering, "configs": []

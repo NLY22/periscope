@@ -82,7 +82,7 @@ def test_the_claims_pane_says_who_made_a_vetoed_verdict() -> None:
     )
 
 
-def test_the_stats_keys_the_panel_prints_exist_in_the_payload(tmp_path: Path) -> None:
+def test_the_stats_keys_the_panel_prints_exist_in_the_payload(scratch_path: Path) -> None:
     """`meta.claims ?? 0` is a silent-zero machine.
 
     A server-side rename would not error; it would print 0 声明 · 0 多源 and look
@@ -94,6 +94,6 @@ def test_the_stats_keys_the_panel_prints_exist_in_the_payload(tmp_path: Path) ->
 
     used = set(re.findall(r"\bmeta\.([a-z_]+)", HTML))
     assert used, "the panel stopped reading stats - delete this test, do not pass it"
-    provided = set(ClaimStore(Corpus(tmp_path / "stats.db")).stats())
+    provided = set(ClaimStore(Corpus(scratch_path / "stats.db")).stats())
     assert used <= provided, f"panel would render a confident 0 for {sorted(used - provided)}"
 

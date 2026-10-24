@@ -42,8 +42,8 @@ def item(idx: str, title: str, content: str, days: int) -> ContentItem:
 
 
 @pytest.fixture()
-def corpus(tmp_path: Path) -> Corpus:
-    c = Corpus(tmp_path / "tpl.db")
+def corpus(scratch_path: Path) -> Corpus:
+    c = Corpus(scratch_path / "tpl.db")
     c.add_items(
         [
             item("a", "行业规模报告", "中国人形机器人市场规模 增长 到 2028 年翻三倍。", 1),

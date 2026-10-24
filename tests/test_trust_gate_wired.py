@@ -50,14 +50,22 @@ class _Client:
         return self.reply
 
 
-def _corpus(tmp_path) -> Corpus:
-    return Corpus(tmp_path / "gate.db")
+def _corpus(scratch_path) -> Corpus:
+    return Corpus(scratch_path / "gate.db")
 
 
 def _item(corpus: Corpus, idx: str, source: SourceType, author: str) -> ContentItem:
+    """One item whose publisher is derived the way production derives it.
+
+    The URL is per-author on purpose. `publisher_of` reads the site that
+    published an item, so one shared domain would make every author in a test
+    the *same* publisher - correct behaviour, but it silently changes what these
+    tests measure: they are about the thresholds, and two writers mean two
+    publishers only if they write for two outlets.
+    """
     item = ContentItem(
         id=f"g:{idx}", source_type=source, title=f"t {idx}",
-        url=f"https://e.com/{idx}",
+        url=f"https://outlet-{author}.example/{idx}",
         content="DeepSeek-V4 shipped in 2026-09 at 2 CNY per million tokens.",
         author=author, published_at=NOW, fetched_at=NOW,
     )
@@ -86,7 +94,7 @@ def _row(corpus: Corpus, claim_id: str):
     ).fetchone()
 
 
-def test_two_publishers_in_one_family_cannot_be_graded_supported(tmp_path) -> None:
+def test_two_publishers_in_one_family_cannot_be_graded_supported(scratch_path) -> None:
     """The breadth rule, exercised through `grade_claim` rather than `classify`.
 
     Two distinct publishers inside one source family is the shape the fork must
@@ -94,7 +102,7 @@ def test_two_publishers_in_one_family_cannot_be_graded_supported(tmp_path) -> No
     this is not. Before the wiring, the stored verdict here was whatever the
     model said.
     """
-    corpus, store = _corpus(tmp_path), None
+    corpus, store = _corpus(scratch_path), None
     store = ClaimStore(corpus)
     a = _item(corpus, "a", SourceType.HACKERNEWS, "writer-a")
     b = _item(corpus, "b", SourceType.HACKERNEWS, "writer-b")
@@ -111,10 +119,10 @@ def test_two_publishers_in_one_family_cannot_be_graded_supported(tmp_path) -> No
     )
 
 
-def test_the_gate_never_promotes_a_model_that_said_unsupported(tmp_path) -> None:
+def test_the_gate_never_promotes_a_model_that_said_unsupported(scratch_path) -> None:
     """Whether the excerpts confirm the claim is the model's call; the gate only
     withholds the `supported` the breadth arithmetic cannot earn."""
-    corpus = _corpus(tmp_path)
+    corpus = _corpus(scratch_path)
     store = ClaimStore(corpus)
     a = _item(corpus, "a", SourceType.RSS, "writer-a")
     b = _item(corpus, "b", SourceType.HACKERNEWS, "writer-b")
@@ -127,13 +135,13 @@ def test_the_gate_never_promotes_a_model_that_said_unsupported(tmp_path) -> None
     assert row["verdict"] == "unsupported" and row["verdict_source"] == "llm"
 
 
-def test_configured_cut_points_reach_the_gate(tmp_path) -> None:
+def test_configured_cut_points_reach_the_gate(scratch_path) -> None:
     """The same evidence shape, with depth lowered to 2, must earn `supported`.
 
     If the analyzer rebuilt its own `Thresholds()` at the call site, every
     document would stay correct while the configured values did nothing.
     """
-    corpus = _corpus(tmp_path)
+    corpus = _corpus(scratch_path)
     store = ClaimStore(corpus)
     a = _item(corpus, "a", SourceType.HACKERNEWS, "writer-a")
     b = _item(corpus, "b", SourceType.HACKERNEWS, "writer-b")
@@ -171,12 +179,12 @@ def test_the_report_labels_a_gate_demotion_differently_than_a_models_no() -> Non
     assert "trust_gate" in text
 
 
-def test_an_old_claims_table_gains_the_column_without_losing_rows(tmp_path) -> None:
+def test_an_old_claims_table_gains_the_column_without_losing_rows(scratch_path) -> None:
     """Old rows keep a NULL source, which is the honest answer: nobody knows
     whether a pre-gate `supported` would have passed the breadth rule."""
     import sqlite3
 
-    path = tmp_path / "old.db"
+    path = scratch_path / "old.db"
     conn = sqlite3.connect(str(path))
     conn.execute(
         """CREATE TABLE claims (id TEXT PRIMARY KEY, item_id TEXT NOT NULL, text TEXT NOT NULL,
@@ -206,8 +214,8 @@ def test_an_old_claims_table_gains_the_column_without_losing_rows(tmp_path) -> N
 # A veto that lives only in a column nobody selects is invisible exactly where
 # it matters: the store read, the JSON consumers, and the labeling sheet.
 
-def _demoted(tmp_path):
-    corpus = _corpus(tmp_path)
+def _demoted(scratch_path):
+    corpus = _corpus(scratch_path)
     store = ClaimStore(corpus)
     a = _item(corpus, "a", SourceType.HACKERNEWS, "writer-a")
     b = _item(corpus, "b", SourceType.HACKERNEWS, "writer-b")
@@ -222,19 +230,19 @@ def _score(path: Path, out: Path):
     return text, json.loads(out.read_text(encoding="utf-8"))
 
 
-def test_the_source_survives_a_read_through_the_store(tmp_path) -> None:
-    _demoted(tmp_path)
-    claim = ClaimStore(Corpus(tmp_path / "gate.db")).get_claim("claim:x")
+def test_the_source_survives_a_read_through_the_store(scratch_path) -> None:
+    _demoted(scratch_path)
+    claim = ClaimStore(Corpus(scratch_path / "gate.db")).get_claim("claim:x")
 
     assert claim is not None and claim.verdict == "unsupported"
     assert claim.verdict_source == "trust_gate", "the read path dropped the column"
     assert claim.to_dict()["verdict_source"] == "trust_gate", "the JSON shape lost it"
 
 
-def test_the_labeling_sheet_says_who_made_the_machine_verdict(tmp_path) -> None:
-    _demoted(tmp_path)
-    sheet = tmp_path / "sheet.json"
-    assert eval_claims.export_sheet(tmp_path / "gate.db", sheet) >= 1
+def test_the_labeling_sheet_says_who_made_the_machine_verdict(scratch_path) -> None:
+    _demoted(scratch_path)
+    sheet = scratch_path / "sheet.json"
+    assert eval_claims.export_sheet(scratch_path / "gate.db", sheet) >= 1
 
     row = json.loads(sheet.read_text(encoding="utf-8"))["labels"][0]
     assert row["machine_verdict"] == "unsupported"
@@ -244,11 +252,11 @@ def test_the_labeling_sheet_says_who_made_the_machine_verdict(tmp_path) -> None:
 
 
 def test_blind_export_holds_the_source_back_with_the_other_machine_columns(
-    tmp_path,
+    scratch_path,
 ) -> None:
-    _demoted(tmp_path)
-    sheet = tmp_path / "blind_sheet.json"
-    eval_claims.export_sheet(tmp_path / "gate.db", sheet, blind=True)
+    _demoted(scratch_path)
+    sheet = scratch_path / "blind_sheet.json"
+    eval_claims.export_sheet(scratch_path / "gate.db", sheet, blind=True)
 
     payload = json.loads(sheet.read_text(encoding="utf-8"))
     assert all(
@@ -276,13 +284,13 @@ def _mixed_source_sheet() -> dict:
     }
 
 
-def test_scoring_splits_agreement_between_the_model_and_the_gate(tmp_path) -> None:
+def test_scoring_splits_agreement_between_the_model_and_the_gate(scratch_path) -> None:
     """Row `a` is the interesting one: human and model agreed, and the gate
     overruled. One agreement number buries that under "the system is 67% right".
     """
-    path = tmp_path / "mixed.json"
+    path = scratch_path / "mixed.json"
     path.write_text(json.dumps(_mixed_source_sheet(), ensure_ascii=False), encoding="utf-8")
-    text, report = _score(path, tmp_path / "r.json")
+    text, report = _score(path, scratch_path / "r.json")
 
     assert "按判定来源拆分" in text, text
     assert "trust_gate: n=1, agreement=0.000" in text, text
@@ -291,35 +299,35 @@ def test_scoring_splits_agreement_between_the_model_and_the_gate(tmp_path) -> No
     assert report["accuracy"] == round(2 / 3, 4), "the overall number stays as it was"
 
 
-def test_sheets_without_the_column_get_no_split_and_no_complaint(tmp_path) -> None:
+def test_sheets_without_the_column_get_no_split_and_no_complaint(scratch_path) -> None:
     rows = [
         {k: v for k, v in r.items() if k != "machine_verdict_source"}
         for r in _mixed_source_sheet()["labels"]
     ]
-    path = tmp_path / "plain.json"
+    path = scratch_path / "plain.json"
     path.write_text(json.dumps({"labels": rows}, ensure_ascii=False), encoding="utf-8")
-    text, report = _score(path, tmp_path / "r.json")
+    text, report = _score(path, scratch_path / "r.json")
 
     assert "按判定来源拆分" not in text, text
     assert report["by_verdict_source"] == {}
 
 
-def test_aggregate_stats_keep_the_two_kinds_of_unsupported_apart(tmp_path) -> None:
+def test_aggregate_stats_keep_the_two_kinds_of_unsupported_apart(scratch_path) -> None:
     """`ps_corpus_stats` answers "how many supported?" for an agent. After the
     gate that count mixes a model judgment with an arithmetic veto, and the
     caller has no way to ask which is which."""
-    _demoted(tmp_path)
-    stats = ClaimStore(Corpus(tmp_path / "gate.db")).stats()
+    _demoted(scratch_path)
+    stats = ClaimStore(Corpus(scratch_path / "gate.db")).stats()
 
     assert stats["by_verdict"] == {"unsupported": 1}
     assert stats["by_verdict_source"] == {"trust_gate": 1}
 
 
-def test_pre_gate_verdicts_count_as_unset_rather_than_as_the_model(tmp_path) -> None:
+def test_pre_gate_verdicts_count_as_unset_rather_than_as_the_model(scratch_path) -> None:
     """NULL means nobody knows who decided, and the count must not quietly
     attribute those to the model to make the totals look complete."""
-    _demoted(tmp_path)
-    corpus = Corpus(tmp_path / "gate.db")
+    _demoted(scratch_path)
+    corpus = Corpus(scratch_path / "gate.db")
     corpus._conn.execute("UPDATE claims SET verdict_source=NULL")
     corpus._conn.commit()
 
@@ -428,8 +436,8 @@ def test_validation_actually_calls_the_check() -> None:
 
 
 # ------------------------------------------------------- one evidence set per claim
-def _linked_store(tmp_path, cap: int, want: int):
-    corpus = Corpus(tmp_path / "cap.db")
+def _linked_store(scratch_path, cap: int, want: int):
+    corpus = Corpus(scratch_path / "cap.db")
     store = ClaimStore(corpus, evidence_limit=cap)
     origin = _item(corpus, "origin", SourceType.RSS, "writer-a")
     store.upsert_claims([Claim(id="claim:c", item_id=origin.id, text="t")])
@@ -443,8 +451,8 @@ def _linked_store(tmp_path, cap: int, want: int):
     return corpus, store
 
 
-def test_the_stored_evidence_set_is_capped_where_it_is_written(tmp_path) -> None:
-    corpus, store = _linked_store(tmp_path, cap=3, want=7)
+def test_the_stored_evidence_set_is_capped_where_it_is_written(scratch_path) -> None:
+    corpus, store = _linked_store(scratch_path, cap=3, want=7)
 
     assert len(store.evidence_for("claim:c")) == 3
     assert len(store.independence_votes("claim:c")) == 3, (

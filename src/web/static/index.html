@@ -3,239 +3,92 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f7fafc">
+<meta name="color-scheme" content="light">
 <title>Periscope · 潜望镜</title>
-<style>
-:root{
-  --bg:#FAF7F2; --ink:#2D2A32; --muted:#9B96A3; --card:#FFFFFF;
-  --coral:#FF6B6B; --coral-soft:#FFE3E0;
-  --mint:#4ECDC4;  --mint-soft:#DDF5F2;
-  --sky:#57C6FA;  --sky-soft:#E0F3FF;
-  --lilac:#A78BFA;--lilac-soft:#EEE9FE;
-  --shadow:0 6px 24px rgba(45,42,50,.07);
-  --r:20px;
-  --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
-}
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--ink);
-  font:15px/1.65 -apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
-button{font:inherit;cursor:pointer;border:none}
-input,textarea{font:inherit;color:inherit}
-a{color:#2F7FBF;text-decoration:none} a:hover{text-decoration:underline}
-
-/* ---------- header ---------- */
-header{display:flex;align-items:center;gap:14px;padding:18px 26px 6px;flex-wrap:wrap}
-.logo{font-weight:800;font-size:22px;letter-spacing:.5px}
-.logo b{color:var(--coral)} .logo em{font-style:normal;color:var(--mint)}
-.badge{font-size:12px;font-family:var(--mono);padding:4px 10px;border-radius:999px}
-.badge.on{background:var(--mint-soft);color:#1F9E93}
-.badge.off{background:var(--coral-soft);color:#C2473F}
-.spacer{flex:1}
-.btn{border-radius:999px;padding:9px 18px;font-weight:700;font-size:14px;
-  transition:transform .12s,box-shadow .12s}
-.btn:active{transform:scale(.96)}
-.btn-coral{background:var(--coral);color:#fff;box-shadow:0 4px 14px rgba(255,107,107,.35)}
-.btn-ghost{background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
-
-/* ---------- stat band ---------- */
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
-  gap:14px;padding:12px 26px 16px}
-.stat{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);
-  padding:14px 18px;position:relative;overflow:hidden}
-.stat::after{content:"";position:absolute;left:0;top:0;bottom:0;width:5px}
-.stat.c1::after{background:var(--coral)} .stat.c2::after{background:var(--mint)}
-.stat.c3::after{background:var(--sky)}   .stat.c4::after{background:var(--lilac)}
-.stat .n{font-family:var(--mono);font-size:34px;font-weight:700;line-height:1.15}
-.stat.c1 .n{color:var(--coral)} .stat.c2 .n{color:var(--mint)}
-.stat.c3 .n{color:var(--sky)}  .stat.c4 .n{color:#8B6FF2}
-.stat .l{font-size:12px;color:var(--muted)}
-
-/* ---------- layout ---------- */
-main{display:grid;grid-template-columns:340px 1fr 360px;gap:16px;
-  padding:0 26px 26px;align-items:start}
-@media(max-width:1100px){main{grid-template-columns:1fr}}
-.pane{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);
-  display:flex;flex-direction:column;max-height:calc(100vh - 40px)}
-.pane h2{font-size:14px;padding:14px 16px 10px;display:flex;align-items:center;gap:8px}
-.pane h2 .dot{width:10px;height:10px;border-radius:50%}
-.pane .body{overflow-y:auto;padding:0 16px 16px}
-.search{display:flex;gap:8px;padding:0 16px 12px}
-.search input{flex:1;border:2px solid #F0EDE7;background:#FBFAF8;border-radius:12px;
-  padding:8px 12px;outline:none;font-size:13px}
-.search input:focus{border-color:var(--sky)}
-.search button{border-radius:12px;padding:0 14px;background:var(--sky-soft);color:#1F7BB0;font-weight:700}
-
-/* ---------- cards ---------- */
-.item{border-radius:16px;padding:10px 12px;margin-bottom:8px;background:#FBFAF8;
-  border:1px solid #F1EEE8;transition:box-shadow .15s}
-.item:hover{box-shadow:var(--shadow)}
-.item .t{font-weight:600;font-size:13.5px;line-height:1.45}
-.item .s{font-size:12px;color:var(--muted);margin-top:3px;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.pill{display:inline-block;font-family:var(--mono);font-size:10.5px;font-weight:700;
-  padding:2px 8px;border-radius:999px;margin-right:6px;vertical-align:2px}
-.p-v2ex{background:var(--mint-soft);color:#1F9E93}
-.p-discourse{background:var(--lilac-soft);color:#7C5CE0}
-.p-rss{background:var(--sky-soft);color:#1F7BB0}
-.p-github{background:#F1EEE8;color:#6B6577}
-.p-hackernews{background:var(--coral-soft);color:#C2473F}
-.p-bilibili{background:#FFEAF3;color:#D6438B}
-.p-youtube{background:var(--coral-soft);color:#C2473F}
-.p-x,.p-openbb,.p-reddit,.p-telegram,.p-twitter,.p-google_news,.p-ossinsight,.p-gdelt,.p-arxiv{background:#EDF7E8;color:#4C8A3D}
-.p-default{background:#F1EEE8;color:#6B6577}
-
-/* ---------- research pane ---------- */
-.report{background:#FBFAF8;border:1px solid #F1EEE8;border-radius:16px;
-  padding:16px 18px;font-size:14px;min-height:120px}
-.report h1{font-size:17px;margin:2px 0 8px}
-.report h2{font-size:15px;margin:14px 0 6px;color:#4A4454}
-.report blockquote{border-left:4px solid var(--lilac);padding:2px 10px;
-  color:var(--muted);margin:6px 0;font-size:13px;background:var(--lilac-soft);
-  border-radius:0 10px 10px 0}
-.report ol{padding-left:22px;font-size:12.5px;color:#5C5666}
-.report code{font-family:var(--mono);font-size:12px;background:#F1EEE8;
-  padding:1px 6px;border-radius:6px}
-.askbar{display:flex;gap:8px;margin-top:12px}
-.askbar input{flex:1;border:2px solid #F0EDE7;border-radius:14px;padding:10px 14px;
-  outline:none;background:#FBFAF8;font-size:14px}
-.askbar input:focus{border-color:var(--coral)}
-/* per-round drafting: requests, editable sections, round timeline */
-.reqs{display:grid;gap:8px;margin-top:12px}
-.req{background:var(--lilac-soft);border:1px solid #E6DFF5;border-radius:14px;padding:10px 12px}
-.req b{font-size:13px}
-.req .kind{font-family:var(--mono);font-size:11px;color:#6B5B95;
-  background:#fff;border-radius:8px;padding:1px 7px;margin-right:6px}
-.req input{flex:1;border:2px solid #E6DFF5;border-radius:10px;padding:7px 10px;font-size:13px;outline:none}
-.req .row{display:flex;gap:6px;margin-top:8px}
-.secs{display:grid;gap:10px;margin-top:12px}
-.sec{border:1px solid #F1EEE8;border-radius:14px;padding:10px 12px;background:#FBFAF8}
-.sec.stale{border-color:#F0C9A6;background:#FFF8F1}
-.sec h4{margin:0;font-size:13px;display:flex;gap:8px;align-items:center}
-.sec .tag{font-family:var(--mono);font-size:10.5px;padding:1px 7px;border-radius:8px;background:#F1EEE8;color:#6B6577}
-.sec .tag.lock{background:#EDE7F8;color:#6B5B95}
-.sec .tag.st{background:#FFE9D6;color:#B4671F}
-.sec textarea{width:100%;box-sizing:border-box;margin-top:8px;border:2px solid #F0EDE7;
-  border-radius:10px;padding:8px 10px;font:13px/1.6 var(--mono);outline:none;background:#fff}
-.sec .row{display:flex;gap:6px;margin-top:8px;justify-content:flex-end}
-.rounds{margin-top:12px;font-size:12px;color:var(--muted);font-family:var(--mono)}
-.rounds div{padding:2px 0}
-.tabs{display:flex;gap:6px;flex-wrap:wrap;padding:0 16px 10px}
-.tab{font-size:12px;font-family:var(--mono);border-radius:999px;padding:5px 12px;
-  background:#F5F2EC;color:#6B6577;max-width:180px;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap}
-.tab.act{background:var(--ink);color:#fff}
-.hist{font-size:12.5px;color:var(--muted);margin:10px 2px 4px;font-family:var(--mono)}
-
-/* ---------- claims pane ---------- */
-.claim{border-radius:16px;padding:10px 12px;margin-bottom:8px;border:1px solid #F1EEE8;
-  background:#FBFAF8;cursor:pointer;transition:box-shadow .15s}
-.claim:hover{box-shadow:var(--shadow)}
-.claim .tx{font-size:13px;font-weight:600;line-height:1.5}
-.claim .meta{display:flex;gap:8px;align-items:center;margin-top:6px;
-  font-family:var(--mono);font-size:11px;color:var(--muted)}
-.v-supported{border-left:5px solid var(--mint)}
-.v-contested{border-left:5px solid var(--coral)}
-.v-unsupported{border-left:5px solid var(--muted)}
-.v-none{border-left:5px solid var(--sky)}
-.tag{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px}
-.t-supported{background:var(--mint-soft);color:#1F9E93}
-.t-contested{background:var(--coral-soft);color:#C2473F}
-.t-unsupported{background:#EFEEF2;color:#7A7484}
-.big-sources{font-family:var(--mono);font-weight:700;font-size:16px}
-.evi{margin-top:8px;font-size:12px;background:#fff;border:1px dashed #E6E2DA;
-  border-radius:12px;padding:8px 10px;display:none}
-.evi.open{display:block}
-
-.empty{color:var(--muted);font-size:13px;text-align:center;padding:26px 0}
-.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--lilac);
-  border-top-color:transparent;border-radius:50%;animation:sp 0.7s linear infinite;
-  vertical-align:-2px}
-@keyframes sp{to{transform:rotate(360deg)}}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
-  background:var(--ink);color:#fff;padding:10px 22px;border-radius:999px;
-  font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:9}
-.toast.show{opacity:.94}
-</style>
+<link rel="preload" href="/assets/fonts/NotoSansSC-VF.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/panel.css?v=f2144ba441">
+<link rel="stylesheet" href="/assets/gallery.css?v=23f46046b3">
+<script src="/assets/waterlight.js?v=7c60474690" defer></script>
 </head>
-<body>
-<header>
-  <div class="logo"><b>PERI</b>SCOPE<em>潜望镜</em></div>
-  <span id="aiBadge" class="badge off">AI 未连接</span>
-  <span id="collectBadge" class="badge off" style="display:none"></span>
-  <div class="spacer"></div>
-  <button class="btn btn-coral" id="collectBtn" title="立即采集一轮全源数据">🛰 采集</button>
-</header>
+<body data-ui-revision="waterlight-quiet-20">
+<div class="ambient-backdrop" id="ambientBackdrop" aria-hidden="true"><div class="ambient-fallback"></div><canvas class="ambient-canvas" id="ambientLight"></canvas></div>
 
-<div class="stats">
-  <div class="stat c1"><div class="n" id="nItems">–</div><div class="l">证据条目</div></div>
-  <div class="stat c2"><div class="n" id="nClaims">–</div><div class="l">核查声明</div></div>
-  <div class="stat c3"><div class="n" id="nMulti">–</div><div class="l">多源独立支撑</div></div>
-  <div class="stat c4"><div class="n" id="nSess">–</div><div class="l">研究会话</div></div>
+<svg class="svg-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+<symbol id="i-light" viewBox="0 0 24 24"><path d="M3 9c3-4 6 4 9 0s6 4 9 0M3 15c3-4 6 4 9 0s6 4 9 0"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"/></symbol>
+<symbol id="i-orbit" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><ellipse cx="12" cy="12" rx="11" ry="4.5" transform="rotate(-35 12 12)"/><circle cx="20" cy="5.5" r="1.5" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z"/><path d="m20 2 .7 1.3L22 4l-1.3.7L20 6l-.7-1.3L18 4l1.3-.7L20 2Z"/></symbol>
+<symbol id="i-library" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="4" height="16" rx="1"/><path d="m16 5 4-1 3 15-4 1-3-15ZM5 8h1m5 0h2M5 16h1m5 0h2"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9S4 17 4 12V6l8-3Z"/><path d="m8.5 12 2.3 2.3 4.7-4.7"/></symbol>
+<symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 8a8 8 0 1 0 0 8M20 3v5h-5"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M6 18 18 6M6 6h12v12"/></symbol>
+<symbol id="i-link" viewBox="0 0 24 24"><path d="m10 13 4-4m-6 6-2 2a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m4 2 2-2a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0" transform="translate(1 1)"/></symbol>
+<symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 4V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h6"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6.5h14M5 17.5h14"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M13 3H5v18h14V9l-6-6Zm0 0v6h6M8 13h8M8 17h5"/></symbol>
+<symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 1 1 4.5 2.6c-1.1.6-1.5.9-1.5 2.4M12 17h.01"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 10 6-10 6L2 9l10-6Zm-10 11 10 6 10-6M2 18l10 6 10-6" transform="translate(0 -1)"/></symbol>
+<symbol id="i-code" viewBox="0 0 24 24"><path d="m8 6-6 6 6 6m8-12 6 6-6 6m-3-15-2 18"/></symbol>
+</defs></svg>
+<a href="#workspace" class="skip-link" onfocus="this.style.left='20px'" onblur="this.style.left='-10000px'">跳到主要内容</a>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar" aria-label="工作空间导航">
+    <div class="brand"><div class="brand-mark"><svg class="icon"><use href="#i-orbit"/></svg></div><div><div class="brand-name">Periscope</div><div class="brand-caption">潜望镜</div></div></div>
+    <button class="new-research" id="newResearch"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>新建调查</button>
+
+    <nav class="nav" aria-label="主要功能">
+      <button class="nav-btn active" data-view="research" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>工作台<span class="nav-end">↗</span></button>
+      <button class="nav-btn" data-view="library"><svg class="icon" aria-hidden="true"><use href="#i-library"/></svg>资料库</button>
+      <button class="nav-btn" data-view="claims"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>核查台</button>
+      <button class="nav-btn" data-view="import"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>导入资料</button>
+    </nav>
+    <div class="history-heading"><span>最近调查</span><span id="historyCount">0</span></div>
+    <div class="tabs" id="tabs" aria-label="历史调查"><p class="history-empty">正在读取历史调查…</p></div>
+    <div class="sidebar-bottom"><div class="space-card"><svg class="icon" aria-hidden="true"><use href="#i-orbit"/></svg><strong><span class="local-dot"></span> 本地保存</strong></div><button class="guide-btn" id="guideBtn"><svg class="icon" aria-hidden="true"><use href="#i-help"/></svg>使用指南</button></div>
+  </aside>
+  <button class="sidebar-backdrop" id="sidebarBackdrop" aria-label="关闭导航" tabindex="-1"></button>
+  <main class="workspace" id="workspace" data-view="research" tabindex="-1">
+    <header class="topbar"><button class="menu-btn" id="menuBtn" aria-label="打开导航" aria-expanded="false" aria-controls="sidebar"><svg class="icon"><use href="#i-menu"/></svg></button><div class="breadcrumb"><svg class="icon" aria-hidden="true"><use href="#i-orbit"/></svg><span class="breadcrumb-root">我的工作空间</span><span class="breadcrumb-root">/</span><strong id="breadcrumbTitle">工作台</strong></div><div class="topbar-spacer"></div><button class="ambient-motion-toggle" id="ambientMotionToggle" aria-pressed="false" aria-label="暂停光影"><svg class="icon" aria-hidden="true"><use href="#i-pause"/></svg><span class="motion-label">暂停光影</span></button><span id="aiBadge" class="badge neutral">连接中</span><span id="collectBadge" class="badge on" style="display:none"></span><div class="header-divider"></div><button class="collect-btn" id="collectBtn" title="按当前信息源配置采集资料"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg><span id="collectLabel">采集</span></button></header>
+    <div class="page-content">
+      <div class="page-heading"><div><h1 id="pageTitle">调查工作台</h1><p id="pageSubtitle">检索已保存的资料，继续你的调查。</p></div><div class="workspace-label"><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg>个人研究空间</div></div>
+      <div class="service-notice" id="serviceNotice" role="status" hidden><span>暂时无法连接服务，已显示的内容会保留。</span><button id="retryConnection">重新连接</button></div>
+      <section class="stats" aria-label="资料空间概览" hidden>
+        <div class="stat c1"><div class="stat-top"><span>资料条目</span><span class="stat-icon"><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg></span></div><div class="n" id="nItems">—</div><div class="l">已保存到你的资料库</div></div>
+        <div class="stat c2"><div class="stat-top"><span>待核对的声明</span><span class="stat-icon"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg></span></div><div class="n" id="nClaims">—</div><div class="l">关联证据，追溯判断依据</div></div>
+        <div class="stat c3"><div class="stat-top"><span>多源支撑</span><span class="stat-icon"><svg class="icon" aria-hidden="true"><use href="#i-link"/></svg></span></div><div class="n" id="nMulti">—</div><div class="l">拥有多个独立来源的声明</div></div>
+        <div class="stat c4"><div class="stat-top"><span>调查会话</span><span class="stat-icon"><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg></span></div><div class="n" id="nSess">—</div><div class="l">让追问接着上一次发现</div></div>
+      </section>
+      <div class="work-grid" id="workGrid">
+        <section class="research-pane" id="researchPane" aria-label="调查与追问">
+          <div id="welcome">
+            <div class="hero" id="hero">
+              <div class="hero-content">
+
+                <h2>Periscope</h2>
+              </div>
+            </div>
+          </div>
+          <div class="results" id="results" hidden><div class="results-heading"><div class="results-kicker"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>当前调查</div><h2 id="researchTitle">调查结果</h2><div id="sessMeta" class="session-meta"></div></div><div id="report" class="report" aria-live="polite"></div><div id="requests" class="requests-wrap"></div><details class="detail-tools" id="draftTools"><summary>编辑与保存我的版本</summary><div id="sections"></div></details><details class="detail-tools" id="roundTools"><summary>查看调查记录</summary><div id="rounds" class="rounds"></div></details></div>
+          <div class="composer"><label for="ask" class="field-label" style="position:absolute;left:-10000px">调查问题或追问</label><textarea id="ask" rows="3" placeholder="你想了解什么？" aria-label="调查问题或追问"></textarea><div class="composer-footer"><span class="composer-context"><svg class="icon" aria-hidden="true"><use href="#i-library"/></svg>资料库</span><span class="composer-shortcut">Enter 发送 · Shift + Enter 换行</span><span class="composer-spacer"></span><button class="btn step-button" id="stepBtn" disabled title="继续当前调查的一轮取证或澄清">继续一轮</button><button class="btn btn-primary" id="askBtn">开始调查</button></div></div>
+          <p class="composer-note" id="composerNote" hidden>采集或导入更多资料，可以继续扩展调查。</p>
+          <div id="suggestionArea"><div class="suggestions"><button class="suggestion" data-prompt="围绕检索增强生成，已有资料讨论了哪些方法和局限？"><span class="suggestion-icon"><svg class="icon" aria-hidden="true"><use href="#i-file"/></svg></span><span class="arrow" aria-hidden="true"><svg class="icon"><use href="#i-arrow"/></svg></span><strong>论文调研</strong></button><button class="suggestion" data-prompt="开源大模型的本地部署有哪些选择？请比较推理成本与使用条件。"><span class="suggestion-icon"><svg class="icon" aria-hidden="true"><use href="#i-code"/></svg></span><span class="arrow" aria-hidden="true"><svg class="icon"><use href="#i-arrow"/></svg></span><strong>技术比较</strong></button><button class="suggestion" data-prompt="计算机考研择校时，已有资料中有哪些值得继续核实的信息？"><span class="suggestion-icon"><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg></span><span class="arrow" aria-hidden="true"><svg class="icon"><use href="#i-arrow"/></svg></span><strong>考研择校</strong></button></div></div>
+        </section>
+        <aside class="pane evidence-panel" id="evidencePanel" aria-label="已保存资料"><div class="pane-header"><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg><h2>资料库</h2><span class="count-badge" id="evidenceCount">—</span><span class="spacer"></span><button class="icon-btn" id="refreshItems" aria-label="刷新资料"><svg class="icon"><use href="#i-refresh"/></svg></button></div><div class="search"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input id="q" placeholder="搜索已保存的资料" aria-label="搜索已保存资料"><button id="clearSearch" class="clear-search" aria-label="清除搜索" title="清除搜索" hidden><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button><button id="qBtn">检索</button></div><div class="evidence-toolbar"><span><i></i><span id="evidenceLabel">最近保存</span></span></div><div class="body" id="items" aria-busy="false"><div class="empty"><span class="spin"></span><p>正在读取你的资料…</p></div></div></aside>
+      </div>
+      <section class="pane aux-view" id="claimsView" hidden><div class="aux-header"><div class="eyebrow">声明与证据</div><h2>声明核查</h2><div id="claimMeta" class="session-meta"></div></div><div class="aux-body" id="claims"><div class="empty"><span class="spin"></span><p>正在读取核查记录…</p></div></div></section>
+      <section class="pane aux-view" id="importView" hidden><div class="aux-header"><div class="eyebrow">扩展你的资料库</div><h2>导入资料</h2><p>粘贴 JSON 或选择文件。</p><div id="importMeta" class="session-meta"></div></div><div class="aux-body"><label for="importBox" class="field-label">JSON 内容</label><textarea id="importBox" class="import-box" spellcheck="false" placeholder='{"items":[{"title":"…","url":"…","content":"…","source_type":"discourse"}]}'></textarea><div class="import-actions"><label for="importFile" style="position:absolute;left:-10000px">选择 JSON 导出文件</label><input type="file" id="importFile" class="import-file" accept=".json,application/json"><button class="btn" id="importCheck">预检</button><button class="btn btn-coral" id="importRun">导入</button></div><p class="import-note">预检不会保存资料。</p><div id="importOut" class="import-result" aria-live="polite"></div></div></section>
+    </div>
+  </main>
 </div>
-
-<main>
-  <!-- 左：证据库 -->
-  <section class="pane">
-    <h2><span class="dot" style="background:var(--sky)"></span>证据库</h2>
-    <div class="search">
-      <input id="q" placeholder="全文检索（中英文皆可）…" />
-      <button id="qBtn">找</button>
-    </div>
-    <div class="body" id="items"><div class="empty">加载中…</div></div>
-  </section>
-
-  <!-- 中：研究会话 -->
-  <section class="pane" style="min-height:520px">
-    <h2><span class="dot" style="background:var(--lilac)"></span>研究报告 · 长时迭代
-      <span class="spacer"></span>
-      <span id="sessMeta" style="font-weight:400;font-size:12px;color:var(--muted);font-family:var(--mono)"></span>
-    </h2>
-    <div class="tabs" id="tabs"></div>
-    <div class="body">
-      <div id="report" class="report"><div class="empty">抛出一个问题，Periscope 会拆解子问题、检索证据库并生成带引用的研究报告；之后的追问会在同一会话上迭代。</div></div>
-      <div id="requests"></div>
-      <div id="sections"></div>
-      <div id="rounds" class="rounds"></div>
-      <div class="askbar">
-        <input id="ask" placeholder="例如：最近开源大模型领域有哪些发布？各自强调了什么能力？" />
-        <button class="btn btn-coral" id="askBtn">开始研究</button>
-        <button class="btn" id="stepBtn" title="只推进一轮：系统可能补证据、改范围、定稿，或反过来问你一个问题">推一轮</button>
-      </div>
-    </div>
-  </section>
-
-  <!-- 右：核查台 -->
-  <section class="pane">
-    <h2><span class="dot" style="background:var(--coral)"></span>正确性核查台
-      <span class="spacer"></span>
-      <span id="claimMeta" style="font-weight:400;font-size:12px;color:var(--muted);font-family:var(--mono)"></span>
-    </h2>
-    <div class="body" id="claims"><div class="empty">加载中…</div></div>
-  </section>
-
-  <!-- 下：导入导出的内容（spec §6.1 的降级通路，面板里唯一能让取不到的源进来的入口） -->
-  <section class="pane" style="grid-column:1/-1">
-    <h2><span class="dot" style="background:var(--sky)"></span>导入你导出的内容
-      <span class="spacer"></span>
-      <span id="importMeta" style="font-weight:400;font-size:12px;color:var(--muted);font-family:var(--mono)"></span>
-    </h2>
-    <div class="body">
-      <p style="margin:0 0 8px;color:var(--muted);font-size:13px">
-        登录墙或验证码挡住的源，用你自己的账号把内容导出来贴在这里 —— 层级由你声明，来源方式记为
-        <code>manual_export</code>（信任分打折，因为程序没有亲眼取到那一页）。<b>先「只校验」看收多少条，再「入库」。</b>
-      </p>
-      <textarea id="importBox" spellcheck="false" placeholder='{"items":[{"title":"…","url":"…","content":"…","source_type":"discourse"}]}'
-        style="width:100%;min-height:110px;font-family:var(--mono);font-size:12px;box-sizing:border-box;border:1px solid var(--coral-soft);border-radius:12px;padding:10px"></textarea>
-      <div class="askbar">
-        <input type="file" id="importFile" accept=".json,application/json" style="flex:1;font-size:12px;color:var(--muted)" />
-        <button class="btn" id="importCheck" title="走与入库完全相同的校验，什么都不写">只校验</button>
-        <button class="btn btn-coral" id="importRun">入库</button>
-      </div>
-      <div id="importOut"></div>
-    </div>
-  </section>
-</main>
-
-<div class="toast" id="toast"></div>
+<dialog class="guide-dialog" id="guideDialog" aria-labelledby="guideTitle"><button class="icon-btn guide-close" id="guideClose" aria-label="关闭使用指南"><svg class="icon"><use href="#i-close"/></svg></button><div class="aux-header"><div class="eyebrow">认识你的研究空间</div><h2 id="guideTitle">使用指南</h2></div><div class="aux-body"><h3>从一个问题开始</h3><p>在工作台输入问题，利用已保存资料开展调查。之后可以继续追问，也可以从左侧回到历史调查。</p><h3>把发现与出处放在一起</h3><p>资料库支持关键词检索，点击标题可查看原始来源。核查台可展开声明关联的证据。</p><h3>资料与模型各有状态</h3><p>连接模型后可获得模型辅助分析；模型未连接时，已有资料仍可检索，并使用基础研究流程。</p><h3>一些顺手的小操作</h3><p>Enter 发送问题，Shift + Enter 换行。Ctrl / ⌘ + K 打开资料检索。新建调查会保留已有会话。</p><button class="btn btn-coral" id="guideDone">开始探索</button></div></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 const $=s=>document.querySelector(s);
@@ -248,66 +101,163 @@ const api=async(p,body,method)=>{
   if(!r.ok) throw new Error(d.detail||r.statusText); return d;
 };
 const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600)};
-const pill=s=>`<span class="pill p-${esc(s)}">${esc(s)}</span>`;
+const pill=(source,label=source)=>`<span class="pill p-${esc(source)}">${esc(label)}</span>`;
 const dstr=s=>(s||'').slice(0,10);
+const icon=name=>`<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+const safeLink=value=>{try{const u=new URL(value);return /^(https?:)$/.test(u.protocol)?u.href:''}catch{return ''}};
+const emptyState=(symbol,title,description)=>`<div class="empty"><span class="empty-symbol">${icon(symbol)}</span><strong>${esc(title)}</strong><p>${esc(description)}</p></div>`;
+let researchBusy=false, sessionLoading=false, sessionRequest=0, itemRequest=0;
+const VIEW={
+  research:['工作台','调查工作台','检索已保存的资料，继续你的调查。'],
+  library:['资料库','已保存的资料','检索已经收集的内容，循着出处，找到下一条线索。'],
+  claims:['核查台','声明与证据','展开原始证据，理解支撑、分歧与尚待核实的部分。'],
+  import:['导入资料','导入你的资料','把已有内容带入资料库，让调查拥有更多线索。']
+};
+function closeNavigation(){
+  const restoreFocus=window.matchMedia('(max-width:860px)').matches&&$('#sidebar').contains(document.activeElement);
+  document.body.classList.remove('nav-open');$('#menuBtn').setAttribute('aria-expanded','false');
+  if(restoreFocus)$('#menuBtn').focus();
+}
+function setView(name){
+  if(!VIEW[name])return;
+  $('#workspace').dataset.view=name;
+  $('#breadcrumbTitle').textContent=VIEW[name][0];$('#pageTitle').textContent=VIEW[name][1];$('#pageSubtitle').textContent=VIEW[name][2];
+  $('#workGrid').hidden=!['research','library'].includes(name);
+  $('#workGrid').classList.toggle('library-mode',name==='library');
+  $('#researchPane').hidden=name!=='research';$('#evidencePanel').hidden=!['research','library'].includes(name);
+  $('#claimsView').hidden=name!=='claims';$('#importView').hidden=name!=='import';
+  document.querySelectorAll('.nav-btn').forEach(button=>{
+    const active=button.dataset.view===name;button.classList.toggle('active',active);
+    if(active)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');
+  });
+  closeNavigation();
+}
+function updateResearchControls(){
+  const locked=researchBusy||sessionLoading;
+  $('#askBtn').disabled=locked;$('#ask').disabled=locked;$('#newResearch').disabled=researchBusy;
+  $('#stepBtn').disabled=locked||!current;
+}
+function setResearchBusy(value){
+  researchBusy=value;updateResearchControls();
+}
+function resetResearch(){
+  if(researchBusy)return;
+  current=null;sessionRequest++;sessionLoading=false;updateResearchControls();setView('research');
+  $('#welcome').hidden=false;$('#results').hidden=true;$('#suggestionArea').hidden=false;
+  $('#ask').value='';$('#ask').style.height='';$('#ask').placeholder='你想了解什么？';
+  $('#askBtn').textContent='开始调查';$('#stepBtn').disabled=true;
+  $('#report').innerHTML='';$('#requests').innerHTML='';$('#sections').innerHTML='';$('#rounds').innerHTML='';
+  $('#sessMeta').textContent='';$('#composerNote').textContent='采集或导入更多资料，可以继续扩展调查。';
+  document.querySelectorAll('.tab').forEach(tab=>tab.classList.remove('act'));
+  $('#ask').focus();
+}
+document.querySelectorAll('.nav-btn').forEach(button=>button.onclick=()=>setView(button.dataset.view));
+$('#newResearch').onclick=resetResearch;
+$('#menuBtn').onclick=()=>{const open=document.body.classList.toggle('nav-open');$('#menuBtn').setAttribute('aria-expanded',String(open));if(open)$('#newResearch').focus()};
+$('#sidebarBackdrop').onclick=closeNavigation;
+window.matchMedia('(max-width:860px)').addEventListener('change',event=>{if(!event.matches)closeNavigation()});
+$('#guideBtn').onclick=()=>{closeNavigation();$('#guideDialog').showModal()};
+$('#guideClose').onclick=$('#guideDone').onclick=()=>$('#guideDialog').close();
+$('#guideDialog').addEventListener('click',event=>{if(event.target===$('#guideDialog')){const rect=event.target.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)event.target.close()}});
+document.querySelectorAll('.suggestion').forEach(button=>button.onclick=()=>{$('#ask').value=button.dataset.prompt;$('#ask').focus();$('#ask').dispatchEvent(new Event('input'))});
+document.addEventListener('keydown',event=>{
+  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){
+    if($('#guideDialog').open)return;event.preventDefault();setView('library');$('#q').focus();
+  }
+  if(event.key==='Escape'&&document.body.classList.contains('nav-open')){closeNavigation();$('#menuBtn').focus()}
+  if(event.key==='Tab'&&document.body.classList.contains('nav-open')){
+    const focusable=[...$('#sidebar').querySelectorAll('button:not(:disabled)')].filter(el=>el.getClientRects().length);
+    const first=focusable[0],last=focusable[focusable.length-1];
+    if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}
+    else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}
+  }
+});
 
 /* ---------------- 证据库 ---------------- */
-function renderItems(el,items){
-  if(!items.length){el.innerHTML='<div class="empty">没有匹配的证据</div>';return}
-  el.innerHTML=items.map(i=>`<div class="item">
-    <div class="t">${pill(i.source_type)}<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a></div>
-    <div class="s">${esc(i.snippet||'')}</div>
-    <div class="s" style="color:#B8B2C2">${esc(dstr(i.published_at))}</div>
-  </div>`).join('');
+function renderItems(el,items,query=''){
+  $('#evidenceCount').textContent=items.length;
+  $('#evidenceLabel').textContent=query?'“'+query+'” 的检索结果':'最近保存';
+  $('#evidenceLabel').title=$('#evidenceLabel').textContent;
+  if(!items.length){el.innerHTML=emptyState('search',query?'暂时没有匹配的资料':'还没有保存的资料',query?'试着缩短关键词，或换一个角度查找。':'采集或导入内容后，资料会出现在这里。');return}
+  const labels={rss:'订阅来源',v2ex:'社区讨论',discourse:'论坛讨论',github:'GitHub',hackernews:'Hacker News',bilibili:'B站',youtube:'YouTube',reddit:'Reddit',telegram:'Telegram'};
+  el.innerHTML=items.map(i=>{
+    const url=safeLink(i.url),title=esc(i.title||'未命名资料');
+    return `<article class="item"><div class="item-source">${pill(i.source_type||'source',labels[i.source_type]||i.source_type||'资料')}<time>${esc(dstr(i.published_at)||'日期未提供')}</time></div>
+      <div class="t">${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${title}</a>`:title}</div>
+      <div class="s">${esc(i.snippet||'此资料暂未提供内容摘要。')}</div>
+      <div class="item-footer"><span>${esc(i.author||i.publisher||'已保留来源')}</span>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">原文 ${icon('arrow')}</a>`:'<span>暂无外部链接</span>'}</div></article>`;
+  }).join('');
+}
+function setItemsBusy(busy){
+  $('#items').setAttribute('aria-busy',String(busy));
+  $('#qBtn').disabled=busy;$('#refreshItems').disabled=busy;
+  $('#qBtn').textContent=busy?'检索中':'检索';
 }
 async function loadItems(){
-  try{ renderItems($('#items'),(await api('/api/items?limit=40')).items); }
-  catch(e){ $('#items').innerHTML=`<div class="empty">${esc(e.message)}</div>`; }
+  const ticket=++itemRequest;
+  setItemsBusy(true);
+  try{const r=await api('/api/items?limit=40');if(ticket===itemRequest)renderItems($('#items'),r.items||[])}
+  catch(e){if(ticket===itemRequest)$('#items').innerHTML=emptyState('library','资料暂时无法读取',e.message)}
+  finally{if(ticket===itemRequest)setItemsBusy(false)}
 }
 async function doSearch(){
+  $('#clearSearch').hidden=!$('#q').value;
   const q=$('#q').value.trim(); if(!q) return loadItems();
-  try{ renderItems($('#items'),(await api('/api/search?q='+encodeURIComponent(q)+'&limit=30')).items); }
-  catch(e){ toast(e.message); }
+  const ticket=++itemRequest;setItemsBusy(true);
+  try{const r=await api('/api/search?q='+encodeURIComponent(q)+'&limit=30');if(ticket===itemRequest)renderItems($('#items'),r.items||[],q)}
+  catch(e){if(ticket===itemRequest)toast('检索未完成，已保留现有资料：'+e.message)}
+  finally{if(ticket===itemRequest)setItemsBusy(false)}
 }
+$('#q').addEventListener('input',()=>{
+  const empty=!$('#q').value.trim();$('#clearSearch').hidden=empty;
+  if(empty)loadItems();
+});
+$('#clearSearch').onclick=()=>{$('#q').value='';$('#clearSearch').hidden=true;$('#q').focus();loadItems()};
 $('#qBtn').onclick=doSearch;
-$('#q').addEventListener('keydown',e=>{if(e.key==='Enter')doSearch()});
+$('#q').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing)doSearch()});
+$('#refreshItems').onclick=doSearch;
 
 /* ---------------- 统计 ---------------- */
 async function loadStats(){
   try{
     const s=await api('/api/stats');
-    $('#nItems').textContent=s.corpus.items;
-    $('#nClaims').textContent=s.claims.claims??0;
-    $('#nMulti').textContent=s.claims.multi_source??0;
-    $('#nSess').textContent=s.research.sessions??0;
+    const number=n=>new Intl.NumberFormat('zh-CN').format(n??0);
+    $('#nItems').textContent=number(s.corpus.items);
+    $('#nClaims').textContent=number(s.claims.claims);
+    $('#nMulti').textContent=number(s.claims.multi_source);
+    $('#nSess').textContent=number(s.research.sessions);
     const b=$('#aiBadge');
-    b.textContent=s.ai_available?'AI 已连接 (Agnes)':'AI 未连接 · 降级运行';
+    b.textContent=s.ai_available?'模型已连接':'模型未连接';
     b.className='badge '+(s.ai_available?'on':'off');
-    if(s.collect.state==='running'){ $('#collectBadge').style.display='';
-      $('#collectBadge').textContent='采集中…'; $('#collectBadge').className='badge on'; }
-    else if(s.collect.state==='done'){ $('#collectBadge').style.display='none'; }
-    else if(s.collect.state==='error'){ toast('采集失败: '+s.collect.error); }
+    b.title=s.ai_available?'模型辅助分析可用':'已有资料仍可检索；连接模型后可使用模型辅助分析';
+    $('#serviceNotice').hidden=true;
+    updateCollection(s.collect||{state:'idle'});
     return s;
-  }catch(e){ return null }
+  }catch(e){$('#serviceNotice').hidden=false;$('#aiBadge').textContent='服务未连接';$('#aiBadge').className='badge off';return null}
 }
 
 /* ---------------- 采集 ---------------- */
-let poll=null;
+let poll=null,lastCollectState=null;
+function updateCollection(collect){
+  const running=collect.state==='running',previous=lastCollectState;
+  lastCollectState=collect.state;$('#collectBtn').disabled=running;
+  $('#collectLabel').textContent=running?'采集中…':'采集';
+  $('#collectBadge').style.display=running?'':'none';$('#collectBadge').textContent='后台采集中';
+  if(running&&!poll)poll=setInterval(loadStats,2500);
+  if(!running&&poll){clearInterval(poll);poll=null}
+  if(previous==='running'&&!running){
+    toast(collect.state==='done'?`资料已更新：新增 ${collect.fetched??0} 条`:'本次采集未完成，请稍后重试');
+    doSearch();loadClaims();loadSessions();
+  }
+}
 $('#collectBtn').onclick=async()=>{
   try{
-    await api('/api/collect',{});
-    toast('已开始采集（后台进行）');
     $('#collectBtn').disabled=true;
-    poll=setInterval(async()=>{
-      const s=await loadStats();
-      if(s && s.collect.state!=='running'){
-        clearInterval(poll); $('#collectBtn').disabled=false;
-        toast(s.collect.state==='done'?`采集完成：+${s.collect.fetched} 条`:'采集出错');
-        loadItems(); loadClaims(); loadSessions();
-      }
-    },4000);
-  }catch(e){ toast(e.message) }
+    await api('/api/collect',{});
+    updateCollection({state:'running'});toast('资料正在后台采集，你可以继续浏览。');await loadStats();
+  }catch(e){$('#collectBtn').disabled=false;toast(e.message)}
 };
+$('#retryConnection').onclick=()=>{loadStats();doSearch();loadClaims();loadSessions()};
 
 /* ---------------- 核查台 ---------------- */
 const V={supported:['支持','t-supported','v-supported'],contested:['存疑','t-contested','v-contested'],unsupported:['无支撑','t-unsupported','v-unsupported']};
@@ -318,7 +268,7 @@ async function loadClaims(){
     let list=r.claims, meta=r.stats;
     if(!list.length){ r=await api('/api/claims?status=linked&limit=30'); list=r.claims; }
     $('#claimMeta').textContent=`${meta.claims??0} 声明 · ${meta.multi_source??0} 多源`;
-    if(!list.length){ el.innerHTML='<div class="empty">还没有声明。配置 AI key 并采集后，声明会被提取、链接证据并评级。</div>'; return }
+    if(!list.length){ el.innerHTML=emptyState('shield','暂无核查记录','有可核查的声明后，会显示在这里。'); return }
     el.innerHTML=list.map(c=>{
       const v=V[c.verdict]||['待评','t-unsupported','v-none'];
       // A gate veto is not the model changing its mind. Without this the pane
@@ -328,21 +278,26 @@ async function loadClaims(){
         ?'<span class="tag v-none">可信度门否决 · 模型原判 supported</span>':'';
       const conf=c.confidence!=null&&c.verdict_source!=='trust_gate'
         ?`<span>· ${Math.round(c.confidence*100)}%</span>`:'';
-      return `<div class="claim ${v[2]}" data-id="${esc(c.id)}">
-        <div class="tx">${esc(c.text)}</div>
-        <div class="meta"><span class="tag ${v[1]}">${v[0]}</span>${gate}
+      return `<article class="claim ${v[2]}" data-id="${esc(c.id)}">
+        <button type="button" class="claim-toggle" aria-expanded="false" aria-controls="ev-${esc(c.id)}">
+        <span class="tx">${esc(c.text)}</span>
+        <span class="meta"><span class="tag ${v[1]}">${v[0]}</span>${gate}
           <span class="big-sources">${c.independent_sources}</span><span>独立源</span>
-          ${conf}</div>
-        <div class="evi" id="ev-${esc(c.id)}"></div></div>`;
+          ${conf}</span></button>
+        <div class="evi" id="ev-${esc(c.id)}"></div></article>`;
     }).join('');
-    el.querySelectorAll('.claim').forEach(node=>node.onclick=async()=>{
+    el.querySelectorAll('.claim').forEach(node=>node.querySelector('.claim-toggle').onclick=async()=>{
       const box=node.querySelector('.evi');
-      if(box.classList.contains('open')){box.classList.remove('open');return}
+      const toggle=node.querySelector('.claim-toggle');
+      if(box.classList.contains('open')){box.classList.remove('open');toggle.setAttribute('aria-expanded','false');return}
+      toggle.setAttribute('aria-expanded','true');
       box.innerHTML='<span class="spin"></span>'; box.classList.add('open');
       try{
         const d=await api('/api/claims/'+encodeURIComponent(node.dataset.id));
-        box.innerHTML=(d.evidence||[]).map(e=>
-          `<div>${pill(e.source_type)}<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a></div>`).join('')
+        box.innerHTML=(d.evidence||[]).map(e=>{
+          const url=safeLink(e.url);
+          return `<div>${pill(e.source_type)} ${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(e.title)}</a>`:esc(e.title)}</div>`;
+        }).join('')
           ||'<div style="color:var(--muted)">无证据记录</div>';
       }catch(err){ box.textContent=err.message }
     });
@@ -351,39 +306,95 @@ async function loadClaims(){
 
 /* ---------------- 研究 ---------------- */
 let current=null;
+function mdInline(text){
+  // Escape plain text and construct only the supported inline elements.
+  const pattern=/`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>]+)|\*\*([^*\n]+)\*\*|(?<![\w])_([^_\n]+)_(?![\w])/g;
+  let result='',last=0;
+  for(const match of text.matchAll(pattern)){
+    result+=esc(text.slice(last,match.index));
+    const [,code,label,link,raw,bold,emphasis]=match;
+    if(code!==undefined)result+=`<code>${esc(code)}</code>`;
+    else if(link||raw){
+      const url=safeLink(link||raw);
+      result+=url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label||raw)}</a>`:esc(match[0]);
+    }else if(bold!==undefined)result+=`<b>${mdInline(bold)}</b>`;
+    else result+=`<em>${esc(emphasis)}</em>`;
+    last=match.index+match[0].length;
+  }
+  return result+esc(text.slice(last));
+}
 function md2html(md){
-  // reports are Periscope-generated; escape first, then light markdown
-  let h=esc(md)
-    .replace(/^# (.*)$/gm,'<h1>$1</h1>').replace(/^## (.*)$/gm,'<h2>$1</h2>')
-    .replace(/^&gt; (.*)$/gm,'<blockquote>$1</blockquote>')
-    .replace(/\*\*(.+?)\*\*/g,'<b>$1</b>')
-    .replace(/`([^`]+)`/g,'<code>$1</code>')
-    .replace(/^(\d+)\. (.*)$/gm,'<li>$2</li>')
-    .replace(/(<li>[\s\S]*?<\/li>)(\n(?!<li>)|$)/g,'<ol>$1</ol>');
-  h=h.replace(/\[https?:\/\/[^\]]+\]/g,m=>m.slice(1,-1));
-  h=h.replace(/(https?:\/\/[^\s<)]+)/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
-  return h.replace(/\n{2,}/g,'<br><br>').replace(/^(?!<h|<bl|<ol|<li)([^\n<]+)/gm,'<p>$1</p>');
+  const lines=String(md??'').replace(/\r\n?/g,'\n').split('\n'),blocks=[];
+  const beginsBlock=line=>/^(#{1,3}\s|>\s?|```|(?:\d+\.|[-*])\s|---+\s*$)/.test(line);
+  let index=0;
+  while(index<lines.length){
+    const line=lines[index];
+    if(!line.trim()){index++;continue}
+    if(/^```/.test(line)){
+      const code=[];index++;
+      while(index<lines.length&&!/^```/.test(lines[index]))code.push(lines[index++]);
+      if(index<lines.length)index++;
+      blocks.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`);continue;
+    }
+    const heading=line.match(/^(#{1,3})\s+(.+)$/);
+    if(heading){blocks.push(`<h${heading[1].length}>${mdInline(heading[2])}</h${heading[1].length}>`);index++;continue}
+    if(/^---+\s*$/.test(line)){blocks.push('<hr>');index++;continue}
+    if(/^>\s?/.test(line)){
+      const quote=[];
+      while(index<lines.length&&/^>\s?/.test(lines[index]))quote.push(lines[index++].replace(/^>\s?/,''));
+      blocks.push(`<blockquote>${mdInline(quote.join('\n')).replace(/\n/g,'<br>')}</blockquote>`);continue;
+    }
+    const list=line.match(/^(\d+\.|[-*])\s+(.+)$/);
+    if(list){
+      const ordered=/\d/.test(list[1]),tag=ordered?'ol':'ul',entries=[];
+      const itemPattern=ordered?/^\d+\.\s+(.+)$/:/^[-*]\s+(.+)$/;
+      while(index<lines.length){const item=lines[index].match(itemPattern);if(!item)break;entries.push(`<li>${mdInline(item[1])}</li>`);index++}
+      blocks.push(`<${tag}>${entries.join('')}</${tag}>`);continue;
+    }
+    const paragraph=[line];index++;
+    while(index<lines.length&&lines[index].trim()&&!beginsBlock(lines[index]))paragraph.push(lines[index++]);
+    blocks.push(`<p>${mdInline(paragraph.join('\n')).replace(/\n/g,'<br>')}</p>`);
+  }
+  return blocks.join('\n');
 }
 async function showSession(id,scrollAsk){
-  current=id;
-  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('act',t.dataset.id===id));
+  const ticket=++sessionRequest;
+  sessionLoading=true;updateResearchControls();
+  try{
   const r=await api('/api/research/'+encodeURIComponent(id));
-  $('#report').innerHTML=md2html(r.report||'（空报告）');
-  $('#sessMeta').textContent=r.session.id+' · '+r.session.status;
+  if(ticket!==sessionRequest)return;
+  current=id;setView('research');
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('act',t.dataset.id===id));
+  $('#welcome').hidden=true;$('#results').hidden=false;$('#suggestionArea').hidden=true;
+  $('#researchTitle').textContent=r.session.question||'当前调查';
+  const report=String(r.report||'（空报告）');
+  const firstLine=report.split('\n')[0];
+  const duplicateTitle=firstLine.startsWith('# ')&&r.session.question&&firstLine.includes(r.session.question);
+  $('#report').innerHTML=md2html(duplicateTitle?report.slice(firstLine.length).trimStart():report);
+  const states={created:'已保存，等待开始',planning:'正在整理调查方向',investigating:'正在查阅资料',awaiting_user:'等待补充信息',drafting:'正在整理结果',reported:'本轮已完成，可继续追问',closed:'调查已结束'};
+  $('#sessMeta').textContent=states[r.session.status]||'调查已保存';
+  $('#ask').placeholder='沿着这次发现，你还想了解什么？';$('#askBtn').textContent='继续追问';
+  $('#stepBtn').disabled=researchBusy;
+  $('#composerNote').textContent='追问会接续当前调查；点击「新建调查」可开启另一条探索。';
   renderRounds(r.turns||[]);
   renderDraft(r.draft);
   renderRequests(r.pending_requests||[]);
   if(scrollAsk){ $('#ask').focus(); }
+  }finally{
+    if(ticket===sessionRequest){sessionLoading=false;updateResearchControls()}
+  }
 }
 const MOVE={askuser:'在等你回答',rescope:'改了范围',deepen:'补了证据',finalize:'已定稿'};
 function renderRounds(turns){
-  const rounds=turns.filter(t=>t.role!=='user');
-  $('#rounds').innerHTML=rounds.length
-    ? rounds.map((t,i)=>`<div>#${i+1} ${esc(t.role)} · ${esc((t.created_at||'').slice(0,19).replace('T',' '))}</div>`).join('')
+  $('#roundTools').hidden=!turns.length;
+  const role={user:'你的问题',report:'调查结果',assistant_question:'需要你补充'};
+  $('#rounds').innerHTML=turns.length
+    ? turns.map(t=>`<div class="round-entry${t.role==='user'?' user':''}"><strong>${esc(role[t.role]||'调查记录')}</strong><time>${esc((t.created_at||'').slice(0,16).replace('T',' '))}</time><p>${esc(String(t.content||'').slice(0,240))}${String(t.content||'').length>240?'…':''}</p></div>`).join('')
     : '';
 }
 function renderDraft(draft){
   const box=$('#sections');
+  $('#draftTools').hidden=!draft||!draft.sections||!draft.sections.length;
   if(!draft||!draft.sections||!draft.sections.length){ box.innerHTML=''; return; }
   box.innerHTML=`<div class="secs">`+draft.sections.map(s=>`
     <div class="sec${s.stale?' stale':''}" data-sid="${esc(s.id)}">
@@ -393,7 +404,7 @@ function renderDraft(draft){
         <span class="tag">rev ${draft.revision}</span>
         <span class="tag">${(s.evidence_ids||[]).length} 条证据</span>
       </h4>
-      <textarea rows="6">${esc(s.body)}</textarea>
+      <textarea rows="6" aria-label="编辑${esc(s.title)}">${esc(s.body)}</textarea>
       <div class="row"><button class="btn btn-coral save">保存为我的版本</button></div>
     </div>`).join('')+`</div>`;
   box.querySelectorAll('.sec').forEach(el=>{
@@ -412,11 +423,11 @@ function renderRequests(list){
   if(!list.length){ box.innerHTML=''; return; }
   box.innerHTML=`<div class="reqs">`+list.map(q=>`
     <div class="req" data-rid="${esc(q.id)}">
-      <div><span class="kind">${esc(q.kind)}</span><b>${esc((q.payload||{}).question||'需要你补充信息')}</b></div>
+      <div><span class="kind">${esc(q.kind)}</span><label for="answer-${esc(q.id)}" id="question-${esc(q.id)}"><b>${esc((q.payload||{}).question||'需要你补充信息')}</b></label></div>
       <div class="row">
-        <input placeholder="回答后这一轮会继续推进" />
-        <button class="btn btn-coral ans">回答</button>
-        <button class="btn skip">跳过</button>
+        <input id="answer-${esc(q.id)}" placeholder="回答后这一轮会继续推进" />
+        <button class="btn btn-coral ans" aria-label="回答：${esc((q.payload||{}).question||'需要你补充信息')}">回答</button>
+        <button class="btn skip" aria-label="跳过：${esc((q.payload||{}).question||'需要你补充信息')}">跳过</button>
       </div>
     </div>`).join('')+`</div>`;
   box.querySelectorAll('.req').forEach(el=>{
@@ -433,8 +444,9 @@ function renderRequests(list){
   });
 }
 async function stepRound(msg){
+  if(researchBusy||sessionLoading)return;
   const btn=$('#stepBtn'), old=btn.textContent;
-  btn.disabled=true; btn.innerHTML='<span class="spin"></span> 推进中';
+  setResearchBusy(true);btn.innerHTML='<span class="spin"></span> 推进中';
   try{
     const r=await api(`/api/research/${encodeURIComponent(current)}/step`,{message:msg||null});
     toast(`第 ${r.revision} 版 · ${MOVE[r.move]||r.move}`
@@ -444,14 +456,15 @@ async function stepRound(msg){
     await showSession(current);   /* the round just changed the draft and maybe opened a request */
     loadSessions(); loadStats();
   }catch(e){ toast(e.message) }
-  finally{ btn.disabled=false; btn.textContent=old }
+  finally{setResearchBusy(false);btn.textContent=old}
 }
 async function ask(kind){
+  if(researchBusy||sessionLoading)return;
   const box=$('#ask'), msg=box.value.trim();
   if(kind==='step'){ if(!current){ toast('先选一个会话'); return } await stepRound(msg); return }
-  if(!msg) return;
-  const btn=$('#askBtn'); const old=btn.textContent;
-  btn.disabled=true; btn.innerHTML='<span class="spin"></span> 思考中';
+  if(!msg){box.focus();return}
+  const btn=$('#askBtn');
+  setResearchBusy(true);btn.innerHTML='<span class="spin"></span> 正在调查';
   try{
     let r;
     if(kind==='start') r=await api('/api/research/start',{question:msg});
@@ -463,19 +476,24 @@ async function ask(kind){
     await showSession(r.session_id);
     loadSessions(); loadStats();
   }catch(e){ toast(e.message) }
-  finally{ btn.disabled=false; btn.textContent=old }
+  finally{setResearchBusy(false);btn.textContent=current?'继续追问':'开始调查';box.style.height=''}
 }
 $('#askBtn').onclick=()=>ask(current?'follow':'start');
-$('#ask').addEventListener('keydown',e=>{if(e.key==='Enter')ask(current?'follow':'start')});
+$('#ask').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();ask(current?'follow':'start')}});
+$('#ask').addEventListener('input',event=>{
+  const input=event.target,minHeight=parseFloat(getComputedStyle(input).minHeight)||100;
+  input.style.height='0px';input.style.height=Math.min(190,Math.max(minHeight,input.scrollHeight))+'px';
+});
 async function loadSessions(){
   try{
     const r=await api('/api/research?limit=12');
     const tabs=$('#tabs');
+    $('#historyCount').textContent=r.sessions.length;
     tabs.innerHTML=r.sessions.map(s=>
       `<button class="tab${s.id===current?' act':''}" data-id="${esc(s.id)}" title="${esc(s.question)}">${esc(s.question)}</button>`).join('');
-    tabs.querySelectorAll('.tab').forEach(t=>t.onclick=()=>showSession(t.dataset.id));
-    if(!current&&r.sessions.length){ showSession(r.sessions[0].id); }
-  }catch(e){ /* research disabled */ }
+    if(!r.sessions.length)tabs.innerHTML='<p class="history-empty">第一场调查，从你的问题开始。</p>';
+    tabs.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{if(researchBusy){toast('当前问题仍在处理中，请稍候再切换。');return}showSession(t.dataset.id).catch(e=>toast(e.message))});
+  }catch(e){$('#tabs').innerHTML='<p class="history-empty">历史调查暂时无法读取。</p>'}
 }
 $('#stepBtn').onclick=()=>ask('step');
 
@@ -493,19 +511,19 @@ async function doImport(dryRun){
   try{
     const r=await api('/api/import',payload);
     const bad=r.rejected||[];
-    $('#importMeta').textContent=`可读 ${r.items_total_seen} 条 · 有作者层 ${r.claimable_nonempty} 条`
+    $('#importMeta').textContent=`可读 ${r.items_total_seen} 条 · 有作者原文 ${r.claimable_nonempty} 条`
       + (r.dry_run?'（未写入）':` · 新入库 ${r.items_new}`);
-    box.innerHTML=`<div class="item"><div class="t">${r.dry_run?'校验结果':'已入库'}：${r.items_total_seen} 条可导入，${bad.length} 条不收</div>`
+    box.innerHTML=`<div class="item"><div class="t">${r.dry_run?'校验结果':'已入库'}：${r.items_total_seen} 条已检查，${bad.length} 条未通过</div>`
       +(bad.length?`<div class="s">${bad.map(b=>`第 ${(+b.index+1)} 条：${esc(b.reason)}`).join('<br>')}</div>`:'')
       +'</div>';
-    if(!r.dry_run){toast(`导入完成：新增 ${r.items_new} 条`); loadItems(); loadStats();}
-  }catch(e){box.innerHTML=`<div class="item"><div class="t">${esc(e.message)}</div></div>`;toast('没收：'+e.message)}
+    if(!r.dry_run){toast(`导入完成：新增 ${r.items_new} 条`); doSearch(); loadStats();}
+  }catch(e){box.innerHTML=`<div class="item"><div class="t">${esc(e.message)}</div></div>`;toast('导入未完成：'+e.message)}
 }
 $('#importCheck').onclick=()=>doImport(true);
 $('#importRun').onclick=()=>doImport(false);
 
 /* ---------------- boot ---------------- */
-loadStats(); loadItems(); loadClaims(); loadSessions();
+setView('research');loadStats(); loadItems(); loadClaims(); loadSessions();
 setInterval(()=>{loadStats();},15000);
 </script>
 </body>

@@ -9,34 +9,34 @@ from src.storage.manager import StorageManager, ConfigError, _expand_env_vars, s
 from src.models import AIConfig, Config
 from pydantic import ValidationError
 
-def test_load_config_missing_file(tmp_path):
-    storage = StorageManager(data_dir=str(tmp_path))
+def test_load_config_missing_file(scratch_path):
+    storage = StorageManager(data_dir=str(scratch_path))
     with pytest.raises(FileNotFoundError):
         storage.load_config()
 
-def test_load_config_invalid_json(tmp_path):
-    config_path = tmp_path / "config.json"
+def test_load_config_invalid_json(scratch_path):
+    config_path = scratch_path / "config.json"
     config_path.write_text("invalid json", encoding="utf-8")
     
-    storage = StorageManager(data_dir=str(tmp_path))
+    storage = StorageManager(data_dir=str(scratch_path))
     with pytest.raises(ConfigError) as excinfo:
         storage.load_config()
     assert "Invalid JSON in configuration file" in str(excinfo.value)
     assert str(config_path) in str(excinfo.value)
 
-def test_load_config_validation_failure(tmp_path):
-    config_path = tmp_path / "config.json"
+def test_load_config_validation_failure(scratch_path):
+    config_path = scratch_path / "config.json"
     # Missing required 'ai' and 'sources' fields
     config_path.write_text(json.dumps({}), encoding="utf-8")
     
-    storage = StorageManager(data_dir=str(tmp_path))
+    storage = StorageManager(data_dir=str(scratch_path))
     with pytest.raises(ConfigError) as excinfo:
         storage.load_config()
     assert "Configuration validation failed" in str(excinfo.value)
     assert str(config_path) in str(excinfo.value)
 
-def test_load_config_success(tmp_path):
-    config_path = tmp_path / "config.json"
+def test_load_config_success(scratch_path):
+    config_path = scratch_path / "config.json"
     config_data = {
         "ai": {
             "provider": "anthropic",
@@ -52,7 +52,7 @@ def test_load_config_success(tmp_path):
     }
     config_path.write_text(json.dumps(config_data), encoding="utf-8")
     
-    storage = StorageManager(data_dir=str(tmp_path))
+    storage = StorageManager(data_dir=str(scratch_path))
     config = storage.load_config()
     assert config.collection.time_window_hours == 24
     assert config.ai.provider == "anthropic"
@@ -80,20 +80,20 @@ def test_config_rejects_removed_top_level_fields(legacy_key, legacy_value):
         Config.model_validate(data)
 
 
-def test_custom_config_path_overrides_data_directory(tmp_path):
-    config_path = tmp_path / "config" / "custom.json"
+def test_custom_config_path_overrides_data_directory(scratch_path):
+    config_path = scratch_path / "config" / "custom.json"
     storage = StorageManager(
-        data_dir=str(tmp_path / "data"),
+        data_dir=str(scratch_path / "data"),
         config_path=str(config_path),
     )
 
     assert storage.config_path == config_path
 
 
-def test_save_config_creates_custom_config_parent(tmp_path):
-    config_path = tmp_path / "config" / "nested" / "custom.json"
+def test_save_config_creates_custom_config_parent(scratch_path):
+    config_path = scratch_path / "config" / "nested" / "custom.json"
     storage = StorageManager(
-        data_dir=str(tmp_path / "data"),
+        data_dir=str(scratch_path / "data"),
         config_path=str(config_path),
     )
     config = cast(Config, SimpleNamespace(model_dump=lambda mode: {"example": "value"}))
@@ -151,14 +151,14 @@ class TestExpandEnvVars:
         assert out["a"][1]["b"] == ["secret", 1]
 
 
-def test_load_config_expands_env_vars_in_ai_base_url(tmp_path, monkeypatch):
+def test_load_config_expands_env_vars_in_ai_base_url(scratch_path, monkeypatch):
     """Integration: proves base_url is env-expandable end-to-end.
 
     This is exactly the use case that keeps private/tenant endpoint
     URLs out of version control.
     """
     monkeypatch.setenv("PERISCOPE_AI_BASE_URL", "https://private-proxy.example/v1")
-    config_path = tmp_path / "config.json"
+    config_path = scratch_path / "config.json"
     config_path.write_text(json.dumps({
         "ai": {
             "provider": "openai",
@@ -170,7 +170,7 @@ def test_load_config_expands_env_vars_in_ai_base_url(tmp_path, monkeypatch):
         "collection": {"time_window_hours": 24},
     }), encoding="utf-8")
 
-    storage = StorageManager(data_dir=str(tmp_path))
+    storage = StorageManager(data_dir=str(scratch_path))
     config = storage.load_config()
     assert config.ai.base_url == "https://private-proxy.example/v1"
 
@@ -187,20 +187,20 @@ def test_ai_config_rejects_unsafe_language_codes(language):
         AIConfig(provider="openai", model="gpt-4o", api_key_env="OPENAI_API_KEY", languages=[language])
 
 
-def test_save_daily_summary_defensively_rejects_path_escape(tmp_path):
-    storage = StorageManager(data_dir=str(tmp_path / "data"))
+def test_save_daily_summary_defensively_rejects_path_escape(scratch_path):
+    storage = StorageManager(data_dir=str(scratch_path / "data"))
     with pytest.raises(ValueError, match="escapes intended root"):
         storage.save_daily_summary("2026-07-13", "secret", language="../../../../outside")
-    assert not (tmp_path / "outside.md").exists()
+    assert not (scratch_path / "outside.md").exists()
 
 
-def test_safe_output_path_rejects_escape_from_other_output_roots(tmp_path):
+def test_safe_output_path_rejects_escape_from_other_output_roots(scratch_path):
     with pytest.raises(ValueError, match="escapes intended root"):
-        safe_output_path(tmp_path / "docs" / "_posts", "../../../outside.md")
+        safe_output_path(scratch_path / "docs" / "_posts", "../../../outside.md")
 
 
-def test_save_daily_summary_replace_failure_preserves_destination(tmp_path, monkeypatch):
-    storage = StorageManager(data_dir=str(tmp_path))
+def test_save_daily_summary_replace_failure_preserves_destination(scratch_path, monkeypatch):
+    storage = StorageManager(data_dir=str(scratch_path))
     destination = storage.save_daily_summary("2026-07-13", "existing")
 
     def fail_replace(source, target):
@@ -215,18 +215,18 @@ def test_save_daily_summary_replace_failure_preserves_destination(tmp_path, monk
     assert list(destination.parent.glob(f".{destination.name}.*.tmp")) == []
 
 
-def test_save_subscribers_replace_failure_preserves_destination(tmp_path, monkeypatch):
-    storage = StorageManager(data_dir=str(tmp_path))
+def test_save_subscribers_replace_failure_preserves_destination(scratch_path, monkeypatch):
+    storage = StorageManager(data_dir=str(scratch_path))
 
     def fail_replace(source, target):
         raise OSError("replace failed")
 
     monkeypatch.setattr(file_utils.os, "replace", fail_replace)
 
-    subscribers_path = tmp_path / "subscribers.json"
+    subscribers_path = scratch_path / "subscribers.json"
     subscribers_path.write_text('["old"]', encoding="utf-8")
     with pytest.raises(OSError, match="replace failed"):
         storage._save_subscribers(["new"])
 
     assert subscribers_path.read_text(encoding="utf-8") == '["old"]'
-    assert list(tmp_path.glob(f".{subscribers_path.name}.*.tmp")) == []
+    assert list(scratch_path.glob(f".{subscribers_path.name}.*.tmp")) == []

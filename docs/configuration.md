@@ -819,6 +819,43 @@ guide mentioned.
 |---|---|---|
 | `PERISCOPE_PATH` | `src/mcp/pipeline_adapter.py` | Where the repository lives, used to locate the config and corpus when `periscope_path` is not passed to the tool. The MCP error `Periscope repository was not found. Pass periscope_path or set PERISCOPE_PATH.` refers to this. |
 | `PERISCOPE_MCP_SECRETS_PATH` | `src/mcp/pipeline_adapter.py` | Explicit path to the MCP secrets file. If it is set but the file is missing, the server fails with `PS_SECRETS_NOT_FOUND` rather than silently falling back. |
+| `PERISCOPE_SCRATCH_DIR` | `src/_scratch.py` | Where the evaluation harnesses and the test suite put throwaway files. Unset by default, in which case the repository-local `.periscope-scratch/` is used and the system temp folder is only a last resort. See [Scratch directories](#scratch-directories). |
+
+## Scratch directories
+
+The retrieval/multi-turn harnesses and the test suite need a writable directory for
+throwaway databases. `src/_scratch.py` decides where that is, and the rule is worth
+knowing because the obvious answer — "whatever the OS calls a temp folder" — is the one
+that breaks.
+
+Candidates are tried in order, and a candidate only counts once a probe file has been
+written **and** the directory listed (existence is not enough — see below):
+
+1. `PERISCOPE_SCRATCH_DIR`, if set;
+2. `.periscope-scratch/` inside the checkout;
+3. the system temp folder.
+
+The checkout comes before the system temp folder for a concrete reason: a run has already
+read its own source out of that tree, so it is the one location proven writable, whereas
+the temp folder is an untested assumption.
+
+**Why not just use `tempfile`.** Some confined runners hand a process a temp directory it
+cannot use at all: the directory is created, and then every read, write and
+`sqlite3.connect` inside it is refused. Nothing degrades gracefully there, because
+`TemporaryDirectory.__exit__` raises on cleanup — so a harness that did all its work
+correctly still exits non-zero and prints a traceback instead of its table. If no
+candidate is usable, `scratch_root()` raises `ScratchUnavailable` naming every path it
+tried and the reason each failed, rather than letting the error surface three frames down
+as `unable to open database file`.
+
+**`PERISCOPE_SCRATCH_DIR` is read as a constant, not a literal**, so the
+env-var guard test does not discover it automatically; this table is what keeps it
+documented.
+
+One limit worth stating: the test suite's own `scratch_path` fixture uses this helper, but
+pytest's built-in `tmp_path` still cannot be rescued by it in such an environment, because
+pytest provisions each test directory with `mkdir(mode=0o700)` and strips group/other bits
+from the base folder (`_pytest/tmpdir.py`). New tests should use `scratch_path`.
 
 ## Email Subscription
 

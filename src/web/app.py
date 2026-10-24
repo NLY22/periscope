@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import mimetypes
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -104,6 +106,10 @@ def create_app(orchestrator: Any) -> FastAPI:
     app.state.panel = state
 
     # ------------------------------------------------------------------ ui
+    # Some Windows registry mappings classify WOFF2 as text/plain.
+    mimetypes.add_type("font/woff2", ".woff2")
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")

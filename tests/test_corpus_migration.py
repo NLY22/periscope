@@ -40,8 +40,8 @@ def make(idx: str, **overrides) -> ContentItem:
     return ContentItem(**base)
 
 
-def test_schema_version_is_four(tmp_path: Path) -> None:
-    corpus = Corpus(tmp_path / "c.db")
+def test_schema_version_is_four(scratch_path: Path) -> None:
+    corpus = Corpus(scratch_path / "c.db")
     try:
         assert SCHEMA_VERSION == 4
         assert corpus._conn.execute("PRAGMA user_version").fetchone()[0] == 4
@@ -49,8 +49,8 @@ def test_schema_version_is_four(tmp_path: Path) -> None:
         corpus.close()
 
 
-def test_new_columns_exist_on_a_fresh_database(tmp_path: Path) -> None:
-    corpus = Corpus(tmp_path / "c.db")
+def test_new_columns_exist_on_a_fresh_database(scratch_path: Path) -> None:
+    corpus = Corpus(scratch_path / "c.db")
     try:
         cols = {r["name"] for r in corpus._conn.execute("PRAGMA table_info(items)")}
         assert {"locator", "time_basis", "sections_json"} <= cols
@@ -58,8 +58,8 @@ def test_new_columns_exist_on_a_fresh_database(tmp_path: Path) -> None:
         corpus.close()
 
 
-def test_add_items_writes_locator_time_basis_and_sections(tmp_path: Path) -> None:
-    corpus = Corpus(tmp_path / "c.db")
+def test_add_items_writes_locator_time_basis_and_sections(scratch_path: Path) -> None:
+    corpus = Corpus(scratch_path / "c.db")
     try:
         corpus.add_items([make("1", sections=[
             Section(tier="primary", text="the author says X"),
@@ -78,8 +78,8 @@ def test_add_items_writes_locator_time_basis_and_sections(tmp_path: Path) -> Non
         corpus.close()
 
 
-def test_url_less_item_is_stored_under_its_locator(tmp_path: Path) -> None:
-    corpus = Corpus(tmp_path / "c.db")
+def test_url_less_item_is_stored_under_its_locator(scratch_path: Path) -> None:
+    corpus = Corpus(scratch_path / "c.db")
     try:
         corpus.add_items([make("nourl", url=None, locator="xhs:note:abc")])
         row = corpus._conn.execute(
@@ -91,8 +91,8 @@ def test_url_less_item_is_stored_under_its_locator(tmp_path: Path) -> None:
         corpus.close()
 
 
-def test_time_basis_unknown_is_persisted(tmp_path: Path) -> None:
-    corpus = Corpus(tmp_path / "c.db")
+def test_time_basis_unknown_is_persisted(scratch_path: Path) -> None:
+    corpus = Corpus(scratch_path / "c.db")
     try:
         corpus.add_items([make("notime", published_at=None)])
         row = corpus._conn.execute(
@@ -104,8 +104,8 @@ def test_time_basis_unknown_is_persisted(tmp_path: Path) -> None:
         corpus.close()
 
 
-def test_v2_database_is_backfilled_without_losing_rows(tmp_path: Path) -> None:
-    path = tmp_path / "old.db"
+def test_v2_database_is_backfilled_without_losing_rows(scratch_path: Path) -> None:
+    path = scratch_path / "old.db"
     conn = sqlite3.connect(str(path))
     conn.executescript(V2_SCHEMA)
     conn.execute(
@@ -135,8 +135,8 @@ def test_v2_database_is_backfilled_without_losing_rows(tmp_path: Path) -> None:
         migrated.close()
 
 
-def test_migration_is_idempotent(tmp_path: Path) -> None:
-    path = tmp_path / "old.db"
+def test_migration_is_idempotent(scratch_path: Path) -> None:
+    path = scratch_path / "old.db"
     conn = sqlite3.connect(str(path))
     conn.executescript(V2_SCHEMA)
     conn.execute(
@@ -158,8 +158,8 @@ def test_migration_is_idempotent(tmp_path: Path) -> None:
         second.close()
 
 
-def test_row_to_dict_exposes_parsed_sections(tmp_path: Path) -> None:
-    corpus = Corpus(tmp_path / "c.db")
+def test_row_to_dict_exposes_parsed_sections(scratch_path: Path) -> None:
+    corpus = Corpus(scratch_path / "c.db")
     try:
         corpus.add_items([make("1", sections=[Section(tier="primary", text="x")])])
         rows = corpus.recent(limit=5)
@@ -169,8 +169,8 @@ def test_row_to_dict_exposes_parsed_sections(tmp_path: Path) -> None:
         corpus.close()
 
 
-def test_known_ids_reports_only_rows_already_stored(tmp_path: Path) -> None:
-    corpus = Corpus(tmp_path / "c.db")
+def test_known_ids_reports_only_rows_already_stored(scratch_path: Path) -> None:
+    corpus = Corpus(scratch_path / "c.db")
     try:
         corpus.add_items([make("1")])
         assert corpus.known_ids(["v3:1", "v3:2"]) == {"v3:1"}

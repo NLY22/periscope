@@ -4,6 +4,8 @@ import os
 import tempfile
 from pathlib import Path
 
+from periscope.runtime.files import replace_file
+
 
 def _atomic_write_text(path: Path, content: str) -> None:
     """Write text via a same-directory temporary file and atomic replacement."""
@@ -19,7 +21,7 @@ def _atomic_write_text(path: Path, content: str) -> None:
         ) as temp_file:
             temp_path = Path(temp_file.name)
             temp_file.write(content)
-        os.replace(temp_path, path)
+        replace_file(temp_path, path)
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)

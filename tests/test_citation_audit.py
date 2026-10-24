@@ -34,8 +34,8 @@ def item(idx: str, source: SourceType, title: str, content: str) -> ContentItem:
 
 
 @pytest.fixture()
-def corpus(tmp_path: Path) -> Corpus:
-    c = Corpus(tmp_path / "cite.db")
+def corpus(scratch_path: Path) -> Corpus:
+    c = Corpus(scratch_path / "cite.db")
     c.add_items(
         [
             item("real", SourceType.RSS, "真实报道", "OpenForge 完成 B 轮融资，估值 30 亿。"),

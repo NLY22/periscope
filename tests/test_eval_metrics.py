@@ -14,6 +14,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+from src._scratch import scratch_dir  # noqa: E402
 from src.corpus.metrics import (  # noqa: E402
     dcg,
     evaluate,
@@ -64,10 +65,20 @@ def test_evaluate_counts_a_missing_run_as_returning_nothing() -> None:
 
 # ------------------------------------------------------------------- harness
 @pytest.fixture(scope="module")
-def fixture_corpus(tmp_path_factory):
-    corpus = harness.build_corpus(tmp_path_factory.mktemp("eval"))
-    yield corpus
-    corpus.close()
+def fixture_corpus():
+    """The harness corpus, built once for this module.
+
+    Module-scoped, so it cannot take the per-test `scratch_path` fixture; it
+    reaches for the scratch root directly for the same reason the rest of the
+    suite uses that fixture - pytest's own temp factory is unusable in a
+    confined Windows runner (see `src/_scratch.py`).
+    """
+    with scratch_dir("test-eval-metrics-") as tmp:
+        corpus = harness.build_corpus(tmp)
+        try:
+            yield corpus
+        finally:
+            corpus.close()
 
 
 def test_fixture_has_distractors_not_only_answers(fixture_corpus) -> None:

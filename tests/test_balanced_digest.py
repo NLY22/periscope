@@ -257,7 +257,7 @@ def test_digest_config_rejects_invalid_values(kwargs) -> None:
         DigestConfig(**kwargs)
 
 
-def test_run_applies_balanced_digest_before_enrichment(tmp_path, monkeypatch) -> None:
+def test_run_applies_balanced_digest_before_enrichment(scratch_path, monkeypatch) -> None:
     config = Config(
         ai=AIConfig(
             provider="openai",
@@ -308,14 +308,14 @@ def test_run_applies_balanced_digest_before_enrichment(tmp_path, monkeypatch) ->
     monkeypatch.setattr(orchestrator, "merge_topic_duplicates", merge_topic_duplicates)
     monkeypatch.setattr(orchestrator, "_expand_twitter_discussion", expand_twitter_discussion)
     monkeypatch.setattr(orchestrator, "enrich_items", enrich_important_items)
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.chdir(scratch_path)
 
     asyncio.run(orchestrator.run())
 
     assert enriched_ids == ["ai"]
 
 
-def test_run_balances_after_twitter_reanalysis(tmp_path, monkeypatch) -> None:
+def test_run_balances_after_twitter_reanalysis(scratch_path, monkeypatch) -> None:
     config = Config(
         ai=AIConfig(
             provider="openai",
@@ -355,7 +355,7 @@ def test_run_balances_after_twitter_reanalysis(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(orchestrator, "merge_topic_duplicates", merge_topic_duplicates)
     monkeypatch.setattr(orchestrator, "_expand_twitter_discussion", expand_twitter_discussion)
     monkeypatch.setattr(orchestrator, "enrich_items", enrich_important_items)
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.chdir(scratch_path)
 
     asyncio.run(orchestrator.run())
 
