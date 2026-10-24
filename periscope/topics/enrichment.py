@@ -115,7 +115,10 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
 
     t0 = time.monotonic()
     def remaining_budget() -> float | None:
-        return None if budget_seconds is None else max(0.0, budget_seconds - (time.monotonic() - t0))
+        # Callers and diagnostics work in human-sized seconds; keep millisecond
+        # precision so a just-started enrichment does not turn 7 into 6.99999.
+        return (None if budget_seconds is None
+                else round(max(0.0, budget_seconds - (time.monotonic() - t0)), 3))
 
     patches: dict = {}
     if bili_targets:

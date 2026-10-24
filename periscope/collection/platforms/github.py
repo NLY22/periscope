@@ -195,10 +195,15 @@ async def fetch_discussion(
         }
         wait = None if deadline is None else max(0.0, deadline - time.monotonic())
         done, pending = await asyncio.wait(tasks, timeout=wait)
+        deadline_reached = deadline is not None and time.monotonic() >= deadline
         for task in pending:
             task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
+            coverage["truncated_by"].append("time_budget")
+        elif deadline_reached and "time_budget" not in coverage["truncated_by"]:
+            # A request may resolve on the same event-loop tick as the deadline;
+            # its page worker reports only a generic truncation in that case.
             coverage["truncated_by"].append("time_budget")
         results = {"issue": [], "review": []}
         has_more = False
