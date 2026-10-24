@@ -125,7 +125,7 @@ def test_topic_service_routes_github_pr_through_enrichment_and_keeps_raw_patch(m
     service = TopicService(
         local_lookup=lambda *_: ([], 0),
         api_lookup=lambda *_: ([], 0.0, ""),
-        platform_lookup=lambda *_args, **_kwargs: ([pull], {"elapsed": 0.01,
+        platform_lookup=lambda *_args, **_kwargs: ([pull], {"elapsed": 0.0,
                                                             "failed": [], "source_reports": []}),
         api_available=lambda: False,
     )

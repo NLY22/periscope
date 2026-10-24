@@ -21,6 +21,7 @@ def test_query_round_trip_keeps_comment_text_author_and_reply_parent(scratch_pat
            "discussion_url": "https://news.ycombinator.com/item?id=123",
            "discussion_coverage": {"status": "partial", "attempted_ids": 1,
                                    "reported_descendants": 12, "truncated_by": ["comment_limit"]},
+           "topic_detail": {"topic_id": "85405", "node": "python", "created_at": 1700000000},
            "provenance": {"source_key": "bili_search", "method": "http",
                           "observed_at": "2026-10-24T00:00:00+00:00"},
            "comments": [
@@ -65,6 +66,7 @@ def test_query_round_trip_keeps_comment_text_author_and_reply_parent(scratch_pat
         assert metadata["provenance"]["source_key"] == "bili_search"
         assert metadata["discussion_url"] == "https://news.ycombinator.com/item?id=123"
         assert metadata["discussion_coverage"]["status"] == "partial"
+        assert metadata["topic_detail"]["node"] == "python"
     finally:
         with_corpus.close()
 

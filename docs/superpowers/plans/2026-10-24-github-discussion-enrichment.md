@@ -28,7 +28,7 @@
 
 ### 4. Verify and document
 
-- [x] Focused collection and persistence suite: 30 tests passed.
+- [x] Focused collection and persistence suite: 35 tests passed, including V2EX integration.
 - [x] Full test suite after final code changes: `pytest -q` reached 100%, exit code 0.
 - [x] `py_compile` for changed collection, enrichment, service, and persistence modules.
 - [x] `git diff --check`.

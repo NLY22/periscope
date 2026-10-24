@@ -9,7 +9,8 @@ from src.corpus.sections import marker_sections_to_model
 
 
 _METADATA_FIELDS = ("provenance", "metrics", "ids", "published_text", "body_source_url",
-                    "sources", "document", "discussion_url", "discussion_coverage")
+                    "sources", "document", "discussion_url", "discussion_coverage",
+                    "topic_detail")
 _CHILD_FIELDS = ("comments", "replies", "children", "answers")
 
 

@@ -11,7 +11,7 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
                  budget_seconds: float | None = 30.0) -> tuple[list[dict], dict, dict]:
     """Fill in details, discussions, and transcripts for top-K eligible rows.
 
-    Eligible rows are B站 videos, HN stories, and GitHub issues / PRs. Plain top-K
+    Eligible rows are B站 videos, HN stories, GitHub issues / PRs, and V2EX topics. Plain top-K
     selection can contain no supported platform item, so the scan skips rows
     that cannot be enriched and spends its limit on the first eligible ones.
 
@@ -28,8 +28,9 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
     bili_targets = []
     hn_targets = []
     github_targets = []
+    v2ex_targets = []
     for row in merged:
-        if len(bili_targets) + len(hn_targets) + len(github_targets) >= k:
+        if len(bili_targets) + len(hn_targets) + len(github_targets) + len(v2ex_targets) >= k:
             break
         source = str(row.get("source") or "")
         ids = row.get("ids") or {}
@@ -47,17 +48,26 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
                                        match.group(4), match.group(3) == "pull",
                                        _row_key(row)))
             continue
+        if source == "v2ex_search":
+            match = re.match(r"^https?://(?:www\.)?v2ex\.com/t/(\d+)(?:[/?#].*)?$",
+                             str(row.get("url") or ""), re.IGNORECASE)
+            if match:
+                v2ex_targets.append((row, match.group(1), _row_key(row)))
+            continue
         bvid = ids.get("bvid")
         if not bvid and (row.get("url") or ""):
             match = re.search(r"(BV[0-9A-Za-z]{10})", row["url"])
             bvid = match.group(1) if match else None
         if bvid:
             bili_targets.append((row, bvid, _row_key(row)))
-    stat["targets"] = len(bili_targets) + len(hn_targets) + len(github_targets)
+    stat["targets"] = len(bili_targets) + len(hn_targets) + len(github_targets) + len(v2ex_targets)
     stat["discussion_targets"] = len(hn_targets)
     stat["github_discussion_targets"] = len(github_targets)
     stat["github_discussion_done"] = 0
     stat["github_discussion_partial"] = 0
+    stat["v2ex_discussion_targets"] = len(v2ex_targets)
+    stat["v2ex_discussion_done"] = 0
+    stat["v2ex_discussion_partial"] = 0
     if not stat["targets"]:
         return merged, stat, {}
 
@@ -161,6 +171,53 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
             stat["failed"].extend(
                 "github:%s/%s#%s:%s" % (owner, repo, number, error)
                 for error in coverage.get("errors", [])[:1])
+
+    if v2ex_targets:
+        try:
+            from periscope.collection.platforms import v2ex
+        except Exception as exc:  # noqa: BLE001
+            stat["failed"].append("v2ex:%s" % type(exc).__name__)
+            got = {}
+        else:
+            got = {}
+            for _row, topic_id, key in v2ex_targets:
+                remaining = remaining_budget()
+                if remaining == 0:
+                    got[key] = ({}, [], {"status": "partial", "fetched_replies": 0,
+                                         "truncated_by": ["time_budget"], "errors": []})
+                    continue
+                try:
+                    got[key] = asyncio.run(v2ex.fetch_discussion(
+                        topic_id, budget_seconds=remaining))
+                except Exception as exc:  # noqa: BLE001 - keep other rows usable
+                    stat["failed"].append("v2ex:%s:%s" % (topic_id, type(exc).__name__))
+
+        for row, topic_id, key in v2ex_targets:
+            result = got.get(key)
+            if result is None:
+                stat["failed"].append("v2ex:%s" % topic_id)
+                continue
+            detail, comments, coverage = result
+            patch = {"discussion_coverage": coverage}
+            if detail.get("text"):
+                patch["text"] = detail["text"]
+            if detail.get("author") and not row.get("author"):
+                patch["author"] = detail["author"]
+            topic_detail = {field: detail[field] for field in ("topic_id", "node", "created_at")
+                            if detail.get(field) not in (None, "")}
+            if topic_detail:
+                patch["topic_detail"] = topic_detail
+            if comments:
+                patch["comments"] = comments
+            row.update(patch)
+            if key:
+                patches[key] = patch
+            stat["v2ex_discussion_done"] += 1
+            stat["done"] += 1
+            if coverage.get("status") != "complete":
+                stat["v2ex_discussion_partial"] += 1
+            stat["failed"].extend("v2ex:%s:%s" % (topic_id, error)
+                                  for error in coverage.get("errors", [])[:1])
 
     stat["elapsed"] = time.monotonic() - t0
     return merged, stat, patches

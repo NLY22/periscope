@@ -24,7 +24,7 @@
 | B站 | 有（C/H） | 部分：搜索描述；可选详情富化有计数、字幕尝试 | 部分（C/H）：显式富化时最多取 10 条顶层评论的第一页 | 部分（C/H）：遍历接口已返回的嵌套回复；未见全量分页 | 部分：搜索有多页；评论固定第一页 | 未知：相同视频重采后的评论版本未验证 | 有：通用入库会保存评论/回复及来源 | H：搜索卡片 19,812 行，最长描述 335 字；另一运行中 1 条 B 站视频带 3 条评论、未见结构化回复。C：`platforms/bilibili.py`、`topics/enrichment.py`；评论富化需 `--enrich`。 |
 | 抖音 | 有（C/H） | 部分：搜索响应描述，最长截为 400 字；无详情读取 | 无（H） | 无（H） | 部分：搜索页滚动/响应监听；详情讨论未实现 | 未知 | 有：通用入库链可保存卡片 | H：317 行，最长 400 字，73 行与标题不同，14 行达到 400 字；没有评论数组。C：`platforms/douyin.py`。 |
 | 快手 | 有（C/H） | 部分：搜索响应文案，非详情正文 | 无（H） | 无（H） | 部分：搜索页滚动/响应监听；详情讨论未实现 | 未知 | 有：通用入库链可保存卡片 | H：60 行，最长 344 字，没有评论/回复数组。C：`platforms/kuaishou.py`。 |
-| V2EX | 有（C） | 部分：sov2ex 索引返回帖子内容，长度/完整度受索引结果限制 | 无（C） | 无（C） | 部分：offset 分页，配置最多 5 页；未验证增量重采 | 未知 | 有：可经通用入库并回查 | C：`catalog/community.py` `v2ex_search`；搜索内容可达约 1,200 字，但没有主题详情/回复链采集。 |
+| V2EX | 有（C） | 有（C/L）：按搜索结果主题 ID 读取公开 API 正文和作者 | 有（C/L）：按需读取主题回复，最多保存 60 条 | 无（C）：公开旧 API 返回平铺回复，没有 reply-to 字段；只记录回复属于哪个主题 | 部分（C/L）：回复接口最多保存 60 条；实测 `from/to` 参数返回超过请求范围的记录，适配器在本地截断并标记覆盖 | 未知：同主题补新和历史版本未实现 | 有（C）：主题正文、回复及覆盖状态走通用 community 入库 | C：`platforms/v2ex.py`；不要求 Token，单轮最多同时请求主题与回复接口并遵守预算。L：2026-10-24 匿名主题 1，正文 1,619 字符，API 返回 187 条、保留 5 条，按 `comment_limit` 标记 partial，2.063 秒，无错误。 |
 | GitHub | 有（C）：Issues/PR 搜索 | 部分：搜索对象带 issue/PR 正文，最多 1,200 字；未单独读取详情 | 有（C/L）：`--enrich` 按需取 issue 评论；PR 额外读取 review 评论 | 有（C）：PR 行内 review 回复按 `in_reply_to_id` 形成关系 | 部分（C/L）：每种评论最多 2 页、每页 30 条、合计最多保存 60 条；遵守 `--budget` 并标明截断 | 未知：评论补新与历史版本未实现 | 有（C）：讨论与覆盖状态进入通用 community 入库 | C：`platforms/github.py`；可选读取 `GITHUB_TOKEN`；覆盖 API 来源、条数和超时状态。L：2026-10-24 匿名公开 PR `facebook/react#1`，预算 8 秒，2.015 秒收到 11 条评论、保留 3 条，按 `comment_limit` 标为 partial，无错误。 |
 | Stack Overflow | 有（C）：Advanced Search | 部分：搜索 API 请求带 `withbody`，可取得题干片段；没有单独详情链路 | 无（C） | 无（C）：未取答案/评论关系 | 部分：每页 30、最多 3 页；实际覆盖待测 | 未知 | 有：可保存并按正文检索 | C：`extensions.py` `stackexchange_search`；answers 数量/题目元数据不等于答案正文。 |
 | Hacker News | 有（C）：故事与评论搜索 | 部分（C）：Algolia 搜索故事正文；`--enrich` 可回读官方 Firebase story 元数据 | 有（C/L）：`--enrich` 按 story ID 读取评论节点，最多 60 个节点／故事 | 有（C）：跟随 `kids` 最多 4 层，保留 `parent_id`；本次样本最高深度为 1 | 部分（C/L）：按官方树的子 ID 遍历，受 60 节点、4 层和 `--budget` 限制；单 story 样本实取 5/71 条，按节点上限正确标为 partial | 未知：同 story 重采后的评论版本未实现 | 有（C）：讨论树和覆盖状态进入分片及通用 community 入库路径，隔离 SQLite 回查已通过；未写入真实语料库 | C：`hn_ai` / `hn_ai_monthly` / `hn_cn` 搜索行保留 `objectID`；新增 `periscope/collection/platforms/hackernews.py` 读取官方 Firebase item 树。L：2026-10-24，公开 story 8863，预算 15 秒，实际 2.594 秒，尝试 5 个节点、取得 5 条、报告 71 条，`comment_limit` 截断，无错误。`hn_comments` 仍是独立评论搜索行。 |
@@ -70,6 +70,6 @@
 6. 小红书、抖音、快手的匿名探测都返回 0 卡片，适配器没有暴露具体原因；需要后续单独诊断登录状态、页面加载和选择器/响应结构。
 7. 本次结果是一次小样本观察，不代表持续成功率、全量覆盖或相对 Web Search API 的优势。
 
-> 2026-10-24 后续实现：HN 故事评论树与 GitHub issue/PR 讨论富化已接入 `--enrich`。隔离测试覆盖身份字段、回复树、限额、时限和 SQLite 回查。HN 与 GitHub 各有一次匿名公开样本；单样本不代表持续在线成功率或全量覆盖。
+> 2026-10-24 后续实现：HN 故事评论树、GitHub issue/PR 讨论和 V2EX 主题回复已接入 `--enrich`。隔离测试覆盖身份字段、回复关系、限额、时限和 SQLite 回查。三者均有一次匿名公开样本；单样本不代表持续在线成功率或全量覆盖。
 
 历史证据文件：`.periscope-scratch/platform-artifact-audit-20261019.json`、`.periscope-scratch/platform-run-audit-20261019.json`。这些是 2026-10-19 的本地产物检查，不代表 2026-10-24 的在线成功率。

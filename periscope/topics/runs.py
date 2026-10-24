@@ -51,7 +51,7 @@ def _row_for_disk(row: Dict[str, Any], layer: str) -> Dict[str, Any]:
         "kind", "provenance", "body_source_url", "sources", "published_text", "document",
         # fields a collector adds once enrichment exists
         "cid", "bvid", "aid", "metrics", "transcript", "comments", "replies", "answers", "ids",
-        "discussion_coverage",
+        "discussion_coverage", "topic_detail",
     )
     out = {k: row[k] for k in keep if k in row}
     # An empty metrics dict is not data. Keeping it would make every platform
@@ -59,7 +59,7 @@ def _row_for_disk(row: Dict[str, Any], layer: str) -> Dict[str, Any]:
     # point of this file -- would report 344/344 instead of the 47 that were
     # actually measured.
     for name in ("metrics", "ids", "transcript", "comments", "replies", "answers",
-                 "discussion_coverage"):
+                 "discussion_coverage", "topic_detail"):
         if not out.get(name):
             out.pop(name, None)
     out["_layer"] = layer

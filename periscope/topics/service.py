@@ -43,7 +43,7 @@ class TopicService:
                 result.notes.append("--save 在此路径下无事可做：本地行本来就在库里"
                                     "（用 --ingest-last 或去掉 --cached-only 才需要入库）")
         else:
-            api_succeeded = self._gather(request, result, breakdown)
+            api_succeeded, platform_elapsed = self._gather(request, result, breakdown)
             crawl_seeds = request.crawl_seeds
             if request.crawl and not crawl_seeds:
                 from periscope.collection.crawling.engine import select_seeds
@@ -68,13 +68,14 @@ class TopicService:
             if request.speed == "off" and not crawl_seeds:
                 result.notes.append("平台采集已关闭（--speed off），只有本地与 API 两层")
             if request.enrich:
-                self._enrich(request, result, breakdown)
+                remaining_budget = None if request.budget == 0 else max(0.0, request.budget - platform_elapsed)
+                self._enrich(request, result, breakdown, budget_seconds=remaining_budget)
 
         result.elapsed = time.monotonic() - started
         result.breakdown = " · ".join(breakdown)
         return result
 
-    def _gather(self, request: TopicRequest, result: TopicResult, breakdown: list[str]) -> bool:
+    def _gather(self, request: TopicRequest, result: TopicResult, breakdown: list[str]) -> tuple[bool, float]:
         api_succeeded = False
         if not request.no_api:
             if not self.api_available():
@@ -88,12 +89,13 @@ class TopicService:
                     api_succeeded = True
                     breakdown.append("API %d 条/%d 问法/%.1fs" % (len(result.api_rows), max(depth, 1), elapsed))
         if request.speed == "off":
-            return api_succeeded
+            return api_succeeded, 0.0
         options = {}
         if request.coverage != "focused" or request.sources or request.source_kinds or request.sources_file:
             options = {"coverage": request.coverage, "sources": request.sources,
                        "kinds": request.source_kinds, "sources_file": request.sources_file}
         result.platform_rows, stat = self.platform_lookup(result.topic, request.speed, request.budget, **options)
+        platform_elapsed = float(stat.get("elapsed") or 0.0)
         result.source_reports = stat.get("source_reports", [])
         breakdown.append("平台 %d 条/%.1fs" % (len(result.platform_rows), stat["elapsed"]))
         if stat["failed"]:
@@ -104,13 +106,14 @@ class TopicService:
         if request.coverage == "focused" and request.speed == SPEED_FAST:
             result.notes.append("平台用快速模式（12 源 1 页）。"
                                 "--normal 更全(26s)，--deep 含小红书/抖音(60s+)")
-        return api_succeeded
+        return api_succeeded, platform_elapsed
 
-    def _enrich(self, request: TopicRequest, result: TopicResult, breakdown: list[str]) -> None:
+    def _enrich(self, request: TopicRequest, result: TopicResult, breakdown: list[str], *,
+                budget_seconds: float | None) -> None:
         if self.enrich_lookup is _enrich_topk:
             result.merged, stat, patches = self.enrich_lookup(
                 result.merged, k=max(1, request.limit),
-                budget_seconds=None if request.budget == 0 else request.budget)
+                budget_seconds=budget_seconds)
         else:
             # Preserve the original injected callback contract for embedders.
             result.merged, stat, patches = self.enrich_lookup(
@@ -131,6 +134,12 @@ class TopicService:
         if stat.get("github_discussion_partial"):
             result.notes.append("%d 条 GitHub 讨论达到条数、分页或时间上限；覆盖详情随分片保存"
                                 % stat["github_discussion_partial"])
+        if stat.get("v2ex_discussion_targets"):
+            breakdown.append("V2EX 回复 %d/%d 条" % (
+                stat.get("v2ex_discussion_done", 0), stat["v2ex_discussion_targets"]))
+        if stat.get("v2ex_discussion_partial"):
+            result.notes.append("%d 条 V2EX 回复达到条数或时间上限；平台不提供回复间的父子关系"
+                                % stat["v2ex_discussion_partial"])
         if stat["failed"]:
             result.notes.append("富化失败: %s" % ", ".join(stat["failed"][:3]))
         if stat["no_transcript"]:

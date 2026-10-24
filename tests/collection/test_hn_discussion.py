@@ -256,7 +256,7 @@ def test_topic_service_routes_hn_rows_through_enrichment_and_keeps_raw_patch(mon
     service = TopicService(
         local_lookup=lambda *_: ([], 0),
         api_lookup=lambda *_: ([], 0.0, ""),
-        platform_lookup=lambda *_args, **_kwargs: ([story], {"elapsed": 0.01, "failed": [],
+        platform_lookup=lambda *_args, **_kwargs: ([story], {"elapsed": 0.0, "failed": [],
                                                             "source_reports": []}),
         api_available=lambda: False,
     )

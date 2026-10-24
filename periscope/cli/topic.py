@@ -61,13 +61,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="用几种问法查 API（0 = 按 --speed 自动：fast 3 / "
                          "normal 5 / deep 7；1 = 旧的单次查询）")
     ap.add_argument("--budget", type=float, default=30.0,
-                    help="直采总预算（秒）；HN 评论树补采另以该值为上限，0 表示不限")
+                    help="直采总预算（秒）；HN、GitHub、V2EX 讨论补采使用剩余预算，0 表示不限")
     ap.add_argument("--json", default="")
     ap.add_argument("--out", default="")
     ap.add_argument("--save", action="store_true",
                     help="采集后立即入库（默认只落分片，不写库）")
     ap.add_argument("--enrich", action="store_true",
-                    help="对前 --limit 条补平台详情（B站互动/评论/字幕、HN 评论树）")
+                    help="对前 --limit 条补平台详情（B站、HN、GitHub、V2EX）")
     ap.add_argument("--ingest-last", action="store_true",
                     help="把最近一次分片入库，不重新查询")
     ap.add_argument("--no-shard", action="store_true",
