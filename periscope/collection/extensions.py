@@ -17,6 +17,7 @@ EXTRA_SOURCES = (
            "community", items_path="items", title="title", url_field="link",
            date_field="creation_date", author_field="owner.display_name", text_field="body",
            queries=("",), query_param="query", page_param="page", per_page=30,
+           id_fields=("question_id",),
            max_pages=3, min_interval=1.0, metrics=("score", "answer_count", "view_count")),
     Source("hf_model_search", "Hugging Face 模型检索", "https://huggingface.co/api/models?search={query}&limit={per_page}&full=true",
            "community", title="id", url_field="id", date_field="lastModified",

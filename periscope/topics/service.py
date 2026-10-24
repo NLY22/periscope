@@ -140,6 +140,12 @@ class TopicService:
         if stat.get("v2ex_discussion_partial"):
             result.notes.append("%d 条 V2EX 回复达到条数或时间上限；平台不提供回复间的父子关系"
                                 % stat["v2ex_discussion_partial"])
+        if stat.get("stack_discussion_targets"):
+            breakdown.append("Stack Overflow 答案与评论 %d/%d 条" % (
+                stat.get("stack_discussion_done", 0), stat["stack_discussion_targets"]))
+        if stat.get("stack_discussion_partial"):
+            result.notes.append("%d 条 Stack Overflow 讨论达到答案、评论或时间上限；覆盖详情随分片保存"
+                                % stat["stack_discussion_partial"])
         if stat["failed"]:
             result.notes.append("富化失败: %s" % ", ".join(stat["failed"][:3]))
         if stat["no_transcript"]:

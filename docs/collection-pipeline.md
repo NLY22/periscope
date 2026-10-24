@@ -10,7 +10,7 @@
   → 可选搜索 API
   → 按来源条件并发 HTTP 采集
   → deep 模式按需调用平台浏览器
-  → 可选网页 / 文本 PDF 爬取、视频文字与 HN / GitHub / V2EX 讨论富化
+  → 可选网页 / 文本 PDF 爬取、视频文字与 HN / GitHub / V2EX / Stack Overflow 讨论富化
   → 合并展示，并由 CLI 保存原始查询记录
   → --save / 显式导入
   → 作者正文与社区讨论分层
@@ -21,7 +21,7 @@
 
 `TopicService.search()` 负责单轮组合，CLI 负责保存查询记录和显式入库；直接调用服务方法并不自动持久化。网页与 MCP 仍使用既有研究编排，尚未完整接入新版话题采集。
 
-`--enrich` 可对 HN story 搜索结果按 `objectID` 跟进 Firebase 评论树，可读取 GitHub issue 评论和 PR 行内 review 评论，也可将 V2EX 搜索结果跟进到主题正文和回复。HN 每条故事最多 60 个评论节点、向下 4 层；GitHub 每个 issue/PR 最多保存 60 条讨论，评论页最多 2 页；V2EX 每个主题最多保存 60 条回复。V2EX 公开 API 返回平铺回复，没有回复间的父子关系。三类富化使用剩余 `--budget` 并保留已取得的部分内容，每条记录带覆盖状态和截断原因。三者各做过一次匿名公开探测；单样本不能代表持续在线成功率或全量覆盖。
+`--enrich` 可对 HN story 搜索结果按 `objectID` 跟进 Firebase 评论树，可读取 GitHub issue 评论和 PR 行内 review 评论，将 V2EX 搜索结果跟进到主题正文和回复，也能读取 Stack Overflow 题目正文、热门答案及题目／答案评论。HN 每条故事最多 60 个评论节点、向下 4 层；GitHub 每个 issue/PR 最多保存 60 条讨论，评论页最多 2 页；V2EX 每个主题最多保存 60 条回复；Stack Overflow 每题最多 10 个答案、60 条评论。V2EX 公开 API 返回平铺回复；Stack Overflow 评论可以指向用户，但 API 不提供评论之间的父子 ID。四类富化使用剩余 `--budget` 并保留已取得的部分内容，每条记录带覆盖状态和截断原因。四者各做过一次匿名公开探测；单样本不能代表持续在线成功率或全量覆盖。
 
 ## 本轮已修正
 

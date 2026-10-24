@@ -68,7 +68,7 @@
 
 ### Task 4: Verify implementation
 
-- [x] Run focused adapter, TopicService, GitHub/V2EX integration, and persistence tests: 35 passed.
+- [x] Run focused adapter, TopicService, GitHub/V2EX/Stack Overflow integration, and persistence tests: 40 passed.
 - [x] Run the full test suite after platform enrichment changes: `pytest -q` reached 100%, exit code 0.
 - [x] Run one anonymous public probe on HN story 8863, capped at 5 nodes; 5/71 reported comments fetched in 2.594 seconds, `comment_limit`, no errors. Output recorded as counts only.
 

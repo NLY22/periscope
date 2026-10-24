@@ -26,6 +26,6 @@
 
 - [x] Run anonymous topic 1 probe capped at 5 replies: body 1,619 characters, API returned 187 entries, 5 saved, `comment_limit`, 2.063 seconds, no errors. Output contains counts only.
 - [x] Update the platform matrix and collection-pipeline documentation.
-- [x] Run focused V2EX, GitHub, HN, and persistence regressions: 35 tests passed.
+- [x] Run focused V2EX, GitHub, HN, Stack Overflow, and persistence regressions: 40 tests passed.
 - [x] Full project suite after final edits: `pytest -q` reached 100%, exit code 0.
 - [x] Run `py_compile` and `git diff --check`.

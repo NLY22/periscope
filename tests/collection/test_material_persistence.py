@@ -22,6 +22,7 @@ def test_query_round_trip_keeps_comment_text_author_and_reply_parent(scratch_pat
            "discussion_coverage": {"status": "partial", "attempted_ids": 1,
                                    "reported_descendants": 12, "truncated_by": ["comment_limit"]},
            "topic_detail": {"topic_id": "85405", "node": "python", "created_at": 1700000000},
+           "question_detail": {"accepted_answer_id": 77, "tags": ["python"]},
            "provenance": {"source_key": "bili_search", "method": "http",
                           "observed_at": "2026-10-24T00:00:00+00:00"},
            "comments": [
@@ -32,6 +33,15 @@ def test_query_round_trip_keeps_comment_text_author_and_reply_parent(scratch_pat
                {"id": "31", "user": "Reviewer", "text": "inline reviewneedle",
                 "discussion_type": "review", "path": "src/main.py", "line": 12,
                 "url": "https://github.com/org/project/pull/7#discussion_r31"}]}
+    row["answers"] = [{"id": "77", "user": "Solver", "text": "stackanswerneedle",
+                        "parent_id": "85405", "url": "https://stackoverflow.com/a/77",
+                        "replies": [{"id": "88", "user": "Reader", "text": "stackcommentneedle",
+                                     "parent_id": "77", "discussion_type": "answer",
+                                     "reply_to_user": "Solver",
+                                     "url": "https://stackoverflow.com/questions/85405#comment88_77"}]}]
+    row["comments"].append({"id": "89", "user": "Reader", "text": "stackquestioncommentneedle",
+                            "parent_id": "85405", "discussion_type": "question",
+                            "url": "https://stackoverflow.com/questions/85405#comment89_85405"})
     path = runs.write("investigation", [row])
     converted = runs.ingestable_rows(runs.read(path))
     items, skipped = ingest.build(converted, [])
@@ -67,6 +77,15 @@ def test_query_round_trip_keeps_comment_text_author_and_reply_parent(scratch_pat
         assert metadata["discussion_url"] == "https://news.ycombinator.com/item?id=123"
         assert metadata["discussion_coverage"]["status"] == "partial"
         assert metadata["topic_detail"]["node"] == "python"
+        assert metadata["question_detail"]["accepted_answer_id"] == 77
+        assert len(with_corpus.search("stackanswerneedle")) == 1
+        assert not with_corpus.search("stackanswerneedle", tier="claimable")
+        answer = next(s for s in sections if "stackanswerneedle" in s["text"])
+        assert answer["meta"]["parent_id"] == "85405"
+        answer_comment = next(s for s in sections if "stackcommentneedle" in s["text"])
+        assert answer_comment["meta"]["parent_id"] == "77"
+        assert answer_comment["meta"]["reply_to_user"] == "Solver"
+        assert answer_comment["locator"].endswith("comment88_77")
     finally:
         with_corpus.close()
 

@@ -11,7 +11,7 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
                  budget_seconds: float | None = 30.0) -> tuple[list[dict], dict, dict]:
     """Fill in details, discussions, and transcripts for top-K eligible rows.
 
-    Eligible rows are B站 videos, HN stories, GitHub issues / PRs, and V2EX topics. Plain top-K
+    Eligible rows are B站 videos, HN stories, GitHub issues / PRs, V2EX topics, and Stack Overflow questions. Plain top-K
     selection can contain no supported platform item, so the scan skips rows
     that cannot be enriched and spends its limit on the first eligible ones.
 
@@ -29,8 +29,10 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
     hn_targets = []
     github_targets = []
     v2ex_targets = []
+    stack_targets = []
     for row in merged:
-        if len(bili_targets) + len(hn_targets) + len(github_targets) + len(v2ex_targets) >= k:
+        if (len(bili_targets) + len(hn_targets) + len(github_targets)
+                + len(v2ex_targets) + len(stack_targets) >= k):
             break
         source = str(row.get("source") or "")
         ids = row.get("ids") or {}
@@ -54,13 +56,22 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
             if match:
                 v2ex_targets.append((row, match.group(1), _row_key(row)))
             continue
+        if source == "stackexchange_search":
+            match = re.match(
+                r"^https?://(?:www\.)?stackoverflow\.com/questions/(\d+)(?:[/?#].*)?$",
+                str(row.get("url") or ""), re.IGNORECASE)
+            question_id = (ids.get("question_id") or (match.group(1) if match else ""))
+            if str(question_id).isdigit():
+                stack_targets.append((row, str(question_id), _row_key(row)))
+            continue
         bvid = ids.get("bvid")
         if not bvid and (row.get("url") or ""):
             match = re.search(r"(BV[0-9A-Za-z]{10})", row["url"])
             bvid = match.group(1) if match else None
         if bvid:
             bili_targets.append((row, bvid, _row_key(row)))
-    stat["targets"] = len(bili_targets) + len(hn_targets) + len(github_targets) + len(v2ex_targets)
+    stat["targets"] = (len(bili_targets) + len(hn_targets) + len(github_targets)
+                        + len(v2ex_targets) + len(stack_targets))
     stat["discussion_targets"] = len(hn_targets)
     stat["github_discussion_targets"] = len(github_targets)
     stat["github_discussion_done"] = 0
@@ -68,6 +79,9 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
     stat["v2ex_discussion_targets"] = len(v2ex_targets)
     stat["v2ex_discussion_done"] = 0
     stat["v2ex_discussion_partial"] = 0
+    stat["stack_discussion_targets"] = len(stack_targets)
+    stat["stack_discussion_done"] = 0
+    stat["stack_discussion_partial"] = 0
     if not stat["targets"]:
         return merged, stat, {}
 
@@ -217,6 +231,56 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
             if coverage.get("status") != "complete":
                 stat["v2ex_discussion_partial"] += 1
             stat["failed"].extend("v2ex:%s:%s" % (topic_id, error)
+                                  for error in coverage.get("errors", [])[:1])
+
+    if stack_targets:
+        try:
+            from periscope.collection.platforms import stackoverflow
+        except Exception as exc:  # noqa: BLE001
+            stat["failed"].append("stackoverflow:%s" % type(exc).__name__)
+            got = {}
+        else:
+            got = {}
+            for _row, question_id, key in stack_targets:
+                remaining = remaining_budget()
+                if remaining == 0:
+                    got[key] = ({}, [], [], {"status": "partial", "fetched_answers": 0,
+                                              "fetched_comments": 0, "truncated_by": ["time_budget"],
+                                              "errors": []})
+                    continue
+                try:
+                    got[key] = asyncio.run(stackoverflow.fetch_discussion(
+                        question_id, budget_seconds=remaining))
+                except Exception as exc:  # noqa: BLE001 - keep other rows usable
+                    stat["failed"].append("stackoverflow:%s:%s" % (
+                        question_id, type(exc).__name__))
+
+        for row, question_id, key in stack_targets:
+            result = got.get(key)
+            if result is None:
+                stat["failed"].append("stackoverflow:%s" % question_id)
+                continue
+            question, answers, comments, coverage = result
+            patch = {"discussion_coverage": coverage}
+            if question.get("text"):
+                patch["text"] = question["text"]
+            if question.get("author") and not row.get("author"):
+                patch["author"] = question["author"]
+            detail = question.get("detail") or {}
+            if detail:
+                patch["question_detail"] = detail
+            if answers:
+                patch["answers"] = answers
+            if comments:
+                patch["comments"] = comments
+            row.update(patch)
+            if key:
+                patches[key] = patch
+            stat["stack_discussion_done"] += 1
+            stat["done"] += 1
+            if coverage.get("status") != "complete":
+                stat["stack_discussion_partial"] += 1
+            stat["failed"].extend("stackoverflow:%s:%s" % (question_id, error)
                                   for error in coverage.get("errors", [])[:1])
 
     stat["elapsed"] = time.monotonic() - t0
