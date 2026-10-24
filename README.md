@@ -6,7 +6,7 @@
 > Web/MCP 能力。结构与运行方式见 [代码组织说明](docs/code-organization.md)，
 > 数据与历史演进见 [框架记录](docs/foundation.md)。
 
-> **目录导航：** [文档入口](docs/README.md) · [代码与数据布局](docs/code-organization.md) · [采集链路与边界](docs/collection-pipeline.md) · [功能审计](docs/project-audit-2026-10-22.md)。网络采集、调度、爬虫分别归入 `periscope/collection/transport/`、`strategies/`、`crawling/`；历史产物统一放入 `.periscope-scratch/collect/` 与 `.periscope-scratch/reports/`。
+> **目录导航：** [文档入口](docs/README.md) · [代码与数据布局](docs/code-organization.md) · [采集链路与边界](docs/collection-pipeline.md) · [12 平台深采验收](docs/platform-deep-collection-matrix.md) · [功能审计](docs/project-audit-2026-10-22.md)。网络采集、调度、爬虫分别归入 `periscope/collection/transport/`、`strategies/`、`crawling/`；历史产物统一放入 `.periscope-scratch/collect/` 与 `.periscope-scratch/reports/`。
 
 > **信息源重构：** 统一登记 184 个来源配置，默认查询计划接入 25 个搜索入口和 84 个相关订阅源；支持按来源筛选、追加机构订阅、逐源状态及本轮 API 链接差集。登记数不代表在线可用数，详见[信息源体系与边界](docs/source-system.md)。
 

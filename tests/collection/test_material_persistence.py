@@ -17,24 +17,41 @@ def test_query_round_trip_keeps_comment_text_author_and_reply_parent(scratch_pat
     monkeypatch.setattr(runs.paths, "TOPIC_DIR", topic_dir)
     row = {"_origin": "platform", "source": "bili_search", "kind": "community",
            "title": "A video description", "url": "https://www.bilibili.com/video/BV1234567890",
-           "text": "Creator description", "comments": [
+           "text": "Creator description",
+           "provenance": {"source_key": "bili_search", "method": "http",
+                          "observed_at": "2026-10-24T00:00:00+00:00"},
+           "comments": [
                {"rpid": 21, "user": "Alice", "text": "parentcommentneedle", "likes": 3,
                 "replies": [{"rpid": 22, "user": "Bob", "text": "deepreplyneedle"}]}]}
     path = runs.write("investigation", [row])
     converted = runs.ingestable_rows(runs.read(path))
     items, skipped = ingest.build(converted, [])
     assert not skipped
-    with_corpus = Corpus(scratch_path / "corpus.db")
+    corpus_path = scratch_path / "corpus.db"
+    with_corpus = Corpus(corpus_path)
+    with_corpus.add_items(items)
+    with_corpus.close()
+
+    # Reopen the database so relation assertions prove the persisted record,
+    # not only the in-memory ContentItem produced before ingestion.
+    with_corpus = Corpus(corpus_path)
     try:
-        with_corpus.add_items(items)
         assert len(with_corpus.search("deepreplyneedle")) == 1
         assert not with_corpus.search("deepreplyneedle", tier="claimable")
-        reply = next(s for s in items[0].sections if "deepreplyneedle" in s.text)
-        assert reply.tier == "community" and reply.author == "Bob"
-        assert str(reply.meta["parent_id"]) == "21"
-        assert reply.locator
-        parent = next(s for s in items[0].sections if "parentcommentneedle" in s.text)
-        assert parent.author == "Alice" and parent.meta["likes"] == 3
+        stored = with_corpus._conn.execute(
+            "SELECT sections_json, metadata_json FROM items WHERE url=?",
+            ("https://www.bilibili.com/video/BV1234567890",),
+        ).fetchone()
+        sections = json.loads(stored["sections_json"])
+        metadata = json.loads(stored["metadata_json"])
+        reply = next(s for s in sections if "deepreplyneedle" in s["text"])
+        assert reply["tier"] == "community" and reply["author"] == "Bob"
+        assert str(reply["meta"]["parent_id"]) == "21"
+        assert reply["locator"]
+        parent = next(s for s in sections if "parentcommentneedle" in s["text"])
+        assert parent["author"] == "Alice" and parent["meta"]["likes"] == 3
+        assert metadata["source_key"] == "bili_search"
+        assert metadata["provenance"]["source_key"] == "bili_search"
     finally:
         with_corpus.close()
 
