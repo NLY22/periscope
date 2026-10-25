@@ -55,20 +55,44 @@ def test_expanded_sub_comment_pages_complete_reply_preview_and_keep_parent():
     reply_payload = {"data": {"comments": [
         {"id": "reply-1", "content": "Preview reply"},
         {"id": "reply-2", "content": "Second reply"},
+    ], "cursor": "reply-page", "has_more": True}}
+    reply_payload_2 = {"data": {"comments": [
         {"id": "reply-3", "content": "Third reply"},
     ], "cursor": "", "has_more": False}}
 
     _, comments, coverage = xhs._parse_comment_pages(
         [root_payload], note_id=NOTE_ID, note_url=NOTE_URL, max_comments=10,
-        sub_payloads=[{"root_comment_id": "root-2", "payload": reply_payload}])
+        sub_payloads=[{"root_comment_id": "root-2", "payload": reply_payload},
+                      {"root_comment_id": "root-2", "payload": reply_payload_2}])
 
     assert [reply["id"] for reply in comments[0]["replies"]] == [
         "reply-1", "reply-2", "reply-3"]
     assert all(reply["parent_id"] == "root-2" for reply in comments[0]["replies"])
     assert coverage["fetched_replies"] == 3
     assert coverage["reported_replies"] == 3
+    assert coverage["reply_pages_attempted"] == 2
     assert coverage["status"] == "complete"
     assert "reply_preview_only" not in coverage["truncated_by"]
+    assert "reply_page_limit" not in coverage["truncated_by"]
+
+
+def test_expanded_sub_comment_parser_bounds_reply_threads():
+    roots = [{"id": f"root-{index}", "content": "Root", "sub_comment_count": 1}
+             for index in range(1, 7)]
+    root_payload = {"data": {"comments": roots, "cursor": "", "has_more": False}}
+    reply_payloads = [{"root_comment_id": f"root-{index}", "payload": {"data": {
+        "comments": [{"id": f"reply-{index}", "content": "Reply"}],
+        "has_more": False,
+    }}} for index in range(1, 7)]
+
+    _, comments, coverage = xhs._parse_comment_pages(
+        [root_payload], note_id=NOTE_ID, note_url=NOTE_URL, max_comments=60,
+        sub_payloads=reply_payloads)
+
+    assert sum(len(comment["replies"]) for comment in comments) == 5
+    assert coverage["reply_pages_attempted"] == 5
+    assert "reply_thread_limit" in coverage["truncated_by"]
+    assert coverage["status"] == "partial"
 
 
 def test_enrichment_uses_single_group_fetch_and_patches_raw_row(monkeypatch):

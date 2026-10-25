@@ -100,6 +100,7 @@ def _parse_comment_pages(payloads: list[dict], *, note_id: str, note_url: str,
     expected_replies: dict[str, int] = {}
     reply_has_more: set[str] = set()
     reply_page_counts: dict[str, int] = {}
+    accepted_reply_threads: set[str] = set()
     seen: set[str] = set()
     truncated_by: list[str] = []
     errors: list[str] = []
@@ -161,9 +162,19 @@ def _parse_comment_pages(payloads: list[dict], *, note_id: str, note_url: str,
             if "reply:invalid_payload" not in errors:
                 errors.append("reply:invalid_payload")
             continue
+        if parent_id not in accepted_reply_threads:
+            if len(accepted_reply_threads) >= MAX_REPLY_THREADS:
+                truncated_by.append("reply_thread_limit")
+                continue
+            accepted_reply_threads.add(parent_id)
+        if reply_page_counts.get(parent_id, 0) >= MAX_REPLY_PAGES:
+            truncated_by.append("reply_page_limit")
+            continue
         reply_page_counts[parent_id] = reply_page_counts.get(parent_id, 0) + 1
         if data.get("has_more"):
             reply_has_more.add(parent_id)
+        else:
+            reply_has_more.discard(parent_id)
         root = roots_by_id[parent_id]
         for reply in data["comments"]:
             if not isinstance(reply, dict):
@@ -436,15 +447,22 @@ def _fetch_many_sync(items: list[dict], *, max_comments: int,
                         if len(payloads) == before and page_index == 0:
                             continue
 
-                    reply_controls = page.get_by_text(re.compile(r"\d+\s*条回复"))
-                    controls_to_expand = min(reply_controls.count(), MAX_REPLY_THREADS)
+                    controls_to_expand = min(
+                        page.get_by_text(re.compile(r"\d+\s*条回复")).count(),
+                        MAX_REPLY_THREADS)
                     for control_index in range(controls_to_expand):
                         left = remaining()
                         if left is not None and left <= 0:
                             break
                         before = len(sub_payloads)
                         try:
-                            reply_controls.nth(control_index).click(
+                            # Expanding a thread removes/rebuilds its control list. Re-query
+                            # and click the first remaining control so later threads do not
+                            # disappear behind stale positional indexes.
+                            reply_controls = page.get_by_text(re.compile(r"\d+\s*条回复"))
+                            if reply_controls.count() == 0:
+                                break
+                            reply_controls.first.click(
                                 timeout=int(min(1000, max(100, (left or 1) * 1000))))
                         except Exception:
                             continue
@@ -468,7 +486,9 @@ def _fetch_many_sync(items: list[dict], *, max_comments: int,
                             wait_until = monotonic() + min(1.2, remaining() or 1.2)
                             while len(sub_payloads) == before and monotonic() < wait_until:
                                 page.wait_for_timeout(100)
-                            if len(sub_payloads) == before:
+                            if (len(sub_payloads) == before
+                                    or not any(entry.get("root_comment_id") == parent_id
+                                               for entry in sub_payloads[before:])):
                                 break
                             reply_page_index += 1
 
