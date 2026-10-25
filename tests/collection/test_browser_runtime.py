@@ -118,6 +118,24 @@ def test_strategy_uses_unique_outputs_and_reports_busy_profile(scratch_path, mon
     assert len(set(outputs)) == 2
 
 
+def test_strategy_reports_platform_captcha_as_a_source_failure(scratch_path, monkeypatch):
+    from periscope.collection.strategies import browser
+    monkeypatch.setattr(browser.paths, "SHARD_DIR", scratch_path)
+    monkeypatch.setattr(browser.importlib.util, "find_spec", lambda _: object())
+    def run(cmd, **kwargs):
+        Path(cmd[cmd.index("--out") + 1]).write_text("[]", encoding="utf-8")
+        return SimpleNamespace(returncode=4)
+    monkeypatch.setattr(browser, "run_worker", run)
+
+    rows, reports = browser.collect("topic", {"kuaishou": ("unused.py", "shared.json")},
+                                    {"kuaishou": "unused"},
+                                    started=browser.time.monotonic(), budget=5)
+
+    assert not rows
+    assert reports[0]["status"] == "failed"
+    assert reports[0]["error"] == "captcha_required"
+
+
 def test_corrupt_or_empty_timeout_checkpoint_does_not_invent_results(scratch_path, monkeypatch):
     from periscope.collection.strategies import browser
     monkeypatch.setattr(browser.paths, "SHARD_DIR", scratch_path)

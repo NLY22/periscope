@@ -34,6 +34,13 @@ OUT_DEFAULT = paths.COLLECT_DIR / "ugc_search.kuaishou.json"
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+CAPTCHA_REQUIRED_EXIT = 4
+
+
+def _search_error(payload: dict) -> str:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    result = data.get("result") if isinstance(data, dict) else None
+    return "captcha_required" if str(result) == "400002" else ""
 
 DEFAULT_QUERIES = [
     "人形机器人", "具身智能", "大模型", "AI 应用", "智能体",
@@ -77,8 +84,10 @@ def main() -> int:
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
 
         bucket: list[dict] = []
+        blocked_reason = ""
 
         def on_resp(r) -> None:
+            nonlocal blocked_reason
             if "search/feed" not in r.url:
                 return
             ct = (r.headers or {}).get("content-type", "")
@@ -87,6 +96,9 @@ def main() -> int:
             try:
                 body = r.json()
             except Exception:
+                return
+            blocked_reason = _search_error(body)
+            if blocked_reason:
                 return
             feeds = body.get("feeds")
             if isinstance(feeds, list):
@@ -105,7 +117,9 @@ def main() -> int:
                     page.reload(wait_until="domcontentloaded", timeout=40000)
                 except Exception:
                     pass
-            wait_for_items(page, lambda: len(bucket), timeout_ms=8000)
+            wait_for_items(page, lambda: len(bucket) + int(bool(blocked_reason)), timeout_ms=8000)
+            if blocked_reason:
+                break
 
             before = len(rows)
             stall = 0
@@ -158,6 +172,9 @@ def main() -> int:
                 qi, len(queries), q, len(rows) - before, len(rows)), flush=True)
 
     write_checkpoint(out, rows)
+    if blocked_reason:
+        print("collection stopped: " + blocked_reason, file=sys.stderr, flush=True)
+        return CAPTCHA_REQUIRED_EXIT
     print()
     print("queries: %d   items: %d   -> %s" % (len(queries), len(rows), out.name))
     return 0
