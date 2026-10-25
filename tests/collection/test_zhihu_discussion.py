@@ -24,11 +24,14 @@ def test_fetches_answer_and_builds_comment_reply_tree():
         if request.url.path == f"/api/v4/answers/{ANSWER_ID}":
             return httpx.Response(200, json={"id": ANSWER_ID, "content": "<p>Full answer.</p>",
                 "comment_count": 2, "author": {"name": "author"}})
+        if request.url.path == f"/api/v4/comments/root-1/child_comments":
+            return httpx.Response(200, json={"data": [
+                {"id": "reply-1", "content": "Reply comment", "created_time": 1700000001,
+                 "author": {"name": "responder"}, "reply_to_comment": {"id": "root-1"}},
+            ], "paging": {"totals": 1, "is_end": True}})
         return httpx.Response(200, json={"data": [
             {"id": "root-1", "content": "Root comment", "created_time": 1700000000,
              "author": {"name": "reader"}},
-            {"id": "reply-1", "content": "Reply comment", "created_time": 1700000001,
-             "author": {"name": "responder"}, "reply_to_comment": {"id": "root-1"}},
         ], "paging": {"totals": 2, "is_end": True}})
 
     detail, comments, coverage = _run(handler, budget_seconds=5)
@@ -40,6 +43,28 @@ def test_fetches_answer_and_builds_comment_reply_tree():
     assert comments[0]["replies"][0]["parent_id"] == "root-1"
     assert coverage["status"] == "complete"
     assert coverage["fetched_comments"] == 2
+    assert coverage["reported_replies"] == 1
+    assert coverage["reply_pages_attempted"] == 1
+
+
+def test_reply_count_without_visible_child_comments_is_marked_partial():
+    def handler(request):
+        if request.url.path == f"/api/v4/answers/{ANSWER_ID}":
+            return httpx.Response(200, json={"id": ANSWER_ID, "content": "Body"})
+        if request.url.path.endswith("/child_comments"):
+            return httpx.Response(200, json={"data": [],
+                "paging": {"totals": 2, "is_end": True}})
+        return httpx.Response(200, json={"data": [
+            {"id": "root-1", "content": "Root", "author": {"name": "reader"}},
+        ], "paging": {"totals": 1, "is_end": True}})
+
+    _, comments, coverage = _run(handler, max_comments=8, budget_seconds=5)
+
+    assert len(comments) == 1
+    assert coverage["reported_replies"] == 2
+    assert coverage["fetched_replies"] == 0
+    assert coverage["status"] == "partial"
+    assert "reply_count_mismatch" in coverage["truncated_by"]
 
 
 def test_answer_login_requirement_does_not_discard_public_comments():

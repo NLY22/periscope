@@ -18,7 +18,10 @@ from periscope.collection.transport.client import _load_cookies
 API_ROOT = "https://www.zhihu.com/api/v4"
 MAX_COMMENTS = 60
 PAGE_SIZE = 20
-MAX_COMMENT_PAGES = 3
+MAX_COMMENT_PAGES = 4
+MAX_REPLY_THREADS = 5
+MAX_REPLY_PAGES = 3
+MAX_REPLY_RESERVE = 15
 MAX_BODY_CHARS = 30000
 REQUEST_TIMEOUT = 8.0
 _ANSWER_PATH = re.compile(r"^/question/\d+/answer/(\d+)/?$|^/answer/(\d+)/?$")
@@ -160,10 +163,13 @@ async def fetch_discussion(
         "platform": "zhihu",
         "answer_id": answer_id,
         "reported_comments": None,
+        "reported_replies": 0,
         "fetched_comments": 0,
         "fetched_roots": 0,
         "fetched_replies": 0,
         "pages_attempted": 0,
+        "reply_pages_attempted": 0,
+        "reply_threads_attempted": 0,
         "max_comments": max_comments,
         "truncated_by": [],
         "errors": [],
@@ -212,56 +218,147 @@ async def fetch_discussion(
                 coverage["errors"].append("answer:body_missing")
 
         raw_comments: list[dict] = []
+        seen_comment_ids: set[str] = set()
         cursor = 0
         reported: int | None = None
         page_has_more = False
-        if max_comments > 0:
-            for page in range(MAX_COMMENT_PAGES):
-                remaining = None if deadline is None else deadline - time.monotonic()
-                if remaining is not None and remaining <= 0:
-                    coverage["truncated_by"].append("time_budget")
-                    break
-                payload, error = await _get_json(
-                    active, "%s/answers/%s/comments" % (API_ROOT, answer_id),
-                    params={
-                        "limit": min(PAGE_SIZE, max_comments - len(raw_comments)),
-                        "offset": cursor,
-                        "include": "data[*].content,data[*].author.name,data[*].reply_to_comment,paging.totals",
-                    }, headers=headers, deadline=deadline)
-                if error == "time_budget":
-                    coverage["truncated_by"].append("time_budget")
-                    break
-                if error:
-                    coverage["errors"].append("comments:%s" % error)
-                    break
-                assert payload is not None
-                coverage["pages_attempted"] += 1
-                rows = payload.get("data")
-                if not isinstance(rows, list):
-                    coverage["errors"].append("comments:invalid_data")
-                    break
-                paging = payload.get("paging") if isinstance(payload.get("paging"), dict) else {}
-                total = paging.get("totals")
-                if isinstance(total, int) and total >= 0:
-                    reported = total if reported is None else max(reported, total)
-                for raw in rows:
-                    node = _normalize_comment(raw, canonical_url)
-                    if node:
-                        raw_comments.append(node)
-                        if len(raw_comments) >= max_comments:
-                            break
-                page_has_more = not bool(paging.get("is_end", len(rows) < PAGE_SIZE))
-                if not rows and page_has_more:
-                    coverage["truncated_by"].append("empty_page_with_more")
+
+        async def fetch_root_page(limit: int) -> bool:
+            nonlocal cursor, reported, page_has_more
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                coverage["truncated_by"].append("time_budget")
+                return False
+            payload, error = await _get_json(
+                active, "%s/answers/%s/comments" % (API_ROOT, answer_id),
+                params={
+                    "limit": min(PAGE_SIZE, limit),
+                    "offset": cursor,
+                    "include": "data[*].content,data[*].author.name,data[*].reply_to_comment,paging.totals",
+                }, headers=headers, deadline=deadline)
+            if error == "time_budget":
+                coverage["truncated_by"].append("time_budget")
+                return False
+            if error:
+                coverage["errors"].append("comments:%s" % error)
+                return False
+            assert payload is not None
+            coverage["pages_attempted"] += 1
+            rows = payload.get("data")
+            if not isinstance(rows, list):
+                coverage["errors"].append("comments:invalid_data")
+                return False
+            paging = payload.get("paging") if isinstance(payload.get("paging"), dict) else {}
+            total = paging.get("totals")
+            if isinstance(total, int) and total >= 0:
+                reported = total if reported is None else max(reported, total)
+            page_has_more = not bool(paging.get("is_end", len(rows) < limit))
+            if not rows and page_has_more:
+                coverage["truncated_by"].append("empty_page_with_more")
+            for raw in rows:
+                node = _normalize_comment(raw, canonical_url)
+                if not node or node["id"] in seen_comment_ids:
+                    continue
                 if len(raw_comments) >= max_comments:
                     coverage["truncated_by"].append("comment_limit")
                     break
-                if not page_has_more or not rows:
+                seen_comment_ids.add(node["id"])
+                raw_comments.append(node)
+            cursor += len(rows)
+            return bool(rows)
+
+        if max_comments > 0:
+            reply_reserve = min(MAX_REPLY_RESERVE, max_comments // 4)
+            root_target = max_comments - reply_reserve
+            while (coverage["pages_attempted"] < MAX_COMMENT_PAGES
+                   and len(raw_comments) < root_target):
+                if coverage["pages_attempted"] and not page_has_more:
                     break
-                cursor += len(rows)
-            else:
-                if page_has_more:
-                    coverage["truncated_by"].append("page_limit")
+                if not await fetch_root_page(root_target - len(raw_comments)):
+                    break
+
+            reply_roots = [node for node in raw_comments if not node.get("parent_id")]
+            reported_replies_by_parent: dict[str, int] = {}
+            for root in reply_roots[:MAX_REPLY_THREADS]:
+                root_id = root["id"]
+                if len(raw_comments) >= max_comments:
+                    break
+                coverage["reply_threads_attempted"] += 1
+                child_offset = 0
+                child_has_more = False
+                for reply_page in range(MAX_REPLY_PAGES):
+                    remaining_nodes = max_comments - len(raw_comments)
+                    if remaining_nodes <= 0:
+                        coverage["truncated_by"].append("comment_limit")
+                        break
+                    payload, error = await _get_json(
+                        active, "%s/comments/%s/child_comments" % (API_ROOT, root_id),
+                        params={
+                            "limit": min(PAGE_SIZE, remaining_nodes),
+                            "offset": child_offset,
+                            "order": "normal",
+                            "include": "data[*].content,data[*].author.name,data[*].reply_to_comment,paging.totals",
+                        }, headers=headers, deadline=deadline)
+                    if error == "time_budget":
+                        coverage["truncated_by"].append("time_budget")
+                        break
+                    if error:
+                        coverage["errors"].append("replies:%s" % error)
+                        break
+                    assert payload is not None
+                    coverage["reply_pages_attempted"] += 1
+                    child_rows = payload.get("data")
+                    if not isinstance(child_rows, list):
+                        coverage["errors"].append("replies:invalid_data")
+                        break
+                    paging = payload.get("paging") if isinstance(payload.get("paging"), dict) else {}
+                    total = paging.get("totals")
+                    if isinstance(total, int) and total >= 0:
+                        reported_replies_by_parent[root_id] = max(
+                            reported_replies_by_parent.get(root_id, 0), total)
+                    child_has_more = not bool(paging.get("is_end", len(child_rows) < PAGE_SIZE))
+                    for raw in child_rows:
+                        node = _normalize_comment(raw, canonical_url)
+                        if not node:
+                            continue
+                        if not node.get("parent_id"):
+                            node["parent_id"] = root_id
+                            node["discussion_type"] = "reply"
+                        if node["id"] in seen_comment_ids:
+                            continue
+                        if len(raw_comments) >= max_comments:
+                            coverage["truncated_by"].append("comment_limit")
+                            break
+                        seen_comment_ids.add(node["id"])
+                        raw_comments.append(node)
+                    if not child_rows and child_has_more:
+                        coverage["truncated_by"].append("empty_page_with_more")
+                        break
+                    if not child_has_more or not child_rows:
+                        break
+                    child_offset += len(child_rows)
+                else:
+                    if child_has_more:
+                        coverage["truncated_by"].append("reply_page_limit")
+
+            coverage["reported_replies"] = sum(reported_replies_by_parent.values())
+            fetched_reply_ids_by_parent: dict[str, set[str]] = {}
+            for node in raw_comments:
+                parent_id = str(node.get("parent_id") or "")
+                if parent_id:
+                    fetched_reply_ids_by_parent.setdefault(parent_id, set()).add(node["id"])
+            if any(count > len(fetched_reply_ids_by_parent.get(parent_id, set()))
+                   for parent_id, count in reported_replies_by_parent.items()):
+                coverage["truncated_by"].append("reply_count_mismatch")
+
+            while (len(raw_comments) < max_comments and page_has_more
+                   and coverage["pages_attempted"] < MAX_COMMENT_PAGES):
+                if not await fetch_root_page(max_comments - len(raw_comments)):
+                    break
+            if len(raw_comments) >= max_comments and page_has_more:
+                coverage["truncated_by"].append("comment_limit")
+            elif page_has_more and coverage["pages_attempted"] >= MAX_COMMENT_PAGES:
+                coverage["truncated_by"].append("page_limit")
 
         coverage["reported_comments"] = reported
         coverage["fetched_comments"] = len(raw_comments)
