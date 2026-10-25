@@ -121,9 +121,10 @@ def _comment_tree(
     remaining: int,
     inherited_parent: str = "",
     depth: int = 0,
+    seen_ids: set[str] | None = None,
     coverage: dict,
 ) -> tuple[dict | None, int, int]:
-    if not isinstance(raw, dict) or remaining <= 0:
+    if not isinstance(raw, dict) or remaining < 0:
         return None, 0, 0
     if depth > MAX_REPLY_DEPTH:
         coverage["truncated_by"].append("reply_depth_limit")
@@ -132,8 +133,15 @@ def _comment_tree(
     text = _plain_text(raw.get("text_raw") or raw.get("text") or raw.get("content"))
     if not comment_id or not text:
         return None, 0, 0
+    already_seen = seen_ids is not None and comment_id in seen_ids
+    if remaining <= 0 and not already_seen:
+        coverage["truncated_by"].append("comment_limit")
+        return None, 0, 0
+    if seen_ids is not None:
+        seen_ids.add(comment_id)
     user = raw.get("user") if isinstance(raw.get("user"), dict) else {}
-    parent_value = raw.get("rootid") or raw.get("reply_comment_id") or inherited_parent
+    explicit_parent_value = raw.get("reply_comment_id") or raw.get("rootid")
+    parent_value = explicit_parent_value or inherited_parent
     parent_id = str(parent_value) if parent_value not in (None, 0, "0", "") else ""
     if parent_id == comment_id:
         parent_id = ""
@@ -147,26 +155,32 @@ def _comment_tree(
     }
     if parent_id:
         node["parent_id"] = parent_id
+        if explicit_parent_value not in (None, 0, "0", "") and str(explicit_parent_value) != comment_id:
+            node["_parent_id_explicit"] = True
     if raw.get("created_at"):
         node["created_at"] = str(raw["created_at"])
-    used = 1
+    used = 0 if already_seen else 1
+    descendant_count = 0
     replies: list[dict] = []
     children = raw.get("comments")
     if isinstance(children, list):
         for child in children:
-            if used >= remaining:
+            child_id = str(child.get("idstr") or child.get("id") or "").strip() if isinstance(child, dict) else ""
+            child_is_seen = seen_ids is not None and child_id in seen_ids
+            if used >= remaining and not child_is_seen:
                 coverage["truncated_by"].append("comment_limit")
                 break
-            child_node, child_used, nested_count = _comment_tree(
+            child_node, child_used, _ = _comment_tree(
                 child, post_url=post_url, remaining=remaining - used,
-                inherited_parent=comment_id, depth=depth + 1, coverage=coverage)
+                inherited_parent=comment_id, depth=depth + 1,
+                seen_ids=seen_ids, coverage=coverage)
             if child_node:
                 replies.append(child_node)
                 used += child_used
-                nested_count += 1
+                descendant_count += child_used
     if replies:
         node["replies"] = replies
-    return node, used, used - 1
+    return node, used, descendant_count
 
 
 def _tree_nodes(node: dict):
@@ -259,6 +273,7 @@ async def fetch_discussion(
         root_node_limit = max_comments - reply_reserve
         if max_comments > 0:
             tree_index: dict[str, dict] = {}
+            deferred_root_rows: list[Any] = []
 
             def index_tree(node: dict) -> None:
                 tree_index[node["id"]] = node
@@ -268,14 +283,54 @@ async def fetch_discussion(
             def merge_reply(node: dict, fallback_parent: dict) -> int:
                 existing = tree_index.get(node["id"])
                 if existing:
+                    if node.pop("_parent_id_explicit", False):
+                        parent_id = str(node.get("parent_id") or "")
+                        if parent_id and parent_id != existing["id"]:
+                            existing["parent_id"] = parent_id
                     return sum(merge_reply(child, existing)
                                for child in node.get("replies", []))
+                node.pop("_parent_id_explicit", None)
                 children = node.pop("replies", [])
                 parent_id = str(node.get("parent_id") or fallback_parent["id"])
                 parent = tree_index.get(parent_id) or fallback_parent
                 parent.setdefault("replies", []).append(node)
                 tree_index[node["id"]] = node
                 return 1 + sum(merge_reply(child, node) for child in children)
+
+            def rebuild_reply_trees() -> None:
+                for root in comments:
+                    nodes = list(_tree_nodes(root))
+                    for node in nodes:
+                        node.pop("_parent_id_explicit", None)
+                        node.pop("replies", None)
+                    by_id = {node["id"]: node for node in nodes}
+                    root_id = root["id"]
+                    for node in nodes[1:]:
+                        parent_id = str(node.get("parent_id") or root_id)
+                        parent = by_id.get(parent_id)
+                        if parent is None or parent is node:
+                            parent = root
+                        parent.setdefault("replies", []).append(node)
+
+            def add_root_rows(rows: list[Any], node_limit: int) -> None:
+                for index, raw in enumerate(rows):
+                    if coverage["fetched_comments"] >= node_limit:
+                        deferred_root_rows.extend(rows[index:])
+                        break
+                    raw_id = str(raw.get("idstr") or raw.get("id") or "") if isinstance(raw, dict) else ""
+                    if raw_id and raw_id in tree_index:
+                        continue
+                    seen_ids = set(tree_index)
+                    node, used, reply_count = _comment_tree(
+                        raw, post_url=canonical_url,
+                        remaining=node_limit - coverage["fetched_comments"],
+                        seen_ids=seen_ids, coverage=coverage)
+                    if node:
+                        comments.append(node)
+                        index_tree(node)
+                        coverage["fetched_roots"] += 1
+                        coverage["fetched_replies"] += reply_count
+                        coverage["fetched_comments"] += used
 
             async def fetch_root_page(node_limit: int) -> bool:
                 nonlocal max_id, max_id_type, root_has_more, root_page_stalled, reported
@@ -313,24 +368,7 @@ async def fetch_discussion(
                         coverage["truncated_by"].append("empty_page_with_more")
                         root_page_stalled = True
                     return False
-                for index, raw in enumerate(rows):
-                    if coverage["fetched_comments"] >= node_limit:
-                        if index < len(rows):
-                            coverage["truncated_by"].append("comment_limit")
-                        break
-                    raw_id = str(raw.get("idstr") or raw.get("id") or "") if isinstance(raw, dict) else ""
-                    if raw_id and raw_id in tree_index:
-                        continue
-                    node, used, reply_count = _comment_tree(
-                        raw, post_url=canonical_url,
-                        remaining=node_limit - coverage["fetched_comments"],
-                        coverage=coverage)
-                    if node:
-                        comments.append(node)
-                        index_tree(node)
-                        coverage["fetched_roots"] += 1
-                        coverage["fetched_replies"] += reply_count
-                        coverage["fetched_comments"] += used
+                add_root_rows(rows, node_limit)
                 return True
 
             for _ in range(MAX_COMMENT_PAGES):
@@ -394,10 +432,12 @@ async def fetch_discussion(
                             coverage["truncated_by"].append("empty_reply_page_with_more")
                         break
                     for raw in child_rows:
+                        seen_ids = set(tree_index)
                         node, _, _ = _comment_tree(
                             raw, post_url=canonical_url,
                             remaining=max_comments - coverage["fetched_comments"],
-                            inherited_parent=root_id, coverage=coverage)
+                            inherited_parent=root_id, seen_ids=seen_ids,
+                            coverage=coverage)
                         if not node:
                             continue
                         parent_id = str(node.get("parent_id") or root_id)
@@ -409,7 +449,8 @@ async def fetch_discussion(
                         coverage["fetched_replies"] += added
                         coverage["fetched_comments"] += added
                     if coverage["fetched_comments"] >= max_comments:
-                        coverage["truncated_by"].append("comment_limit")
+                        if child_has_more:
+                            coverage["truncated_by"].append("comment_limit")
                         break
                     if not child_has_more:
                         break
@@ -418,6 +459,13 @@ async def fetch_discussion(
                         coverage["truncated_by"].append("reply_page_limit")
 
             coverage["reported_replies"] = sum(reported_replies_by_root.values())
+            if deferred_root_rows:
+                rows_to_flush = deferred_root_rows
+                deferred_root_rows = []
+                add_root_rows(rows_to_flush, max_comments)
+                if deferred_root_rows:
+                    coverage["truncated_by"].append("comment_limit")
+            rebuild_reply_trees()
             for root in reply_roots[:MAX_REPLY_THREADS]:
                 reported_count = reported_replies_by_root.get(root["id"])
                 fetched_count = sum(1 for node in _tree_nodes(root)
@@ -432,6 +480,8 @@ async def fetch_discussion(
                    and coverage["fetched_comments"] < max_comments):
                 if not await fetch_root_page(max_comments):
                     break
+
+            rebuild_reply_trees()
 
             if root_has_more and not root_page_stalled:
                 if coverage["fetched_comments"] >= max_comments:

@@ -78,3 +78,15 @@
 - Spec coverage：有限 `fetch_level=1` 页面、限额、共享预算、去重、覆盖状态和实样本记录均由 Task 1 覆盖。
 - Type consistency：适配器签名不变；新字段只加入 coverage 字典，评论节点继续使用现有结构。
 - Proportion：单一适配器改动作为一个独立测试交付。
+
+
+## Post-review hardening (2026-10-25)
+
+The independent final review exposed four edge cases; all are covered by regression tests and fixed in a follow-up pass:
+
+- Preserve root rows returned in a page when the temporary reply reserve is reached, then use remaining total capacity for them.
+- Count only unique comment IDs against the shared node budget, allowing a duplicate reply to contribute newly discovered nested replies.
+- Prefer explicit `reply_comment_id` parent data when a duplicate node is enriched, and rebuild trees after collection so child-before-parent arrival produces the correct hierarchy.
+- Only report `comment_limit` when a cursor indicates more reply data remains or material is actually deferred.
+
+Verification: `.venv\Scripts\python.exe -m pytest -q tests/collection/test_weibo_discussion.py` passed (13); `.venv\Scripts\python.exe -m pytest -q` passed; collect-only reported 1,474 tests; `git diff --check` passed. Live cursor semantics and response-shape frequency remain only partially verified.
