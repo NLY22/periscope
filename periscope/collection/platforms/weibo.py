@@ -21,6 +21,9 @@ COMMENTS_API = API_ROOT + "/buildComments"
 MAX_COMMENTS = 60
 PAGE_SIZE = 20
 MAX_COMMENT_PAGES = 3
+MAX_REPLY_THREADS = 5
+MAX_REPLY_PAGES = 3
+MAX_REPLY_RESERVE = 15
 MAX_REPLY_DEPTH = 4
 MAX_BODY_CHARS = 10000
 REQUEST_TIMEOUT = 8.0
@@ -166,6 +169,12 @@ def _comment_tree(
     return node, used, used - 1
 
 
+def _tree_nodes(node: dict):
+    yield node
+    for child in node.get("replies", []):
+        yield from _tree_nodes(child)
+
+
 async def fetch_discussion(
     post_url: str,
     *,
@@ -190,10 +199,13 @@ async def fetch_discussion(
         "platform": "weibo",
         "post_id": identifier,
         "reported_comments": None,
+        "reported_replies": 0,
         "fetched_comments": 0,
         "fetched_roots": 0,
         "fetched_replies": 0,
         "pages_attempted": 0,
+        "reply_pages_attempted": 0,
+        "reply_threads_attempted": 0,
         "max_comments": max_comments,
         "truncated_by": [],
         "errors": [],
@@ -241,25 +253,49 @@ async def fetch_discussion(
         max_id: Any = 0
         max_id_type: Any = 0
         reported: int | None = None
-        has_more = False
+        root_has_more = False
+        root_page_stalled = False
+        reply_reserve = min(MAX_REPLY_RESERVE, max_comments // 4)
+        root_node_limit = max_comments - reply_reserve
         if max_comments > 0:
-            for page in range(MAX_COMMENT_PAGES):
-                remaining_nodes = max_comments - coverage["fetched_comments"]
+            tree_index: dict[str, dict] = {}
+
+            def index_tree(node: dict) -> None:
+                tree_index[node["id"]] = node
+                for child in node.get("replies", []):
+                    index_tree(child)
+
+            def merge_reply(node: dict, fallback_parent: dict) -> int:
+                existing = tree_index.get(node["id"])
+                if existing:
+                    return sum(merge_reply(child, existing)
+                               for child in node.get("replies", []))
+                children = node.pop("replies", [])
+                parent_id = str(node.get("parent_id") or fallback_parent["id"])
+                parent = tree_index.get(parent_id) or fallback_parent
+                parent.setdefault("replies", []).append(node)
+                tree_index[node["id"]] = node
+                return 1 + sum(merge_reply(child, node) for child in children)
+
+            async def fetch_root_page(node_limit: int) -> bool:
+                nonlocal max_id, max_id_type, root_has_more, root_page_stalled, reported
+                remaining_nodes = node_limit - coverage["fetched_comments"]
                 if remaining_nodes <= 0:
-                    coverage["truncated_by"].append("comment_limit")
-                    break
+                    return False
                 payload, error = await _get_json(
                     active, COMMENTS_API,
-                    params={"is_reload": 1, "id": identifier, "is_show_bulletin": 2,
-                            "is_mix": 0, "count": min(PAGE_SIZE, remaining_nodes),
+                    params={"flow": 0, "is_reload": 1, "id": identifier,
+                            "is_show_bulletin": 2, "is_mix": 0,
+                            "fetch_level": 0,
+                            "count": min(PAGE_SIZE, remaining_nodes),
                             "max_id": max_id, "max_id_type": max_id_type},
                     headers=headers, deadline=deadline)
                 if error == "time_budget":
                     coverage["truncated_by"].append("time_budget")
-                    break
+                    return False
                 if error:
                     coverage["errors"].append("comments:%s" % error)
-                    break
+                    return False
                 assert payload is not None
                 coverage["pages_attempted"] += 1
                 count = payload.get("total_number")
@@ -268,38 +304,142 @@ async def fetch_discussion(
                 rows = payload.get("data")
                 if not isinstance(rows, list):
                     coverage["errors"].append("comments:invalid_data")
-                    break
+                    return False
+                max_id = payload.get("max_id", 0)
+                max_id_type = payload.get("max_id_type", 0)
+                root_has_more = bool(_number(max_id))
                 if not rows:
-                    has_more = bool(_number(payload.get("max_id")))
-                    if has_more:
+                    if root_has_more:
                         coverage["truncated_by"].append("empty_page_with_more")
-                    break
-                for raw in rows:
-                    if coverage["fetched_comments"] >= max_comments:
-                        coverage["truncated_by"].append("comment_limit")
+                        root_page_stalled = True
+                    return False
+                for index, raw in enumerate(rows):
+                    if coverage["fetched_comments"] >= node_limit:
+                        if index < len(rows):
+                            coverage["truncated_by"].append("comment_limit")
                         break
+                    raw_id = str(raw.get("idstr") or raw.get("id") or "") if isinstance(raw, dict) else ""
+                    if raw_id and raw_id in tree_index:
+                        continue
                     node, used, reply_count = _comment_tree(
                         raw, post_url=canonical_url,
-                        remaining=max_comments - coverage["fetched_comments"],
+                        remaining=node_limit - coverage["fetched_comments"],
                         coverage=coverage)
                     if node:
                         comments.append(node)
+                        index_tree(node)
                         coverage["fetched_roots"] += 1
                         coverage["fetched_replies"] += reply_count
                         coverage["fetched_comments"] += used
-                max_id = payload.get("max_id", 0)
-                max_id_type = payload.get("max_id_type", 0)
-                has_more = bool(_number(max_id))
+                return True
+
+            for _ in range(MAX_COMMENT_PAGES):
+                if coverage["fetched_comments"] >= root_node_limit:
+                    break
+                if coverage["pages_attempted"] and not root_has_more:
+                    break
+                if not await fetch_root_page(root_node_limit):
+                    break
+
+            roots = [node for node in comments if not node.get("parent_id")]
+            roots_with_inline_replies = [node for node in roots if node.get("replies")]
+            roots_without_inline_replies = [node for node in roots if not node.get("replies")]
+            reply_roots = roots_with_inline_replies + roots_without_inline_replies
+            reported_replies_by_root: dict[str, int] = {}
+            for root in reply_roots[:MAX_REPLY_THREADS]:
+                root_id = root["id"]
                 if coverage["fetched_comments"] >= max_comments:
                     coverage["truncated_by"].append("comment_limit")
                     break
-                if not has_more:
+                coverage["reply_threads_attempted"] += 1
+                child_max_id: Any = 0
+                child_max_id_type: Any = 0
+                child_has_more = False
+                for reply_page in range(MAX_REPLY_PAGES):
+                    remaining_nodes = max_comments - coverage["fetched_comments"]
+                    if remaining_nodes <= 0:
+                        coverage["truncated_by"].append("comment_limit")
+                        break
+                    payload, error = await _get_json(
+                        active, COMMENTS_API,
+                        params={"flow": 0, "is_reload": 1, "id": root_id,
+                                "is_show_bulletin": 2,
+                                "is_mix": 0 if reply_page == 0 else 1,
+                                "fetch_level": 1,
+                                "count": min(PAGE_SIZE, remaining_nodes),
+                                "max_id": child_max_id,
+                                "max_id_type": child_max_id_type},
+                        headers=headers, deadline=deadline)
+                    if error == "time_budget":
+                        coverage["truncated_by"].append("time_budget")
+                        break
+                    if error:
+                        coverage["errors"].append("replies:%s" % error)
+                        break
+                    assert payload is not None
+                    coverage["reply_pages_attempted"] += 1
+                    child_rows = payload.get("data")
+                    if not isinstance(child_rows, list):
+                        coverage["errors"].append("replies:invalid_data")
+                        break
+                    count = payload.get("total_number")
+                    if isinstance(count, int) and count >= 0:
+                        reported_replies_by_root[root_id] = max(
+                            reported_replies_by_root.get(root_id, 0), count)
+                    child_max_id = payload.get("max_id", 0)
+                    child_max_id_type = payload.get("max_id_type", 0)
+                    child_has_more = bool(_number(child_max_id))
+                    if not child_rows:
+                        if child_has_more:
+                            coverage["truncated_by"].append("empty_reply_page_with_more")
+                        break
+                    for raw in child_rows:
+                        node, _, _ = _comment_tree(
+                            raw, post_url=canonical_url,
+                            remaining=max_comments - coverage["fetched_comments"],
+                            inherited_parent=root_id, coverage=coverage)
+                        if not node:
+                            continue
+                        parent_id = str(node.get("parent_id") or root_id)
+                        node["parent_id"] = parent_id
+                        node["discussion_type"] = "reply"
+                        added = merge_reply(node, root)
+                        if not added:
+                            continue
+                        coverage["fetched_replies"] += added
+                        coverage["fetched_comments"] += added
+                    if coverage["fetched_comments"] >= max_comments:
+                        coverage["truncated_by"].append("comment_limit")
+                        break
+                    if not child_has_more:
+                        break
+                else:
+                    if child_has_more:
+                        coverage["truncated_by"].append("reply_page_limit")
+
+            coverage["reported_replies"] = sum(reported_replies_by_root.values())
+            for root in reply_roots[:MAX_REPLY_THREADS]:
+                reported_count = reported_replies_by_root.get(root["id"])
+                fetched_count = sum(1 for node in _tree_nodes(root)
+                                    if node is not root)
+                if reported_count is not None and fetched_count < reported_count:
+                    coverage["truncated_by"].append("reply_count_mismatch")
+            if len(reply_roots) > MAX_REPLY_THREADS:
+                coverage["truncated_by"].append("reply_thread_limit")
+
+            while (root_has_more and not root_page_stalled
+                   and coverage["pages_attempted"] < MAX_COMMENT_PAGES
+                   and coverage["fetched_comments"] < max_comments):
+                if not await fetch_root_page(max_comments):
                     break
-            else:
-                if has_more:
+
+            if root_has_more and not root_page_stalled:
+                if coverage["fetched_comments"] >= max_comments:
+                    coverage["truncated_by"].append("comment_limit")
+                elif coverage["pages_attempted"] >= MAX_COMMENT_PAGES:
                     coverage["truncated_by"].append("page_limit")
         coverage["reported_comments"] = reported
-        if reported is not None and coverage["fetched_roots"] < reported and not has_more:
+        if reported is not None and coverage["fetched_roots"] < reported and not root_has_more:
             coverage["truncated_by"].append("comment_count_mismatch")
         coverage["truncated_by"] = list(dict.fromkeys(coverage["truncated_by"]))
         coverage["status"] = "partial" if (coverage["errors"] or coverage["truncated_by"]) else "complete"
