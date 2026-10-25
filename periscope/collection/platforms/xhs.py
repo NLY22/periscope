@@ -14,11 +14,17 @@ API 直连返回 300011（账号风控），但浏览器内 DOM 有真实结果�
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime, timezone
 import argparse
+import asyncio
 import json
 import re
 import sys
+import time
 import urllib.parse
+from urllib.parse import urlsplit
+
+from bs4 import BeautifulSoup
 
 from periscope.collection.platforms.browser import browser_session, ensure_env, run_collector, wait_for_items, write_checkpoint
 from periscope.runtime import paths
@@ -32,6 +38,133 @@ OUT_DEFAULT = paths.COLLECT_DIR / "ugc_search.xhs.json"
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+
+MAX_DISCUSSION_COMMENTS = 60
+MAX_COMMENT_PAGES = 4
+MAX_NOTE_BODY_CHARS = 12000
+COMMENT_API_HINT = "/api/sns/web/v2/comment/page"
+_NOTE_ID = re.compile(r"^/(?:explore|search_result)/([A-Za-z0-9]+)(?:/)?$")
+
+
+def _note_id(note_url: str) -> str:
+    """Return a native note ID only for a Xiaohongshu note URL."""
+    try:
+        parsed = urlsplit(str(note_url or "").strip())
+    except ValueError:
+        return ""
+    if parsed.scheme not in {"http", "https"} or (parsed.hostname or "").lower() not in {
+            "xiaohongshu.com", "www.xiaohongshu.com"}:
+        return ""
+    match = _NOTE_ID.fullmatch(parsed.path)
+    return match.group(1) if match else ""
+
+
+def _plain_text(value) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    return "\n".join(part.strip() for part in
+                     BeautifulSoup(value, "html.parser").get_text("\n").splitlines()
+                     if part.strip())
+
+
+def _canonical_note_url(note_id: str) -> str:
+    return "https://www.xiaohongshu.com/explore/%s" % note_id
+
+
+def _comment_record(comment: dict, *, note_id: str, note_url: str,
+                    parent_id: str = "") -> dict:
+    user = comment.get("user_info") or {}
+    record = {
+        "id": str(comment.get("id") or ""),
+        "note_id": str(comment.get("note_id") or note_id),
+        "text": _plain_text(comment.get("content") or ""),
+        "author": str(user.get("nickname") or ""),
+        "likes": _as_int(comment.get("like_count")),
+        "created_at": str(comment.get("create_time") or ""),
+        "url": _canonical_note_url(note_id),
+    }
+    if parent_id:
+        record["parent_id"] = parent_id
+    return record
+
+
+def _parse_comment_pages(payloads: list[dict], *, note_id: str, note_url: str,
+                         max_comments: int = MAX_DISCUSSION_COMMENTS):
+    """Normalize observed comment pages, retaining reply-preview limits."""
+    roots = []
+    seen: set[str] = set()
+    truncated_by: list[str] = []
+    errors: list[str] = []
+    reported_comments = 0
+    has_more = False
+    pages_attempted = 0
+    for payload in payloads:
+        if not isinstance(payload, dict):
+            continue
+        data = payload.get("data") or {}
+        if not isinstance(data, dict):
+            if "comments:invalid_payload" not in errors:
+                errors.append("comments:invalid_payload")
+            continue
+        if "comments" not in data:
+            if "comments:invalid_payload" not in errors:
+                errors.append("comments:invalid_payload")
+            continue
+        pages_attempted += 1
+        has_more = bool(data.get("has_more"))
+        reported_comments = max(reported_comments, _as_int(
+            data.get("total") or data.get("total_count") or data.get("comments_count")))
+        for item in data.get("comments") or []:
+            if not isinstance(item, dict):
+                continue
+            comment_id = str(item.get("id") or "")
+            if not comment_id or comment_id in seen:
+                continue
+            seen.add(comment_id)
+            record = _comment_record(item, note_id=note_id, note_url=note_url)
+            replies = []
+            for reply in item.get("sub_comments") or []:
+                if not isinstance(reply, dict):
+                    continue
+                reply_id = str(reply.get("id") or "")
+                if not reply_id or reply_id in seen:
+                    continue
+                seen.add(reply_id)
+                replies.append(_comment_record(reply, note_id=note_id,
+                                               note_url=note_url, parent_id=comment_id))
+            record["replies"] = replies
+            reply_count = _as_int(item.get("sub_comment_count"))
+            if reply_count > len(replies) or bool(item.get("sub_comment_has_more")):
+                if "reply_preview_only" not in truncated_by:
+                    truncated_by.append("reply_preview_only")
+            roots.append(record)
+            if len(seen) >= max_comments:
+                truncated_by.append("comment_limit")
+                break
+        if len(seen) >= max_comments:
+            break
+    if has_more:
+        truncated_by.append("comment_page_limit")
+    fetched_roots = len(roots)
+    fetched_replies = sum(len(root["replies"]) for root in roots)
+    coverage = {
+        "platform": "xhs", "note_id": note_id,
+        "collected_at": datetime.now(timezone.utc).isoformat(),
+        "status": "partial" if truncated_by or errors or not pages_attempted else "complete",
+        "reported_comments": reported_comments,
+        "fetched_comments": fetched_roots + fetched_replies,
+        "fetched_roots": fetched_roots, "fetched_replies": fetched_replies,
+        "pages_attempted": pages_attempted, "max_comments": max_comments,
+        "truncated_by": list(dict.fromkeys(truncated_by)), "errors": errors,
+    }
+    return {}, roots, coverage
+
+
+def _as_int(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 # 默认查询词：沿用项目的中文词表
 DEFAULT_QUERIES = [
@@ -145,6 +278,149 @@ def _wait_for_notes(page, known: set[str], timeout_ms: int) -> bool:
         return True
     except BrowserTimeout:
         return False
+
+
+def _fetch_many_sync(items: list[dict], *, max_comments: int,
+                     budget_seconds: float | None) -> dict:
+    from time import monotonic
+
+    deadline = None if budget_seconds is None else monotonic() + max(0.0, budget_seconds)
+    results = {}
+    targets = []
+    for item in items:
+        url = str(item.get("url") or "")
+        note_id = _note_id(url)
+        if note_id:
+            targets.append((url, note_id))
+        else:
+            results[url] = ({}, [], {
+                "platform": "xhs", "status": "partial", "note_id": "",
+                "fetched_comments": 0, "fetched_roots": 0, "fetched_replies": 0,
+                "pages_attempted": 0, "max_comments": max_comments,
+                "truncated_by": [], "errors": ["invalid_note_url"],
+            })
+    if not targets:
+        return results
+
+    def remaining() -> float | None:
+        return None if deadline is None else max(0.0, deadline - monotonic())
+
+    try:
+        with browser_session(PROFILES / "xhs", headed=False, user_agent=UA,
+                             prepare=ensure_env,
+                             viewport={"width": 1440, "height": 950}) as ctx:
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            for note_url, note_id in targets:
+                left = remaining()
+                if left is not None and left <= 0:
+                    results[note_url] = ({}, [], {
+                        "platform": "xhs", "note_id": note_id, "status": "partial",
+                        "fetched_comments": 0, "fetched_roots": 0, "fetched_replies": 0,
+                        "pages_attempted": 0, "max_comments": max_comments,
+                        "truncated_by": ["time_budget"], "errors": [],
+                    })
+                    continue
+
+                payloads: list[dict] = []
+
+                def on_response(response) -> None:
+                    if COMMENT_API_HINT not in response.url:
+                        return
+                    try:
+                        payload = response.json()
+                    except Exception:
+                        return
+                    if isinstance(payload, dict):
+                        payloads.append(payload)
+
+                page.on("response", on_response)
+                errors: list[str] = []
+                detail = {"note_id": note_id, "url": _canonical_note_url(note_id), "text": ""}
+                try:
+                    nav_ms = int(min(15000, max(1000, (left or 15) * 1000)))
+                    page.goto(note_url, wait_until="domcontentloaded", timeout=nav_ms)
+                    left = remaining()
+                    page.wait_for_timeout(int(min(1400, max(0, (left or 1) * 1000))))
+                    for selector, field in (("#detail-title", "title"),
+                                            (".note-content", "text"),
+                                            ("#user-nickname", "author")):
+                        left = remaining()
+                        if left is not None and left <= 0:
+                            break
+                        try:
+                            locator = page.locator(selector).first
+                            if locator.count():
+                                value = locator.inner_text(timeout=1200).strip()
+                                if value:
+                                    detail[field] = value[:MAX_NOTE_BODY_CHARS]
+                        except Exception:
+                            continue
+
+                    page_text = ""
+                    try:
+                        page_text = page.locator("body").inner_text(timeout=1000)
+                    except Exception:
+                        pass
+                    if any(marker in page_text for marker in ("扫码登录", "登录后查看", "请先登录")):
+                        errors.append("login_required")
+
+                    for page_index in range(MAX_COMMENT_PAGES):
+                        left = remaining()
+                        if left is not None and left <= 0:
+                            break
+                        latest = payloads[-1].get("data") if payloads else {}
+                        if page_index and not (latest or {}).get("has_more"):
+                            break
+                        before = len(payloads)
+                        if page_index:
+                            page.mouse.wheel(0, 1100)
+                        wait_ms = int(min(1100, max(0, (remaining() or 0) * 1000)))
+                        if wait_ms:
+                            page.wait_for_timeout(wait_ms)
+                        if len(payloads) == before and page_index == 0:
+                            continue
+
+                    if not payloads and not errors:
+                        errors.append("comments:response_missing")
+                except Exception as exc:  # noqa: BLE001 - keep per-note failures isolated
+                    label = "time_budget" if remaining() == 0 else type(exc).__name__
+                    errors.append("page:%s" % label)
+                finally:
+                    try:
+                        page.remove_listener("response", on_response)
+                    except Exception:
+                        pass
+
+                _, comments, coverage = _parse_comment_pages(
+                    payloads, note_id=note_id, note_url=note_url,
+                    max_comments=max_comments)
+                coverage["errors"].extend(errors)
+                if remaining() == 0 and "time_budget" not in coverage["truncated_by"]:
+                    coverage["truncated_by"].append("time_budget")
+                if not payloads or errors or coverage["truncated_by"]:
+                    coverage["status"] = "partial"
+                if len(detail.get("text") or "") >= MAX_NOTE_BODY_CHARS:
+                    coverage["truncated_by"].append("body_limit")
+                    coverage["status"] = "partial"
+                results[note_url] = (detail, comments, coverage)
+    except Exception as exc:  # noqa: BLE001 - profile/browser errors are source-local
+        for note_url, note_id in targets:
+            results.setdefault(note_url, ({}, [], {
+                "platform": "xhs", "note_id": note_id, "status": "partial",
+                "fetched_comments": 0, "fetched_roots": 0, "fetched_replies": 0,
+                "pages_attempted": 0, "max_comments": max_comments,
+                "truncated_by": [], "errors": ["browser:%s" % type(exc).__name__],
+            }))
+    return results
+
+
+async def fetch_many(items: list[dict], *, max_comments: int = MAX_DISCUSSION_COMMENTS,
+                     budget_seconds: float | None = 20.0) -> dict:
+    """Enrich note details and observed discussion in one reused browser session."""
+    bounded_comments = max(1, min(int(max_comments), MAX_DISCUSSION_COMMENTS))
+    return await asyncio.to_thread(_fetch_many_sync, items,
+                                   max_comments=bounded_comments,
+                                   budget_seconds=budget_seconds)
 
 
 def main() -> int:

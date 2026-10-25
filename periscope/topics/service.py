@@ -177,6 +177,12 @@ class TopicService:
         if stat.get("weibo_discussion_partial"):
             result.notes.append("%d 条微博资料受登录状态、评论分页或时间预算限制；覆盖详情随分片保存"
                                 % stat["weibo_discussion_partial"])
+        if stat.get("xhs_discussion_targets"):
+            breakdown.append("小红书正文与讨论 %d/%d 条" % (
+                stat.get("xhs_discussion_done", 0), stat["xhs_discussion_targets"]))
+        if stat.get("xhs_discussion_partial"):
+            result.notes.append("%d 条小红书资料受登录状态、评论分页或楼中楼预览范围限制；覆盖详情随分片保存"
+                                % stat["xhs_discussion_partial"])
         if stat["failed"]:
             result.notes.append("富化失败: %s" % ", ".join(stat["failed"][:3]))
         if stat["no_transcript"]:

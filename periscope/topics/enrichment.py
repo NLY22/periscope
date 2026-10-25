@@ -11,7 +11,7 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
                  budget_seconds: float | None = 30.0) -> tuple[list[dict], dict, dict]:
     """Fill in details, discussions, and transcripts for top-K eligible rows.
 
-    Eligible rows are B站 videos, CSDN/Juejin/Weibo posts, Zhihu answers, HN stories, GitHub issues / PRs,
+    Eligible rows are B站 videos, 小红书 notes, CSDN/Juejin/Weibo posts, Zhihu answers, HN stories, GitHub issues / PRs,
     V2EX topics, and Stack Overflow questions. Plain top-K
     selection can contain no supported platform item, so the scan skips rows
     that cannot be enriched and spends its limit on the first eligible ones.
@@ -35,13 +35,20 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
     juejin_targets = []
     zhihu_targets = []
     weibo_targets = []
+    xhs_targets = []
     for row in merged:
         if (len(bili_targets) + len(csdn_targets) + len(hn_targets) + len(github_targets)
                 + len(v2ex_targets) + len(stack_targets) + len(juejin_targets)
-                + len(zhihu_targets) + len(weibo_targets) >= k):
+                + len(zhihu_targets) + len(weibo_targets) + len(xhs_targets) >= k):
             break
         source = str(row.get("source") or "")
         ids = row.get("ids") or {}
+        if source == "xhs_explore":
+            from periscope.collection.platforms import xhs
+            note_id = str(ids.get("note_id") or xhs._note_id(str(row.get("url") or "")))
+            if note_id:
+                xhs_targets.append((row, note_id, _row_key(row)))
+            continue
         if source in {"hn_ai", "hn_ai_monthly", "hn_cn"}:
             story_id = ids.get("objectID")
             if story_id is not None and str(story_id).isdigit():
@@ -109,7 +116,7 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
             bili_targets.append((row, bvid, _row_key(row)))
     stat["targets"] = (len(bili_targets) + len(csdn_targets) + len(hn_targets) + len(github_targets)
                         + len(v2ex_targets) + len(stack_targets) + len(juejin_targets)
-                        + len(zhihu_targets) + len(weibo_targets))
+                        + len(zhihu_targets) + len(weibo_targets) + len(xhs_targets))
     stat["discussion_targets"] = len(hn_targets)
     stat["bilibili_discussion_targets"] = len(bili_targets)
     stat["bilibili_discussion_done"] = 0
@@ -135,6 +142,9 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
     stat["weibo_discussion_targets"] = len(weibo_targets)
     stat["weibo_discussion_done"] = 0
     stat["weibo_discussion_partial"] = 0
+    stat["xhs_discussion_targets"] = len(xhs_targets)
+    stat["xhs_discussion_done"] = 0
+    stat["xhs_discussion_partial"] = 0
     if not stat["targets"]:
         return merged, stat, {}
 
@@ -529,6 +539,44 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
             if coverage.get("status") != "complete":
                 stat["weibo_discussion_partial"] += 1
             stat["failed"].extend("weibo:%s:%s" % (post_id, error)
+                                  for error in coverage.get("errors", [])[:1])
+
+    if xhs_targets:
+        try:
+            from periscope.collection.platforms import xhs
+            remaining = remaining_budget()
+            got = asyncio.run(xhs.fetch_many(
+                [{"url": str(row.get("url") or ""), "note_id": note_id}
+                 for row, note_id, _key in xhs_targets],
+                max_comments=60, budget_seconds=remaining))
+        except Exception as exc:  # noqa: BLE001 - keep other platform results usable
+            stat["failed"].append("xhs:%s" % type(exc).__name__)
+            got = {}
+
+        for row, note_id, key in xhs_targets:
+            result = got.get(str(row.get("url") or ""))
+            if result is None:
+                stat["failed"].append("xhs:%s" % note_id)
+                continue
+            detail, comments, coverage = result
+            patch = {"discussion_coverage": coverage,
+                     "ids": {**(row.get("ids") or {}), "note_id": note_id}}
+            if detail.get("text"):
+                patch["text"] = detail["text"]
+            if detail.get("title"):
+                patch["title"] = detail["title"]
+            if detail.get("author") and not row.get("author"):
+                patch["author"] = detail["author"]
+            if comments:
+                patch["comments"] = comments
+            row.update(patch)
+            if key:
+                patches[key] = patch
+            stat["xhs_discussion_done"] += 1
+            stat["done"] += 1
+            if coverage.get("status") != "complete":
+                stat["xhs_discussion_partial"] += 1
+            stat["failed"].extend("xhs:%s:%s" % (note_id, error)
                                   for error in coverage.get("errors", [])[:1])
 
     stat["elapsed"] = time.monotonic() - t0
