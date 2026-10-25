@@ -22,7 +22,7 @@ import re
 import sys
 import time
 import urllib.parse
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from bs4 import BeautifulSoup
 
@@ -41,8 +41,11 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 
 MAX_DISCUSSION_COMMENTS = 60
 MAX_COMMENT_PAGES = 4
+MAX_REPLY_THREADS = 5
+MAX_REPLY_PAGES = 3
 MAX_NOTE_BODY_CHARS = 12000
 COMMENT_API_HINT = "/api/sns/web/v2/comment/page"
+COMMENT_SUB_API_HINT = "/api/sns/web/v2/comment/sub/page"
 _NOTE_ID = re.compile(r"^/(?:explore|search_result)/([A-Za-z0-9]+)(?:/)?$")
 
 
@@ -89,9 +92,14 @@ def _comment_record(comment: dict, *, note_id: str, note_url: str,
 
 
 def _parse_comment_pages(payloads: list[dict], *, note_id: str, note_url: str,
-                         max_comments: int = MAX_DISCUSSION_COMMENTS):
-    """Normalize observed comment pages, retaining reply-preview limits."""
+                         max_comments: int = MAX_DISCUSSION_COMMENTS,
+                         sub_payloads: list[dict] | None = None):
+    """Normalize root and expanded sub-comment pages with explicit coverage."""
     roots = []
+    roots_by_id: dict[str, dict] = {}
+    expected_replies: dict[str, int] = {}
+    reply_has_more: set[str] = set()
+    reply_page_counts: dict[str, int] = {}
     seen: set[str] = set()
     truncated_by: list[str] = []
     errors: list[str] = []
@@ -134,15 +142,52 @@ def _parse_comment_pages(payloads: list[dict], *, note_id: str, note_url: str,
                                                note_url=note_url, parent_id=comment_id))
             record["replies"] = replies
             reply_count = _as_int(item.get("sub_comment_count"))
-            if reply_count > len(replies) or bool(item.get("sub_comment_has_more")):
-                if "reply_preview_only" not in truncated_by:
-                    truncated_by.append("reply_preview_only")
+            roots_by_id[comment_id] = record
+            expected_replies[comment_id] = reply_count
+            if bool(item.get("sub_comment_has_more")):
+                reply_has_more.add(comment_id)
             roots.append(record)
             if len(seen) >= max_comments:
                 truncated_by.append("comment_limit")
                 break
         if len(seen) >= max_comments:
             break
+
+    for entry in sub_payloads or []:
+        parent_id = str(entry.get("root_comment_id") or "")
+        payload = entry.get("payload") or {}
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if parent_id not in roots_by_id or not isinstance(data, dict) or not isinstance(data.get("comments"), list):
+            if "reply:invalid_payload" not in errors:
+                errors.append("reply:invalid_payload")
+            continue
+        reply_page_counts[parent_id] = reply_page_counts.get(parent_id, 0) + 1
+        if data.get("has_more"):
+            reply_has_more.add(parent_id)
+        root = roots_by_id[parent_id]
+        for reply in data["comments"]:
+            if not isinstance(reply, dict):
+                continue
+            reply_id = str(reply.get("id") or "")
+            if not reply_id or reply_id in seen:
+                continue
+            if len(seen) >= max_comments:
+                truncated_by.append("comment_limit")
+                break
+            seen.add(reply_id)
+            root["replies"].append(_comment_record(
+                reply, note_id=note_id, note_url=note_url, parent_id=parent_id))
+        if len(seen) >= max_comments:
+            break
+
+    for root_id, expected in expected_replies.items():
+        fetched = len(roots_by_id[root_id]["replies"])
+        if expected > fetched or root_id in reply_has_more:
+            if root_id in reply_page_counts:
+                truncated_by.append("reply_page_limit" if root_id in reply_has_more
+                                    else "reply_thread_incomplete")
+            else:
+                truncated_by.append("reply_preview_only")
     if has_more:
         truncated_by.append("comment_page_limit")
     fetched_roots = len(roots)
@@ -155,6 +200,8 @@ def _parse_comment_pages(payloads: list[dict], *, note_id: str, note_url: str,
         "fetched_comments": fetched_roots + fetched_replies,
         "fetched_roots": fetched_roots, "fetched_replies": fetched_replies,
         "pages_attempted": pages_attempted, "max_comments": max_comments,
+        "reported_replies": sum(expected_replies.values()),
+        "reply_pages_attempted": sum(reply_page_counts.values()),
         "truncated_by": list(dict.fromkeys(truncated_by)), "errors": errors,
     }
     return {}, roots, coverage
@@ -322,16 +369,25 @@ def _fetch_many_sync(items: list[dict], *, max_comments: int,
                     continue
 
                 payloads: list[dict] = []
+                sub_payloads: list[dict] = []
 
                 def on_response(response) -> None:
-                    if COMMENT_API_HINT not in response.url:
+                    response_path = urlsplit(response.url).path
+                    is_sub_comment = COMMENT_SUB_API_HINT in response_path
+                    if not is_sub_comment and COMMENT_API_HINT not in response_path:
                         return
                     try:
                         payload = response.json()
                     except Exception:
                         return
                     if isinstance(payload, dict):
-                        payloads.append(payload)
+                        if is_sub_comment:
+                            root_comment_id = (parse_qs(urlsplit(response.url).query)
+                                               .get("root_comment_id", [""])[0])
+                            sub_payloads.append({"root_comment_id": root_comment_id,
+                                                 "payload": payload})
+                        else:
+                            payloads.append(payload)
 
                 page.on("response", on_response)
                 errors: list[str] = []
@@ -380,6 +436,42 @@ def _fetch_many_sync(items: list[dict], *, max_comments: int,
                         if len(payloads) == before and page_index == 0:
                             continue
 
+                    reply_controls = page.get_by_text(re.compile(r"\d+\s*条回复"))
+                    controls_to_expand = min(reply_controls.count(), MAX_REPLY_THREADS)
+                    for control_index in range(controls_to_expand):
+                        left = remaining()
+                        if left is not None and left <= 0:
+                            break
+                        before = len(sub_payloads)
+                        try:
+                            reply_controls.nth(control_index).click(
+                                timeout=int(min(1000, max(100, (left or 1) * 1000))))
+                        except Exception:
+                            continue
+                        wait_until = monotonic() + min(1.5, remaining() or 1.5)
+                        while len(sub_payloads) == before and monotonic() < wait_until:
+                            page.wait_for_timeout(100)
+                        if len(sub_payloads) == before:
+                            continue
+                        parent_id = sub_payloads[-1].get("root_comment_id")
+                        reply_page_index = 1
+                        while (parent_id and reply_page_index < MAX_REPLY_PAGES
+                               and remaining() != 0):
+                            latest = next((entry["payload"].get("data") or {}
+                                           for entry in reversed(sub_payloads)
+                                           if entry.get("root_comment_id") == parent_id), {})
+                            if not latest.get("has_more"):
+                                break
+                            before = len(sub_payloads)
+                            page.mouse.move(1250, 500)
+                            page.mouse.wheel(0, 900)
+                            wait_until = monotonic() + min(1.2, remaining() or 1.2)
+                            while len(sub_payloads) == before and monotonic() < wait_until:
+                                page.wait_for_timeout(100)
+                            if len(sub_payloads) == before:
+                                break
+                            reply_page_index += 1
+
                     if not payloads and not errors:
                         errors.append("comments:response_missing")
                 except Exception as exc:  # noqa: BLE001 - keep per-note failures isolated
@@ -393,7 +485,7 @@ def _fetch_many_sync(items: list[dict], *, max_comments: int,
 
                 _, comments, coverage = _parse_comment_pages(
                     payloads, note_id=note_id, note_url=note_url,
-                    max_comments=max_comments)
+                    max_comments=max_comments, sub_payloads=sub_payloads)
                 coverage["errors"].extend(errors)
                 if remaining() == 0 and "time_budget" not in coverage["truncated_by"]:
                     coverage["truncated_by"].append("time_budget")

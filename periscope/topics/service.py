@@ -181,7 +181,7 @@ class TopicService:
             breakdown.append("小红书正文与讨论 %d/%d 条" % (
                 stat.get("xhs_discussion_done", 0), stat["xhs_discussion_targets"]))
         if stat.get("xhs_discussion_partial"):
-            result.notes.append("%d 条小红书资料受登录状态、评论分页或楼中楼预览范围限制；覆盖详情随分片保存"
+            result.notes.append("%d 条小红书资料受登录状态、评论/回复分页或楼中楼预览范围限制；覆盖详情随分片保存"
                                 % stat["xhs_discussion_partial"])
         if stat.get("douyin_discussion_targets"):
             breakdown.append("抖音评论 %d/%d 条" % (

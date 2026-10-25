@@ -47,6 +47,30 @@ def test_invalid_comment_payload_is_not_reported_as_complete():
     assert "comments:invalid_payload" in coverage["errors"]
 
 
+def test_expanded_sub_comment_pages_complete_reply_preview_and_keep_parent():
+    root_payload = {"data": {"comments": [{
+        "id": "root-2", "content": "Root with replies", "sub_comment_count": 3,
+        "sub_comments": [{"id": "reply-1", "content": "Preview reply"}],
+    }], "cursor": "", "has_more": False}}
+    reply_payload = {"data": {"comments": [
+        {"id": "reply-1", "content": "Preview reply"},
+        {"id": "reply-2", "content": "Second reply"},
+        {"id": "reply-3", "content": "Third reply"},
+    ], "cursor": "", "has_more": False}}
+
+    _, comments, coverage = xhs._parse_comment_pages(
+        [root_payload], note_id=NOTE_ID, note_url=NOTE_URL, max_comments=10,
+        sub_payloads=[{"root_comment_id": "root-2", "payload": reply_payload}])
+
+    assert [reply["id"] for reply in comments[0]["replies"]] == [
+        "reply-1", "reply-2", "reply-3"]
+    assert all(reply["parent_id"] == "root-2" for reply in comments[0]["replies"])
+    assert coverage["fetched_replies"] == 3
+    assert coverage["reported_replies"] == 3
+    assert coverage["status"] == "complete"
+    assert "reply_preview_only" not in coverage["truncated_by"]
+
+
 def test_enrichment_uses_single_group_fetch_and_patches_raw_row(monkeypatch):
     received = {}
 
