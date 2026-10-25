@@ -183,6 +183,12 @@ class TopicService:
         if stat.get("xhs_discussion_partial"):
             result.notes.append("%d 条小红书资料受登录状态、评论分页或楼中楼预览范围限制；覆盖详情随分片保存"
                                 % stat["xhs_discussion_partial"])
+        if stat.get("douyin_discussion_targets"):
+            breakdown.append("抖音评论 %d/%d 条" % (
+                stat.get("douyin_discussion_done", 0), stat["douyin_discussion_targets"]))
+        if stat.get("douyin_discussion_partial"):
+            result.notes.append("%d 条抖音讨论受评论分页、回复线程或时间预算限制；覆盖详情随分片保存"
+                                % stat["douyin_discussion_partial"])
         if stat["failed"]:
             result.notes.append("富化失败: %s" % ", ".join(stat["failed"][:3]))
         if stat["no_transcript"]:

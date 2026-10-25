@@ -10,11 +10,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime, timezone
 import argparse
+import asyncio
 import json
 import re
 import sys
 import urllib.parse
+from urllib.parse import urlsplit
 
 from periscope.collection.platforms.browser import browser_session, ensure_env, run_collector, wait_for_items, write_checkpoint
 from periscope.runtime import paths
@@ -27,6 +30,123 @@ OUT_DEFAULT = paths.COLLECT_DIR / "ugc_search.douyin.json"
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+
+MAX_DISCUSSION_COMMENTS = 60
+MAX_COMMENT_PAGES = 8
+COMMENT_LIST_HINT = "/aweme/v1/web/comment/list/"
+VIDEO_ID_PATH = re.compile(r"^/video/(\d+)/?$")
+
+
+def _aweme_id(video_url: str) -> str:
+    """Return a Douyin video ID only for a canonical video URL."""
+    try:
+        parsed = urlsplit(str(video_url or "").strip())
+    except ValueError:
+        return ""
+    if parsed.scheme not in {"https", "http"} or (parsed.hostname or "").lower() not in {
+            "douyin.com", "www.douyin.com"}:
+        return ""
+    match = VIDEO_ID_PATH.fullmatch(parsed.path)
+    return match.group(1) if match else ""
+
+
+def _safe_int(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _comment_record(comment: dict, *, aweme_id: str, parent_id: str = "") -> dict:
+    user = comment.get("user") or {}
+    record = {
+        "id": str(comment.get("cid") or comment.get("comment_id") or ""),
+        "aweme_id": str(comment.get("aweme_id") or aweme_id),
+        "text": str(comment.get("text") or "").strip(),
+        "author": str(user.get("nickname") or ""),
+        "likes": _safe_int(comment.get("digg_count")),
+        "created_at": str(comment.get("create_time") or ""),
+        "url": "https://www.douyin.com/video/%s" % aweme_id,
+    }
+    if parent_id:
+        record["parent_id"] = parent_id
+    return record
+
+
+def _parse_comment_pages(payloads: list[dict], *, aweme_id: str,
+                         max_comments: int = MAX_DISCUSSION_COMMENTS):
+    """Normalize observed comment-list pages without implying reply coverage."""
+    roots = []
+    seen: set[str] = set()
+    reported_replies_by_id: dict[str, int] = {}
+    truncated_by: list[str] = []
+    errors: list[str] = []
+    reported_comments = 0
+    has_more = False
+    pages_attempted = 0
+
+    def add_reply(parent: dict, item: dict) -> None:
+        reply_id = str(item.get("cid") or item.get("comment_id") or "")
+        if not reply_id or reply_id in seen:
+            return
+        seen.add(reply_id)
+        parent["replies"].append(_comment_record(item, aweme_id=aweme_id,
+                                                  parent_id=parent["id"]))
+
+    for payload in payloads:
+        if not isinstance(payload, dict) or not isinstance(payload.get("comments"), list):
+            if "comments:invalid_payload" not in errors:
+                errors.append("comments:invalid_payload")
+            continue
+        pages_attempted += 1
+        has_more = bool(payload.get("has_more"))
+        reported_comments = max(reported_comments, _safe_int(payload.get("total")))
+        for item in payload["comments"]:
+            if not isinstance(item, dict):
+                continue
+            comment_id = str(item.get("cid") or item.get("comment_id") or "")
+            if not comment_id:
+                continue
+            reported_replies_by_id[comment_id] = max(
+                reported_replies_by_id.get(comment_id, 0),
+                _safe_int(item.get("reply_comment_total")))
+            if comment_id in seen:
+                continue
+            seen.add(comment_id)
+            root = _comment_record(item, aweme_id=aweme_id)
+            root["replies"] = []
+            roots.append(root)
+            inline_items = item.get("reply_comment")
+            if isinstance(inline_items, list):
+                for reply in inline_items:
+                    if not isinstance(reply, dict):
+                        continue
+                    add_reply(root, reply)
+            if len(seen) >= max_comments:
+                truncated_by.append("comment_limit")
+                break
+        if len(seen) >= max_comments:
+            break
+
+    reported_replies = sum(reported_replies_by_id.values())
+    fetched_replies = sum(len(root["replies"]) for root in roots)
+    if reported_replies > fetched_replies:
+        truncated_by.append("reply_threads_not_fetched")
+    if has_more:
+        truncated_by.append("comment_page_limit")
+    fetched_roots = len(roots)
+    coverage = {
+        "platform": "douyin", "aweme_id": aweme_id,
+        "collected_at": datetime.now(timezone.utc).isoformat(),
+        "status": "partial" if truncated_by or errors or not pages_attempted else "complete",
+        "reported_comments": reported_comments,
+        "reported_replies": reported_replies,
+        "fetched_comments": fetched_roots + fetched_replies,
+        "fetched_roots": fetched_roots, "fetched_replies": fetched_replies,
+        "pages_attempted": pages_attempted, "max_comments": max_comments,
+        "truncated_by": list(dict.fromkeys(truncated_by)), "errors": errors,
+    }
+    return {}, roots, coverage
 
 DEFAULT_QUERIES = [
     "人形机器人", "具身智能", "大模型", "AI 应用", "智能体",
@@ -58,6 +178,134 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--headed", action="store_true", default=False,
                     help="显示浏览器窗口（默认不显示）")
     return ap.parse_args()
+
+
+def _fetch_many_sync(items: list[dict], *, max_comments: int,
+                     budget_seconds: float | None) -> dict:
+    from time import monotonic
+
+    deadline = None if budget_seconds is None else monotonic() + max(0.0, budget_seconds)
+    results = {}
+    targets = []
+    for item in items:
+        url = str(item.get("url") or "")
+        aweme_id = str(item.get("aweme_id") or _aweme_id(url))
+        if aweme_id.isdigit() and urlsplit(url).hostname in {"douyin.com", "www.douyin.com"}:
+            targets.append((url, aweme_id))
+        else:
+            results[url] = ({}, [], {
+                "platform": "douyin", "status": "partial", "aweme_id": "",
+                "fetched_comments": 0, "fetched_roots": 0, "fetched_replies": 0,
+                "pages_attempted": 0, "max_comments": max_comments,
+                "truncated_by": [], "errors": ["invalid_video_url"],
+            })
+    if not targets:
+        return results
+
+    def remaining() -> float | None:
+        return None if deadline is None else max(0.0, deadline - monotonic())
+
+    try:
+        with browser_session(PROFILES / "douyin", headed=False, user_agent=UA,
+                             prepare=ensure_env,
+                             viewport={"width": 1440, "height": 950}) as ctx:
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            for video_url, aweme_id in targets:
+                left = remaining()
+                if left is not None and left <= 0:
+                    results[video_url] = ({}, [], {
+                        "platform": "douyin", "aweme_id": aweme_id, "status": "partial",
+                        "fetched_comments": 0, "fetched_roots": 0, "fetched_replies": 0,
+                        "pages_attempted": 0, "max_comments": max_comments,
+                        "truncated_by": ["time_budget"], "errors": [],
+                    })
+                    continue
+
+                payloads: list[dict] = []
+
+                def on_response(response) -> None:
+                    response_path = urlsplit(response.url).path.rstrip("/")
+                    if not response_path.endswith(COMMENT_LIST_HINT.rstrip("/")):
+                        return
+                    try:
+                        payload = response.json()
+                    except Exception:
+                        return
+                    if isinstance(payload, dict):
+                        payloads.append(payload)
+
+                page.on("response", on_response)
+                errors: list[str] = []
+                truncated_by: list[str] = []
+                try:
+                    nav_ms = int(min(20000, max(1000, (left or 20) * 1000)))
+                    page.goto(video_url, wait_until="domcontentloaded", timeout=nav_ms)
+                    wait_ms = int(min(3500, max(0, (remaining() or 0) * 1000)))
+                    if wait_ms:
+                        page.wait_for_timeout(wait_ms)
+
+                    while len(payloads) < MAX_COMMENT_PAGES:
+                        left = remaining()
+                        if left is not None and left <= 0:
+                            truncated_by.append("time_budget")
+                            break
+                        latest = payloads[-1] if payloads else {}
+                        if not latest.get("has_more"):
+                            break
+                        before = len(payloads)
+                        page.mouse.move(1250, 500)
+                        page.mouse.wheel(0, 1400)
+                        wait_until = monotonic() + min(1.5, left or 1.5)
+                        while len(payloads) == before and monotonic() < wait_until:
+                            page.wait_for_timeout(100)
+                        if len(payloads) == before:
+                            truncated_by.append("pagination_stalled")
+                            break
+
+                    if not payloads:
+                        try:
+                            page_text = page.locator("body").inner_text(timeout=1000)
+                        except Exception:
+                            page_text = ""
+                        if any(marker in page_text for marker in ("登录后查看", "请先登录", "扫码登录")):
+                            errors.append("login_required")
+                        else:
+                            errors.append("comments:response_missing")
+                except Exception as exc:  # noqa: BLE001 - keep other videos usable
+                    errors.append("page:%s" % ("time_budget" if remaining() == 0
+                                               else type(exc).__name__))
+                finally:
+                    try:
+                        page.remove_listener("response", on_response)
+                    except Exception:
+                        pass
+
+                _, comments, coverage = _parse_comment_pages(
+                    payloads, aweme_id=aweme_id, max_comments=max_comments)
+                coverage["errors"].extend(errors)
+                coverage["truncated_by"].extend(truncated_by)
+                coverage["truncated_by"] = list(dict.fromkeys(coverage["truncated_by"]))
+                if errors or coverage["truncated_by"]:
+                    coverage["status"] = "partial"
+                results[video_url] = ({}, comments, coverage)
+    except Exception as exc:  # noqa: BLE001 - browser/profile failure is source-local
+        for video_url, aweme_id in targets:
+            results.setdefault(video_url, ({}, [], {
+                "platform": "douyin", "aweme_id": aweme_id, "status": "partial",
+                "fetched_comments": 0, "fetched_roots": 0, "fetched_replies": 0,
+                "pages_attempted": 0, "max_comments": max_comments,
+                "truncated_by": [], "errors": ["browser:%s" % type(exc).__name__],
+            }))
+    return results
+
+
+async def fetch_many(items: list[dict], *, max_comments: int = MAX_DISCUSSION_COMMENTS,
+                     budget_seconds: float | None = 20.0) -> dict:
+    """Read bounded Douyin comment pages by driving the existing detail UI."""
+    bounded_comments = max(1, min(int(max_comments), MAX_DISCUSSION_COMMENTS))
+    return await asyncio.to_thread(_fetch_many_sync, items,
+                                   max_comments=bounded_comments,
+                                   budget_seconds=budget_seconds)
 
 
 def walk_awemes(obj, out: list) -> None:
