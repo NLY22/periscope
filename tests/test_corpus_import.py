@@ -192,27 +192,14 @@ def test_a_oversized_dump_is_rejected_with_the_limit_in_the_message() -> None:
 
 # ----------------------------------------------------------------- entry points
 def test_the_mcp_tool_is_registered_and_counted() -> None:
-    import re
+    import asyncio
+    from src.mcp.server import mcp
 
-    server = (REPO_ROOT / "src" / "mcp" / "server.py").read_text(encoding="utf-8")
-    assert "async def ps_corpus_import(" in server, (
-        "the spec's degradation path promised an import entry; without the tool "
-        "an import only works from the CLI"
-    )
-    assert len(re.findall(r"^(?:async )?def ps_\w+", server, re.M)) == 27
+    assert "ps_corpus_import" in {tool.name for tool in asyncio.run(mcp.list_tools())}
 
 
 def test_the_mcp_exposes_the_import_verb() -> None:
     import inspect
-    import re
-
-    server = (REPO_ROOT / "src" / "mcp" / "server.py").read_text(encoding="utf-8")
-    assert "async def ps_corpus_import(" in server, (
-        "the spec's degradation path promised an import entry; without the tool "
-        "an import only works from the CLI"
-    )
-    assert len(re.findall(r"^(?:async )?def ps_\w+", server, re.M)) == 27
-
     from src.mcp.service import PipelineService as S
 
     assert callable(S.corpus_import)

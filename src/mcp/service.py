@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import math
 import re
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timedelta, timezone
@@ -812,6 +813,29 @@ class PipelineService:
         stats["claims"] = claim_store.stats() if claim_store else {"claims": 0}
         stats["research"] = ResearchStore(corpus).stats()
         return stats
+
+    async def crawl_public(
+        self, *, topic: str, seeds: list[str], form_fields: dict[str, str] | None = None,
+        max_pages: int = 12, depth: int = 2, budget: float = 30,
+    ) -> dict[str, Any]:
+        """Run the shared bounded crawler without implicitly saving its results."""
+        from periscope.collection.crawling.engine import CrawlOptions, crawl_async
+
+        try:
+            if not topic.strip() or not 1 <= len(seeds) <= 6:
+                raise ValueError("a topic and one to six seed URLs are required")
+            if not 1 <= max_pages <= 50 or not 0 <= depth <= 5:
+                raise ValueError("max_pages must be 1–50 and depth must be 0–5")
+            if not math.isfinite(budget) or not 0 < budget <= 180:
+                raise ValueError("budget must be greater than zero and at most 180 seconds")
+            options = CrawlOptions(tuple(seeds), max_pages=max_pages, depth=depth, budget=budget,
+                                   form_fields=tuple((form_fields or {}).items()))
+        except ValueError as exc:
+            raise McpError(code="PS_INVALID_INPUT", message=str(exc)) from exc
+        rows, stats = await crawl_async(topic.strip(), options)
+        return {"topic": topic.strip(), "rows": rows, "reports": stats["reports"],
+                "stats": {key: value for key, value in stats.items() if key != "reports"},
+                "stored": False}
 
     def corpus_search(
         self,

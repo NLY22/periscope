@@ -1170,7 +1170,7 @@ What works instead on `NLY22/periscope`: schedule whatever can run a shell — `
 
 ## MCP Server
 
-Periscope ships an MCP server for AI assistants and MCP-compatible clients: **27 tools**, covering the staged pipeline (`ps_validate_config`, `ps_fetch_items`, `ps_score_items`, `ps_filter_items`, `ps_enrich_items`, `ps_generate_summary`, `ps_run_pipeline`), the per-run artifacts (`ps_list_runs`, `ps_get_run_*`), the evidence layer (`ps_corpus_stats`, `ps_corpus_search`, `ps_corpus_recent`, `ps_corpus_import`, `ps_list_claims`, `ps_get_claim`) and the research loop (`ps_research_start`, `ps_research_followup`, `ps_research_step`, `ps_research_draft`, `ps_research_edit`, `ps_research_answer`, `ps_research_status`, `ps_research_list`).
+Periscope ships an MCP server for AI assistants and MCP-compatible clients: **28 tools**, covering the staged pipeline (`ps_validate_config`, `ps_fetch_items`, `ps_score_items`, `ps_filter_items`, `ps_enrich_items`, `ps_generate_summary`, `ps_run_pipeline`), public crawling (`ps_crawl_public`), the per-run artifacts (`ps_list_runs`, `ps_get_run_*`), the evidence layer (`ps_corpus_stats`, `ps_corpus_search`, `ps_corpus_recent`, `ps_corpus_import`, `ps_list_claims`, `ps_get_claim`) and the research loop (`ps_research_start`, `ps_research_followup`, `ps_research_step`, `ps_research_draft`, `ps_research_edit`, `ps_research_answer`, `ps_research_status`, `ps_research_list`).
 
 ```bash
 uv run periscope-mcp
