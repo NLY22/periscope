@@ -71,6 +71,10 @@ def render(topic: str, rows: list[dict], info: dict) -> str:
             L.append("    文档: Excel，已读取 %d 行%s" % (
                 len(document.get("sheet_rows") or []),
                 "，内容已截断" if document.get("text_truncated") else ""))
+        elif document.get("format") == "docx":
+            L.append("    文档: Word，已读取 %d 个段落或表格行%s" % (
+                len(document.get("document_blocks") or []),
+                "，内容未完全提取" if document.get("text_truncated") else ""))
         # Enrichment, when present. Counters are shown with the platform's own
         # meaning, and a transcript is labelled as such - it is the视频's speech,
         # not the article body, and conflating them is how a summary starts

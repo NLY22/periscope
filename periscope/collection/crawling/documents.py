@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from io import BytesIO
 import asyncio
 import json
+import re
 import sys
 from urllib.parse import unquote, urljoin, urlsplit
 import xml.etree.ElementTree as ET
@@ -31,6 +32,8 @@ class Document:
     pages_total: int = 0
     pages_read: int = 0
     sheet_rows: list[dict] = field(default_factory=list)
+    document_blocks: list[dict] = field(default_factory=list)
+    incomplete_reasons: list[str] = field(default_factory=list)
 
     def metadata(self) -> dict:
         result = {"format": self.format, "page_spans": self.page_spans,
@@ -38,20 +41,27 @@ class Document:
                   "pages_total": self.pages_total, "pages_read": self.pages_read}
         if self.format == "xlsx":
             result["sheet_rows"] = self.sheet_rows
+        elif self.format == "docx":
+            result["document_blocks"] = self.document_blocks
+            result["incomplete_reasons"] = self.incomplete_reasons
         return result
 
 
-def _extract_xlsx(body: bytes, title: str, max_chars: int) -> Document:
-    """Extract bounded cell values without inferring headers or calculating formulas."""
+def _validate_office_archive(body: bytes, format_name: str) -> None:
     try:
         with ZipFile(BytesIO(body)) as archive:
             entries = archive.infolist()
             if len(entries) > 4096 or sum(item.file_size for item in entries) > 40 * 1024 * 1024:
-                raise ValueError("xlsx_expanded_size_limit")
+                raise ValueError(format_name + "_expanded_size_limit")
             if any(item.flag_bits & 1 for item in entries):
-                raise ValueError("encrypted_xlsx")
+                raise ValueError("encrypted_" + format_name)
     except BadZipFile as exc:
-        raise ValueError("invalid_xlsx") from exc
+        raise ValueError("invalid_" + format_name) from exc
+
+
+def _extract_xlsx(body: bytes, title: str, max_chars: int) -> Document:
+    """Extract bounded cell values without inferring headers or calculating formulas."""
+    _validate_office_archive(body, "xlsx")
 
     from openpyxl import load_workbook
     from openpyxl.utils import get_column_letter
@@ -112,6 +122,115 @@ def _extract_xlsx(body: bytes, title: str, max_chars: int) -> Document:
     return doc
 
 
+def _extract_docx(body: bytes, title: str, max_chars: int) -> Document:
+    """Extract document paragraphs and table rows in their original order."""
+    _validate_office_archive(body, "docx")
+    from docx import Document as WordDocument
+    from docx.oxml.ns import qn
+    from docx.table import Table, _Cell
+    from docx.text.paragraph import Paragraph
+
+    word = WordDocument(BytesIO(body))
+    doc = Document(title, "", "docx")
+
+    def mark_incomplete(reason: str) -> None:
+        doc.truncated = True
+        if reason not in doc.incomplete_reasons:
+            doc.incomplete_reasons.append(reason)
+
+    with ZipFile(BytesIO(body)) as archive:
+        for name in archive.namelist():
+            if not re.fullmatch(r"word/(?:header\d+|footer\d+|footnotes|endnotes|comments)\.xml", name):
+                continue
+            root = ET.fromstring(archive.read(name))
+            if any(node.tag.rsplit("}", 1)[-1] == "t" and (node.text or "").strip()
+                   for node in root.iter()):
+                mark_incomplete("additional_parts_not_extracted")
+                break
+    if any(any((text.text or "").strip() for text in box.iter(qn("w:t")))
+           for box in word._element.body.iter(qn("w:txbxContent"))):
+        mark_incomplete("text_box_not_extracted")
+    if any(any((text.text or "").strip() for text in section.iter(qn("w:t")))
+           for tag in ("w:sdt", "w:ins", "w:customXml")
+           for section in word._element.body.iter(qn(tag))):
+        mark_incomplete("structured_content_not_extracted")
+    for child in word._element.body.iterchildren():
+        if child.tag not in {qn("w:p"), qn("w:tbl"), qn("w:sectPr")} and any(
+                (text.text or "").strip() for text in child.iter(qn("w:t"))):
+            mark_incomplete("structured_content_not_extracted")
+            break
+    pieces, length, seen = [], 0, 0
+    paragraph_number, table_number = 0, 0
+    max_blocks, max_cells = 5000, 128
+
+    def append(text: str, location: dict) -> bool:
+        nonlocal length
+        if not text.strip():
+            return True
+        separator = "\n" if pieces else ""
+        remaining = max_chars - length - len(separator)
+        if remaining <= 0:
+            doc.truncated = True
+            if "text_limit" not in doc.incomplete_reasons:
+                doc.incomplete_reasons.append("text_limit")
+            return False
+        kept = text[:remaining]
+        start = length + len(separator)
+        pieces.append(separator + kept)
+        length = start + len(kept)
+        doc.document_blocks.append({**location, "start": start, "end": length})
+        if len(kept) < len(text):
+            doc.truncated = True
+            if "text_limit" not in doc.incomplete_reasons:
+                doc.incomplete_reasons.append("text_limit")
+            return False
+        return True
+
+    for block in word.iter_inner_content():
+        if isinstance(block, Paragraph):
+            seen += 1
+            paragraph_number += 1
+            if seen > max_blocks:
+                doc.truncated = True
+                doc.incomplete_reasons.append("block_limit")
+                break
+            if not append(block.text.strip(), {"type": "paragraph", "paragraph": paragraph_number}):
+                break
+        elif isinstance(block, Table):
+            table_number += 1
+            stopped = False
+            for row_number, row in enumerate(block.rows, 1):
+                seen += 1
+                if seen > max_blocks:
+                    doc.truncated = True
+                    doc.incomplete_reasons.append("block_limit")
+                    break
+                cells = row._tr.tc_lst
+                if len(cells) > max_cells:
+                    doc.truncated = True
+                    if "cell_limit" not in doc.incomplete_reasons:
+                        doc.incomplete_reasons.append("cell_limit")
+                values = []
+                for index, cell_xml in enumerate(cells[:max_cells], 1):
+                    cell = _Cell(cell_xml, block)
+                    if cell.tables:
+                        doc.truncated = True
+                        if "nested_table_not_extracted" not in doc.incomplete_reasons:
+                            doc.incomplete_reasons.append("nested_table_not_extracted")
+                    value = " ".join(cell.text.split())
+                    if value:
+                        values.append("cell %d=%s" % (index, value))
+                if values and not append("[table: %d | row: %d] %s" % (
+                        table_number, row_number, " | ".join(values)),
+                        {"type": "table_row", "table": table_number, "row": row_number}):
+                    stopped = True
+                    break
+            if seen > max_blocks or stopped:
+                break
+    doc.text = "".join(pieces)
+    return doc
+
+
 async def extract_document_async(body: bytes, content_type: str, url: str) -> Document:
     """Keep HTML/PDF CPU work cancellable, including executor shutdown."""
     from periscope.runtime import paths
@@ -142,6 +261,9 @@ def extract_document(body: bytes, content_type: str, url: str, *,
     xlsx_mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     if mime == xlsx_mime or (urlsplit(url).path.lower().endswith(".xlsx") and body.startswith(b"PK")):
         return _extract_xlsx(body, fallback_title, max_chars)
+    docx_mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if mime == docx_mime or (urlsplit(url).path.lower().endswith(".docx") and body.startswith(b"PK")):
+        return _extract_docx(body, fallback_title, max_chars)
     if body.startswith(b"%PDF-") or mime == "application/pdf":
         from pypdf import PdfReader
         reader = PdfReader(BytesIO(body))

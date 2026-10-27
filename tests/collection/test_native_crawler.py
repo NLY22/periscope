@@ -44,6 +44,153 @@ def xlsx_bytes():
     return out.getvalue()
 
 
+def docx_bytes():
+    from zipfile import ZipFile
+    out = BytesIO()
+    with ZipFile(out, "w") as archive:
+        archive.writestr("[Content_Types].xml", '''<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>''')
+        archive.writestr("_rels/.rels", '''<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>''')
+        archive.writestr("word/document.xml", '''<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:p><w:r><w:t>robot admissions guide</w:t></w:r></w:p>
+<w:tbl><w:tr><w:tc><w:p><w:r><w:t>program</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>score</w:t></w:r></w:p></w:tc></w:tr>
+<w:tr><w:tc><w:p><w:r><w:t>robot computing</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>365</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
+<w:p><w:r><w:t>contact admissions office</w:t></w:r></w:p><w:sectPr/>
+</w:body></w:document>''')
+    return out.getvalue()
+
+
+def test_docx_preserves_paragraph_and_table_order_and_locations():
+    from periscope.collection.documents import extract_document
+    doc = extract_document(docx_bytes(), "application/octet-stream",
+                           "https://lab.example/admissions.docx")
+    assert doc.format == "docx"
+    assert doc.text.index("robot admissions guide") < doc.text.index("robot computing")
+    assert doc.text.index("robot computing") < doc.text.index("contact admissions office")
+    block = next(block for block in doc.metadata()["document_blocks"]
+                 if block["type"] == "table_row" and block["table"] == 1 and block["row"] == 2)
+    line = doc.text[block["start"]:block["end"]]
+    assert "robot computing" in line and "365" in line
+
+
+def test_docx_text_limit_is_reported():
+    from periscope.collection.documents import extract_document
+    doc = extract_document(docx_bytes(), "application/octet-stream",
+                           "https://lab.example/admissions.docx", max_chars=20)
+    assert len(doc.text) <= 20 and doc.truncated
+
+
+def test_docx_exact_limit_before_following_paragraph_marks_partial():
+    from periscope.collection.documents import extract_document
+    expected = ("robot admissions guide\n"
+                "[table: 1 | row: 1] cell 1=program | cell 2=score\n"
+                "[table: 1 | row: 2] cell 1=robot computing | cell 2=365")
+    doc = extract_document(docx_bytes(), "application/octet-stream",
+                           "https://lab.example/admissions.docx", max_chars=len(expected))
+    assert doc.text == expected
+    assert doc.truncated
+    assert "text_limit" in doc.metadata()["incomplete_reasons"]
+
+
+def test_docx_with_header_text_marks_unread_content():
+    from docx import Document as WordDocument
+    from periscope.collection.documents import extract_document
+    word = WordDocument()
+    word.add_paragraph("robot admissions")
+    word.sections[0].header.paragraphs[0].text = "header details"
+    out = BytesIO()
+    word.save(out)
+    doc = extract_document(out.getvalue(), "application/octet-stream",
+                           "https://lab.example/admissions.docx")
+    assert "robot admissions" in doc.text
+    assert doc.truncated
+    assert "additional_parts_not_extracted" in doc.metadata()["incomplete_reasons"]
+
+
+def test_docx_with_inline_structured_text_marks_unread_content():
+    from zipfile import ZipFile
+    from periscope.collection.documents import extract_document
+    out = BytesIO()
+    with ZipFile(BytesIO(docx_bytes())) as source, ZipFile(out, "w") as target:
+        for entry in source.infolist():
+            data = source.read(entry.filename)
+            if entry.filename == "word/document.xml":
+                data = data.replace(b"</w:body>", b'<w:p><w:sdt><w:sdtContent><w:r><w:t>hidden robot detail</w:t></w:r></w:sdtContent></w:sdt></w:p></w:body>')
+            target.writestr(entry, data)
+    doc = extract_document(out.getvalue(), "application/octet-stream",
+                           "https://lab.example/admissions.docx")
+    assert "robot admissions guide" in doc.text
+    assert doc.truncated
+    assert "structured_content_not_extracted" in doc.metadata()["incomplete_reasons"]
+
+
+def test_listing_discovers_docx_and_saves_locations(monkeypatch, scratch_path):
+    listing = '<main><a href="/admissions.docx">robot admissions</a></main>'
+    rows, stat, _ = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/admissions.docx": httpx.Response(200, content=docx_bytes(),
+                                           headers={"content-type": "application/octet-stream"})}))
+    document = next(row for row in rows if row["url"].endswith("admissions.docx"))
+    assert document["provenance"]["parent_url"] == "https://lab.example/list"
+    assert document["document"]["format"] == "docx"
+    assert any(block["type"] == "table_row" and block["row"] == 2
+               for block in document["document"]["document_blocks"])
+    assert any(report["status"] == "ok" and report["format"] == "docx"
+               for report in stat["reports"])
+    from periscope.operations.ingest import build
+    from periscope.topics import runs
+    from src.corpus.store import Corpus
+    items, skipped = build(runs.ingestable_rows({"rows": [runs._row_for_disk(document, "crawl")]}), [])
+    assert not skipped
+    path = scratch_path / "docx.db"
+    corpus = Corpus(path)
+    corpus.add_items(items)
+    corpus.close()
+    corpus = Corpus(path)
+    try:
+        assert corpus.search("robot computing")
+        saved = corpus._conn.execute("SELECT metadata_json FROM items WHERE url=?",
+                                     (document["url"],)).fetchone()
+        metadata = json.loads(saved["metadata_json"])
+        assert any(block["type"] == "table_row" and block["row"] == 2
+                   for block in metadata["document"]["document_blocks"])
+    finally:
+        corpus.close()
+
+
+def test_docx_nested_table_is_reported_as_partial(monkeypatch):
+    from docx import Document as WordDocument
+    from periscope.topics.models import TopicRequest
+    from periscope.topics.service import TopicService
+    word = WordDocument()
+    word.add_paragraph("robot admissions")
+    table = word.add_table(rows=1, cols=1)
+    table.cell(0, 0).text = "robot program"
+    table.cell(0, 0).add_table(rows=1, cols=1).cell(0, 0).text = "nested details"
+    out = BytesIO()
+    word.save(out)
+    rows, stat, _ = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, content=out.getvalue(), headers={
+            "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"})}))
+    assert rows and rows[0]["document"]["text_truncated"]
+    assert stat["reports"][0]["status"] == "partial"
+    assert stat["reports"][0]["error"] == "nested_table_not_extracted"
+    service = TopicService(crawl_lookup=lambda *a, **kw: (rows, stat))
+    result = service.search(TopicRequest(topic="robot", no_local=True, no_api=True, speed="off",
+                                         crawl_seeds=("https://lab.example/list",)))
+    assert result.source_reports[0]["status"] == "partial"
+    from periscope.topics.render import render
+    assert "Word" in render("robot", rows, {})
+
+
 def test_xlsx_extracts_sheets_rows_and_cell_coordinates():
     from periscope.collection.documents import extract_document
     doc = extract_document(xlsx_bytes(), "application/octet-stream",
@@ -67,16 +214,17 @@ def test_xlsx_text_limit_is_reported():
     assert doc.truncated
 
 
-def test_xlsx_rejects_archive_with_excessive_entries():
+@pytest.mark.parametrize("extension", ["xlsx", "docx"])
+def test_office_document_rejects_archive_with_excessive_entries(extension):
     from zipfile import ZipFile
     from periscope.collection.documents import extract_document
     out = BytesIO()
     with ZipFile(out, "w") as archive:
         for index in range(4097):
             archive.writestr("empty/%d" % index, "")
-    with pytest.raises(ValueError, match="xlsx_expanded_size_limit"):
+    with pytest.raises(ValueError, match=extension + "_expanded_size_limit"):
         extract_document(out.getvalue(), "application/octet-stream",
-                         "https://lab.example/admissions.xlsx")
+                         "https://lab.example/admissions." + extension)
 
 
 def test_xlsx_empty_sheet_without_dimension_does_not_hide_next_sheet():
