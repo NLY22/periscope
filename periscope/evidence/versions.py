@@ -18,19 +18,23 @@ def _id(prefix: str, value: str) -> str:
     return prefix + hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def backup_corpus(corpus) -> None:
+    folder = Path(corpus.path).resolve().parent / "backups"
+    folder.mkdir(parents=True, exist_ok=True)
+    backup = sqlite3.connect(str(folder / ("before-evidence-" + uuid4().hex + ".db")))
+    try:
+        corpus._conn.backup(backup)
+    finally:
+        backup.close()
+
+
 class EvidenceVersions:
     """Additive version tables alongside the existing searchable corpus."""
 
     def __init__(self, corpus):
         self.conn = corpus._conn
         if not self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='evidence_objects'").fetchone():
-            folder = Path(corpus.path).resolve().parent / "backups"
-            folder.mkdir(parents=True, exist_ok=True)
-            backup = sqlite3.connect(str(folder / ("before-evidence-" + uuid4().hex + ".db")))
-            try:
-                self.conn.backup(backup)
-            finally:
-                backup.close()
+            backup_corpus(corpus)
         self.conn.executescript('''
             CREATE TABLE IF NOT EXISTS evidence_objects (
                 id TEXT PRIMARY KEY, source TEXT NOT NULL, kind TEXT NOT NULL, locator TEXT NOT NULL
