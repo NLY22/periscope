@@ -293,7 +293,12 @@ def _stable_id(namespace: str, identity: str) -> str:
 
 
 def _http_row_identity(row):
-    version = (row.get("document") or {}).get("sha256", "") if row.get("source") == "web_crawl" else ""
+    version = ""
+    if row.get("source") == "web_crawl":
+        document = row.get("document") if isinstance(row.get("document"), dict) else {}
+        body = max((row.get("body") or "", row.get("text") or ""), key=len).strip()
+        _, body = _split_title((row.get("title") or "").strip(), body)
+        version = document.get("sha256") or hashlib.sha256(body.encode("utf-8")).hexdigest()
     return row.get("source"), row.get("url") or row.get("title"), version
 
 
@@ -333,8 +338,10 @@ def build(http_rows, ugc_rows):
         metadata = captured_metadata(row)
         metadata.update(source_key=src_key, source_kind=kind)
         identity = url or title
-        if src_key == "web_crawl" and isinstance(row.get("document"), dict) and row["document"].get("sha256"):
-            identity += "\x00" + row["document"]["sha256"]
+        if src_key == "web_crawl":
+            document = row.get("document") if isinstance(row.get("document"), dict) else {}
+            version = document.get("sha256") or hashlib.sha256(body.encode("utf-8")).hexdigest()
+            identity += "\x00" + version
         items.append(ContentItem(
             id=_stable_id(row.get("source", "src"), identity),
             source_type=source,

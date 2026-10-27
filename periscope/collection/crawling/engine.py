@@ -64,6 +64,10 @@ class CrawlError(ValueError):
         self.status = status
 
 
+class DeliveryError(RuntimeError):
+    """A consumer could not durably accept a collected page."""
+
+
 def _matches(text: str, topic: str) -> bool:
     normalize = lambda value: "".join(value.casefold().split())
     haystack = normalize(text)
@@ -95,7 +99,7 @@ def select_seeds(rows: list[dict], limit: int = 6) -> tuple[str, ...]:
     return tuple(chosen)
 
 
-async def crawl_async(topic: str, options: CrawlOptions, *, client=None) -> tuple[list[dict], dict]:
+async def crawl_async(topic: str, options: CrawlOptions, *, client=None, on_row=None) -> tuple[list[dict], dict]:
     if not topic.strip():
         raise ValueError("topic must not be empty")
     started = time.monotonic()
@@ -221,12 +225,18 @@ async def crawl_async(topic: str, options: CrawlOptions, *, client=None) -> tupl
                         provenance["query_fields"] = report["query_fields"]
                     if report.get("query_warnings"):
                         provenance["query_warnings"] = report["query_warnings"]
-                    rows.append({"title": doc.title or report["label"] or final, "url": final,
+                    row = {"title": doc.title or report["label"] or final, "url": final,
                                  "author": urlsplit(final).hostname or "", "date": "",
                                  "body": doc.text if len(doc.text) >= 400 else "", "text": doc.text,
                                  "source": "web_crawl", "kind": "media", "trust": 0.5, "_origin": "crawl",
                                  "body_source_url": final, "document": metadata,
-                                 "provenance": provenance})
+                                 "provenance": provenance}
+                    if on_row is not None:
+                        try:
+                            await on_row(row)
+                        except Exception as exc:
+                            raise DeliveryError("evidence delivery failed") from exc
+                    rows.append(row)
                     report["status"] = "partial" if doc.format in {"xlsx", "docx"} and doc.truncated else "ok"
                 else:
                     report["status"] = ("partial" if doc.format in {"xlsx", "docx"} and doc.truncated else
@@ -293,6 +303,8 @@ async def crawl_async(topic: str, options: CrawlOptions, *, client=None) -> tupl
                 for link in doc.links:
                     enqueue(link.url, final, report["depth"] + 1, link.label, report["seed_url"],
                             report.get("query_fields"), report.get("query_warnings"))
+            except DeliveryError:
+                raise
             except asyncio.CancelledError:
                 report.update(status="over_budget", error="overall_deadline")
                 raise

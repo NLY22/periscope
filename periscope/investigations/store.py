@@ -15,7 +15,10 @@ class InvestigationStore:
     def __init__(self, corpus):
         EvidenceVersions(corpus)
         self.conn = corpus._conn
-        if not self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigations'").fetchone():
+        existing = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigations'").fetchone()
+        events_exist = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_events'").fetchone()
+        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(investigation_rounds)")}
+        if not existing or not events_exist or "error" not in columns:
             backup_corpus(corpus)
         self.conn.executescript('''
             CREATE TABLE IF NOT EXISTS investigations (
@@ -24,7 +27,7 @@ class InvestigationStore:
             CREATE TABLE IF NOT EXISTS investigation_rounds (
                 id TEXT PRIMARY KEY, investigation_id TEXT NOT NULL REFERENCES investigations(id),
                 message TEXT NOT NULL, request_key TEXT NOT NULL, status TEXT NOT NULL,
-                created_at TEXT NOT NULL, UNIQUE(investigation_id, request_key)
+                created_at TEXT NOT NULL, error TEXT NOT NULL DEFAULT '', UNIQUE(investigation_id, request_key)
             );
             CREATE TABLE IF NOT EXISTS investigation_round_evidence (
                 round_id TEXT NOT NULL REFERENCES investigation_rounds(id),
@@ -32,7 +35,16 @@ class InvestigationStore:
                 version_id TEXT NOT NULL REFERENCES evidence_versions(id),
                 PRIMARY KEY(round_id, object_id, version_id)
             );
+            CREATE TABLE IF NOT EXISTS investigation_events (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT, round_id TEXT NOT NULL REFERENCES investigation_rounds(id),
+                object_id TEXT NOT NULL, version_id TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_investigation_events_round ON investigation_events(round_id, seq);
         ''')
+        current_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(investigation_rounds)")}
+        if "error" not in current_columns:
+            self.conn.execute("ALTER TABLE investigation_rounds ADD COLUMN error TEXT NOT NULL DEFAULT ''")
+            self.conn.commit()
 
     def create(self, question: str) -> str:
         if not question.strip():
@@ -58,13 +70,21 @@ class InvestigationStore:
             self.conn.execute("UPDATE investigation_rounds SET status='cancelled' WHERE investigation_id=? AND status='running'",
                               (investigation_id,))
             identifier = "round_" + uuid4().hex
-            self.conn.execute("INSERT INTO investigation_rounds VALUES (?, ?, ?, ?, ?, ?)",
+            self.conn.execute("INSERT INTO investigation_rounds (id, investigation_id, message, request_key, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                               (identifier, investigation_id, message.strip(), request_key, "running", _now()))
         return identifier
 
     def get_round(self, round_id: str) -> dict | None:
         row = self.conn.execute("SELECT * FROM investigation_rounds WHERE id=?", (round_id,)).fetchone()
         return dict(row) if row else None
+
+    def finish_round(self, round_id: str, status: str, error: str = "") -> bool:
+        if status not in {"completed", "partial", "failed", "cancelled"}:
+            raise ValueError("invalid final status")
+        with self.conn:
+            cursor = self.conn.execute("UPDATE investigation_rounds SET status=?, error=? WHERE id=? AND status='running'",
+                                       (status, error, round_id))
+        return bool(cursor.rowcount)
 
     def attach(self, round_id: str, *, object_id: str, version_id: str) -> None:
         with self.conn:
@@ -74,6 +94,8 @@ class InvestigationStore:
                 WHERE r.id=? AND r.status='running' AND v.id=? AND v.object_id=?
             ''', (round_id, version_id, object_id))
             if cursor.rowcount:
+                self.conn.execute("INSERT INTO investigation_events (round_id, object_id, version_id, created_at) VALUES (?, ?, ?, ?)",
+                                  (round_id, object_id, version_id, _now()))
                 return
             if not self.conn.execute("SELECT 1 FROM investigation_rounds WHERE id=? AND status='running'", (round_id,)).fetchone():
                 raise ValueError("round is not active")
@@ -84,3 +106,11 @@ class InvestigationStore:
         rows = self.conn.execute("SELECT object_id, version_id FROM investigation_round_evidence WHERE round_id=? ORDER BY rowid",
                                  (round_id,)).fetchall()
         return [dict(row) for row in rows]
+
+    def events(self, round_id: str, *, after: int = 0, limit: int = 100) -> list[dict]:
+        rows = self.conn.execute('''SELECT seq, object_id, version_id, created_at FROM investigation_events
+                                    WHERE round_id=? AND seq>? ORDER BY seq LIMIT ?''',
+                                 (round_id, max(0, after), max(1, min(limit, 500)))).fetchall()
+        return [{"seq": row["seq"], "type": "evidence", "created_at": row["created_at"],
+                 "references": [{"object_id": row["object_id"], "version_id": row["version_id"]}]}
+                for row in rows]

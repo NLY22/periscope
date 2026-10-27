@@ -34,3 +34,22 @@ def test_crawl_versions_keep_original_text_and_observations(scratch_path):
     corpus = Corpus(scratch_path / "corpus.db")
     assert EvidenceVersions(corpus).get_version(first["object_id"], first["version_id"])["text"] == "robot score 365"
     corpus.close()
+
+
+def test_bulk_ingest_keeps_changed_web_text_without_document_hash(scratch_path, monkeypatch):
+    import json
+    import sys
+    from periscope.operations import ingest
+
+    row = {"source": "web_crawl", "kind": "media", "title": "robot",
+           "url": "https://example.org/", "text": "robot first"}
+    source = scratch_path / "http_items.versions.json"
+    source.write_text(json.dumps([row, {**row, "text": "robot second"}]), encoding="utf-8")
+    target = scratch_path / "ingest.db"
+    monkeypatch.setattr(ingest, "CORPUS", target)
+    monkeypatch.setattr(ingest, "fulltext_cache", lambda: scratch_path / "missing.jsonl")
+    monkeypatch.setattr(sys, "argv", ["ingest", "--only", str(source)])
+    assert ingest.main() == 0
+    corpus = Corpus(target)
+    assert corpus.search("robot first") and corpus.search("robot second")
+    corpus.close()

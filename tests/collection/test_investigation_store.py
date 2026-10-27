@@ -22,6 +22,7 @@ def test_sessions_share_evidence_but_rounds_pin_their_version(scratch_path):
     br = store.start_round(b, "find updates", "request-b")
     store.attach(br, **second)
     assert store.references(ar) == [first]
+    assert store.events(ar, after=0)[0]["references"] == [first]
     assert store.references(br) == [second]
     assert store.start_round(a, "find details", "request-a") == ar
     corpus.close()
@@ -48,4 +49,17 @@ def test_new_round_cancels_old_round_and_rejects_late_results(scratch_path):
     with pytest.raises(ValueError):
         store.attach(old, **reference)
     assert store.references(old) == [reference]
+    corpus.close()
+
+
+def test_interrupted_schema_creation_can_resume(scratch_path):
+    from periscope.investigations.store import InvestigationStore
+
+    corpus = Corpus(scratch_path / "partial.db")
+    corpus._conn.execute("CREATE TABLE investigations (id TEXT PRIMARY KEY, question TEXT NOT NULL, created_at TEXT NOT NULL)")
+    corpus._conn.commit()
+    store = InvestigationStore(corpus)
+    investigation = store.create("robot")
+    round_id = store.start_round(investigation, "find", "key")
+    assert store.get_round(round_id)["error"] == ""
     corpus.close()
