@@ -814,6 +814,21 @@ class PipelineService:
         stats["research"] = ResearchStore(corpus).stats()
         return stats
 
+    def evidence_get(
+        self, *, object_id: str, version_id: str,
+        periscope_path: str | None = None, config_path: str | None = None,
+    ) -> dict[str, Any]:
+        corpus = self._require(self._periscope_orchestrator(periscope_path, config_path).get_corpus(), "corpus")
+        if not corpus._conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='evidence_versions'").fetchone():
+            raise McpError(code="PS_NOT_FOUND", message="evidence version not found")
+        from periscope.evidence.versions import EvidenceVersions
+        store = EvidenceVersions(corpus)
+        version = store.get_version(object_id, version_id)
+        if version is None:
+            raise McpError(code="PS_NOT_FOUND", message="evidence version not found")
+        return {"object_id": object_id, "version_id": version_id, "version": version,
+                "observations": store.observations(object_id, version_id), "observations_limit": 50}
+
     async def crawl_public(
         self, *, topic: str, seeds: list[str], form_fields: dict[str, str] | None = None,
         max_pages: int = 12, depth: int = 2, budget: float = 30, save: bool = False,

@@ -11,7 +11,7 @@ def test_public_crawl_is_registered_as_mcp_tool():
 
 def test_mcp_crawls_public_form_and_returns_text_and_provenance(monkeypatch, scratch_path):
     from periscope.collection.crawling import engine
-    from src.mcp.server import ps_crawl_public, ps_corpus_search, service
+    from src.mcp.server import ps_crawl_public, ps_corpus_search, ps_evidence_get, service
     from src.corpus.store import Corpus
     from types import SimpleNamespace
 
@@ -42,6 +42,10 @@ def test_mcp_crawls_public_form_and_returns_text_and_provenance(monkeypatch, scr
     assert any(report["status"] == "ok" for report in result["data"]["reports"])
     assert result["data"]["storage"]["new"] == 1
     assert len(list((scratch_path / "evidence-journal").glob("*.jsonl"))) == 1
+    reference = result["data"]["storage"]["versions"][0]
+    evidence = asyncio.run(ps_evidence_get(**reference))
+    assert evidence["ok"] and "robot score 365" in evidence["data"]["version"]["text"]
+    assert evidence["data"]["observations"][0]["provenance"]["query_fields"] == {"year": "2026"}
     search = asyncio.run(ps_corpus_search(query="robot"))
     assert search["ok"] and any("robot score 365" in item["content"] for item in search["data"]["items"])
     saved = corpus._conn.execute("SELECT metadata_json FROM items").fetchone()

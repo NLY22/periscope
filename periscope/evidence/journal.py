@@ -20,14 +20,18 @@ def replay_batch(corpus, path: Path) -> dict:
             raise ValueError("incomplete evidence batch")
         payload = json.loads(text)
         if (not isinstance(payload, dict) or payload.get("version") != 1
-                or not isinstance(payload.get("batch_id"), str)
+                or not isinstance(payload.get("batch_id"), str) or not payload["batch_id"]
+                or not isinstance(payload.get("created_at"), str) or not payload["created_at"]
                 or not isinstance(payload.get("rows"), list)
                 or any(not isinstance(row, dict) for row in payload["rows"])):
             raise ValueError("invalid evidence batch")
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("invalid evidence batch") from exc
     items, skipped = build(ingestable_rows(payload), [])
-    return {"new": corpus.add_items(items), "offered": len(items), "skipped": dict(skipped)}
+    count = corpus.add_items(items)
+    from .versions import EvidenceVersions
+    versions = EvidenceVersions(corpus).record_batch(payload)
+    return {"new": count, "offered": len(items), "skipped": dict(skipped), "versions": versions}
 
 
 def save_batch(corpus, rows: list[dict]) -> dict:

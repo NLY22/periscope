@@ -39,6 +39,19 @@ def test_replay_rejects_incomplete_or_corrupt_batch_without_writes(scratch_path)
     corpus.close()
 
 
+def test_replay_rejects_missing_batch_timestamp_before_any_write(scratch_path):
+    import json
+    from periscope.evidence.journal import replay_batch
+
+    corpus = Corpus(scratch_path / "corpus.db")
+    path = scratch_path / "bad.jsonl"
+    path.write_text(json.dumps({"version": 1, "batch_id": "batch", "rows": [ROW]}) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        replay_batch(corpus, path)
+    assert corpus.search("robot") == []
+    corpus.close()
+
+
 def test_directory_recovery_continues_after_corrupt_batch(scratch_path):
     from periscope.evidence.journal import save_batch, replay_directory
 

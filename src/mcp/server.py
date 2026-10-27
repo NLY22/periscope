@@ -407,6 +407,21 @@ def ps_get_metrics() -> dict[str, Any]:
 
 # ------------------------------------------------------- periscope: evidence
 @mcp.tool()
+async def ps_evidence_get(
+    object_id: str,
+    version_id: str,
+    periscope_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Read a saved public-web evidence snapshot by its fixed version."""
+    return await _run_tool(
+        "ps_evidence_get",
+        lambda: service.evidence_get(object_id=object_id, version_id=version_id,
+                                     periscope_path=periscope_path, config_path=config_path),
+    )
+
+
+@mcp.tool()
 async def ps_crawl_public(
     topic: str,
     seeds: list[str],

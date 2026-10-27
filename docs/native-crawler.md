@@ -42,6 +42,8 @@ periscope-topic --topic "计算机" --crawl-seeds https://example.org/admissions
 
 返回 `rows`（原文和出处）、`reports`（各页面的状态与原因）和 `stats`。调用限定最多 6 个入口、50 页、5 层和 180 秒，复用同站、公开网络地址和 robots 检查。默认不保存；`save: true` 时先将本次结果作为一个批次写入资料库旁的 `evidence-journal` 目录，再写入 MCP 配置指定的资料库。`storage` 报告写入数量、跳过情况或失败原因；写库失败时已写成的批次仍可恢复。保存后可用 `ps_corpus_search` 检索，但不会自动接入研究会话。示例不代表已验证该网站存在或支持此表单。
 
+MCP 保存的公开网页资料会附带 `object_id` 和 `version_id`，可通过 `ps_evidence_get` 读取指定版本。相同提取内容只保存一个版本并保留各批次观察；提取内容变化产生新版本。首次建立版本表之前会备份数据库到旁边的 `backups` 目录。目前版本记录仅覆盖该网页采集路径，不代表平台帖子、评论及调查引用已经实现版本化。
+
 需要恢复这些批次时，指定目标资料库和批次目录：
 
 ```text
