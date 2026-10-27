@@ -29,6 +29,13 @@ class TopicService:
         self.crawl_lookup = crawl_lookup or layers.crawl_lookup
 
     def search(self, request: TopicRequest) -> TopicResult:
+        if request.crawl_fields:
+            if request.cached_only:
+                raise ValueError("form query cannot run in cached-only mode")
+            from periscope.collection.crawling.engine import CrawlOptions
+            CrawlOptions(tuple(request.crawl_seeds), max_pages=request.crawl_pages,
+                         depth=request.crawl_depth, budget=request.crawl_budget,
+                         form_fields=tuple(request.crawl_fields))
         started = time.monotonic()
         topic = request.topic.strip()
         result = TopicResult(topic=topic)
@@ -51,8 +58,10 @@ class TopicService:
                 if not crawl_seeds:
                     result.notes.append("本轮没有可跟进的链接，可使用 --crawl-seeds 指定站点入口")
             if crawl_seeds:
+                form_options = {"form_fields": request.crawl_fields} if request.crawl_fields else {}
                 result.crawl_rows, crawl_stat = self.crawl_lookup(topic, crawl_seeds, max_pages=request.crawl_pages,
-                                                                 depth=request.crawl_depth, budget=request.crawl_budget)
+                                                                 depth=request.crawl_depth, budget=request.crawl_budget,
+                                                                 **form_options)
                 result.crawl_reports = crawl_stat.get("reports", [])
                 breakdown.append("网页采集 %d 条/%.1fs" % (len(result.crawl_rows), crawl_stat["elapsed"]))
                 crawl_states = {report["status"] for report in result.crawl_reports}

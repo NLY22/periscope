@@ -59,9 +59,9 @@ def local_lookup(topic: str, limit: int) -> tuple[list[dict], int]:
     return out, total
 
 
-def crawl_lookup(topic: str, seeds: tuple[str, ...], *, max_pages=12, depth=2, budget=30):
+def crawl_lookup(topic: str, seeds: tuple[str, ...], *, max_pages=12, depth=2, budget=30, form_fields=()):
     from periscope.collection.crawling.engine import crawl_topic
-    return crawl_topic(topic, seeds, max_pages=max_pages, depth=depth, budget=budget)
+    return crawl_topic(topic, seeds, max_pages=max_pages, depth=depth, budget=budget, form_fields=form_fields)
 
 
 def api_lookup(topic: str, count: int, depth: int = 1) -> tuple[list[dict], float, str]:

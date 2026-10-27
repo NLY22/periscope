@@ -8,7 +8,7 @@ import hashlib
 import heapq
 import math
 import time
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.robotparser import RobotFileParser
 
 import httpx
@@ -19,6 +19,7 @@ from .documents import extract_document_async
 
 
 USER_AGENT = "PeriscopeBot/0.1"
+MAX_FORM_URL_CHARS = 2000  # Same maximum used when storing source URLs.
 ASSETS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".css", ".js", ".woff", ".woff2", ".zip", ".exe", ".mp4", ".mp3")
 
 
@@ -31,6 +32,7 @@ class CrawlOptions:
     timeout: float = 10
     delay: float = 0.5
     max_bytes: int = 5 * 1024 * 1024
+    form_fields: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self):
         if self.max_pages < 1 or self.depth < 0 or self.max_bytes < 1:
@@ -39,6 +41,21 @@ class CrawlOptions:
             raise ValueError("invalid crawl timing")
         for url in self.seeds:
             validate_http_url(url)
+        if self.form_fields:
+            if len(self.seeds) != 1 or self.depth < 1 or self.max_pages < 2:
+                raise ValueError("form query requires one seed, depth >= 1 and at least two pages")
+            if len(self.form_fields) > 20:
+                raise ValueError("too many form fields")
+            names = set()
+            for pair in self.form_fields:
+                if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+                    raise ValueError("invalid form field")
+                name, value = pair
+                if (not isinstance(name, str) or not isinstance(value, str) or not name.strip()
+                        or len(name) > 100 or len(value) > 500
+                        or any(ord(char) < 32 for char in name + value) or name in names):
+                    raise ValueError("invalid or duplicate form field")
+                names.add(name)
 
 
 class CrawlError(ValueError):
@@ -91,20 +108,28 @@ async def crawl_async(topic: str, options: CrawlOptions, *, client=None) -> tupl
     def in_scope(url):
         return (urlsplit(url).hostname or "").lower().removeprefix("www.") in hosts
 
-    def enqueue(url, parent="", depth=0, label="", seed=""):
+    def enqueue(url, parent="", depth=0, label="", seed="", query_fields=None,
+                query_warnings=None, form_query=False):
         identity = canonical_url(url)
         if not identity or identity in reports or len(reports) >= options.max_pages * 20:
-            return
+            return False
         if not in_scope(identity):
             stat["skipped_external"] += 1
-            return
+            return False
         if depth > options.depth or urlsplit(identity).path.lower().endswith(ASSETS):
-            return
-        priority = 100 if depth == 0 else (20 if label and _matches(label, topic) else 0) + (25 if urlsplit(identity).path.lower().endswith((".pdf", ".xlsx", ".docx")) else 0)
+            return False
+        priority = (100 if depth == 0 else 90 if form_query else
+                    (20 if label and _matches(label, topic) else 0) +
+                    (25 if urlsplit(identity).path.lower().endswith((".pdf", ".xlsx", ".docx")) else 0))
         reports[identity] = {"url": identity, "parent_url": parent, "depth": depth,
                              "seed_url": seed or identity, "label": label, "status": "queued",
                              "error": "", "chars": 0, "bytes": 0}
+        if query_fields:
+            reports[identity]["query_fields"] = dict(query_fields)
+        if query_warnings:
+            reports[identity]["query_warnings"] = list(query_warnings)
         heapq.heappush(queue, (-priority, len(reports), identity))
+        return True
 
     for seed in options.seeds:
         enqueue(seed)
@@ -182,18 +207,26 @@ async def crawl_async(topic: str, options: CrawlOptions, *, client=None) -> tupl
                 report.update(http_status=status, bytes=len(content), final_url=final)
                 if status != 200:
                     raise CrawlError("HTTP_" + str(status))
+                if report.get("query_fields") and len(final) > MAX_FORM_URL_CHARS:
+                    report.update(status="partial", error="form_result_url_too_long")
+                    continue
                 doc = await extract_document_async(content, content_type, final)
                 report.update(format=doc.format, chars=len(doc.text))
                 if doc.text and _matches(doc.title + "\n" + doc.text, topic):
                     metadata = {**doc.metadata(), "sha256": hashlib.sha256(content).hexdigest()}
+                    provenance = {"source_key": "web_crawl", "method": "crawl", "identity": "url",
+                                  "observed_at": observed, "url": final, "parent_url": report["parent_url"],
+                                  "seed_url": report["seed_url"], "depth": report["depth"], "content_role": "source_text"}
+                    if report.get("query_fields"):
+                        provenance["query_fields"] = report["query_fields"]
+                    if report.get("query_warnings"):
+                        provenance["query_warnings"] = report["query_warnings"]
                     rows.append({"title": doc.title or report["label"] or final, "url": final,
                                  "author": urlsplit(final).hostname or "", "date": "",
                                  "body": doc.text if len(doc.text) >= 400 else "", "text": doc.text,
                                  "source": "web_crawl", "kind": "media", "trust": 0.5, "_origin": "crawl",
                                  "body_source_url": final, "document": metadata,
-                                 "provenance": {"source_key": "web_crawl", "method": "crawl", "identity": "url",
-                                                "observed_at": observed, "url": final, "parent_url": report["parent_url"],
-                                                "seed_url": report["seed_url"], "depth": report["depth"], "content_role": "source_text"}})
+                                 "provenance": provenance})
                     report["status"] = "partial" if doc.format in {"xlsx", "docx"} and doc.truncated else "ok"
                 else:
                     report["status"] = ("partial" if doc.format in {"xlsx", "docx"} and doc.truncated else
@@ -201,8 +234,65 @@ async def crawl_async(topic: str, options: CrawlOptions, *, client=None) -> tupl
                                         "filtered" if doc.text else "empty")
                 if doc.format in {"xlsx", "docx"} and doc.truncated:
                     report["error"] = ",".join(doc.incomplete_reasons) or "document_limit"
+                if options.form_fields and report["depth"] == 0:
+                    required = {name for name, _value in options.form_fields}
+                    matched = [form for form in doc.forms if required <= set(form.field_names)]
+                    candidates = [form for form in matched if form.method == "get"]
+                    reason = ""
+                    if not matched:
+                        reason = "form_fields_unavailable"
+                    elif not candidates:
+                        reason = "form_method_unsupported"
+                    elif len(candidates) != 1:
+                        reason = "form_ambiguous"
+                    else:
+                        form = candidates[0]
+                        supplied = dict(options.form_fields)
+                        if form.has_sensitive_controls:
+                            reason = "form_auth_or_file_unsupported"
+                        elif any(not supplied.get(name, "").strip() for name in form.required_fields):
+                            reason = "form_required_fields_missing"
+                        elif any(name in form.select_options and value not in form.select_options[name]
+                               for name, value in options.form_fields):
+                            reason = "form_invalid_option"
+                        else:
+                            action = urlsplit(form.action)
+                            target = urlunsplit((action.scheme, action.netloc, action.path,
+                                                 urlencode([(name, value) for name, value in options.form_fields]), ""))
+                            normalized = canonical_url(target)
+                            if normalized and len(normalized) > MAX_FORM_URL_CHARS:
+                                reason = "form_query_url_too_long"
+                            elif (not normalized or not in_scope(normalized) or
+                                    sorted(parse_qsl(urlsplit(normalized).query, keep_blank_values=True)) !=
+                                    sorted((name, value) for name, value in options.form_fields)):
+                                reason = "form_action_blocked"
+                            else:
+                                try:
+                                    validate_http_url(normalized)
+                                except UnsafeURLError:
+                                    reason = "form_action_blocked"
+                                else:
+                                    warnings = []
+                                    if form.has_hidden_fields:
+                                        warnings.append("form_hidden_fields_omitted")
+                                    if any(name not in supplied for name in form.field_names):
+                                        warnings.append("form_fields_omitted")
+                                    if form.has_named_submit:
+                                        warnings.append("form_submit_control_omitted")
+                                    if enqueue(normalized, final, report["depth"] + 1,
+                                               "form query", report["seed_url"], dict(options.form_fields),
+                                               query_warnings=warnings,
+                                               form_query=True):
+                                        report["form_status"] = "queued"
+                                        if warnings:
+                                            report.update(status="partial", error=",".join(warnings))
+                                    else:
+                                        reason = "form_result_not_queued"
+                    if reason:
+                        report.update(status="partial", error=reason, form_status="skipped")
                 for link in doc.links:
-                    enqueue(link.url, final, report["depth"] + 1, link.label, report["seed_url"])
+                    enqueue(link.url, final, report["depth"] + 1, link.label, report["seed_url"],
+                            report.get("query_fields"), report.get("query_warnings"))
             except asyncio.CancelledError:
                 report.update(status="over_budget", error="overall_deadline")
                 raise
@@ -235,5 +325,6 @@ async def crawl_async(topic: str, options: CrawlOptions, *, client=None) -> tupl
     return rows, stat
 
 
-def crawl_topic(topic: str, seeds: tuple[str, ...], *, max_pages=12, depth=2, budget=30):
-    return asyncio.run(crawl_async(topic, CrawlOptions(tuple(seeds), max_pages=max_pages, depth=depth, budget=budget)))
+def crawl_topic(topic: str, seeds: tuple[str, ...], *, max_pages=12, depth=2, budget=30, form_fields=()):
+    return asyncio.run(crawl_async(topic, CrawlOptions(tuple(seeds), max_pages=max_pages, depth=depth,
+                                                      budget=budget, form_fields=tuple(form_fields))))

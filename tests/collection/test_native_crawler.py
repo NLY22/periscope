@@ -308,10 +308,256 @@ async def crawl_fixture(monkeypatch, responses, **options):
         return value
     settings = crawler.CrawlOptions(seeds=tuple(options.pop("seeds", ("https://lab.example/list",))),
                                    max_pages=options.pop("max_pages", 8), depth=options.pop("depth", 2),
-                                   budget=options.pop("budget", 8), delay=0, max_bytes=options.pop("max_bytes", 1024 * 1024))
+                                   budget=options.pop("budget", 8), delay=0, max_bytes=options.pop("max_bytes", 1024 * 1024),
+                                   **({"form_fields": options.pop("form_fields")} if "form_fields" in options else {}))
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         rows, stat = await crawler.crawl_async("robot", settings, client=client)
     return rows, stat, called
+
+
+def test_explicit_get_form_collects_result_and_keeps_query_conditions(monkeypatch, scratch_path):
+    listing = ('<main><form method="get" action="/lookup">'
+               '<select name="year"><option value="2026">2026</option></select>'
+               '<input name="major"><input type="hidden" name="csrf" value="secret">'
+               '</form></main>')
+
+    async def lookup(request):
+        assert dict(request.url.params) == {"year": "2026", "major": "robot"}
+        return httpx.Response(200, text='<main><h1>robot admissions</h1><p>robot program score 365</p></main>',
+                              headers={"content-type": "text/html"})
+
+    rows, stat, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/lookup": lookup}, form_fields=(("year", "2026"), ("major", "robot"))))
+    record = next(row for row in rows if "/lookup?" in row["url"])
+    assert record["provenance"]["query_fields"] == {"year": "2026", "major": "robot"}
+    assert "form_hidden_fields_omitted" in record["provenance"]["query_warnings"]
+    assert record["provenance"]["parent_url"] == "https://lab.example/list"
+    assert not any("csrf" in url or "secret" in url for url in called)
+    assert "secret" not in json.dumps(stat)
+    assert any(report["status"] == "ok" and "/lookup?" in report["url"] for report in stat["reports"])
+    assert stat["reports"][0]["status"] == "partial"
+    assert stat["reports"][0]["error"] == "form_hidden_fields_omitted"
+    from periscope.topics.models import TopicRequest
+    from periscope.topics.service import TopicService
+    service = TopicService(crawl_lookup=lambda *args, **kwargs: (rows, stat))
+    result = service.search(TopicRequest(topic="robot", no_local=True, no_api=True, speed="off",
+                                         crawl_seeds=("https://lab.example/list",),
+                                         crawl_fields=(("year", "2026"), ("major", "robot"))))
+    assert result.source_reports[0]["status"] == "partial"
+    from periscope.operations.ingest import build
+    from periscope.topics import runs
+    from src.corpus.store import Corpus
+    items, skipped = build(runs.ingestable_rows({"rows": [runs._row_for_disk(record, "crawl")]}), [])
+    assert not skipped
+    corpus = Corpus(scratch_path / "form.db")
+    corpus.add_items(items)
+    corpus.close()
+    corpus = Corpus(scratch_path / "form.db")
+    try:
+        saved = corpus._conn.execute("SELECT metadata_json FROM items WHERE url=?", (record["url"],)).fetchone()
+        provenance = json.loads(saved["metadata_json"])["provenance"]
+        assert provenance["query_fields"]["year"] == "2026"
+        assert "form_hidden_fields_omitted" in provenance["query_warnings"]
+    finally:
+        corpus.close()
+
+
+@pytest.mark.parametrize("forms", [
+    '<form method="post" action="/lookup"><input name="year"></form>',
+    '<form action="/one"><input name="year"></form><form action="/two"><input name="year"></form>',
+    '<form action="https://other.example/lookup"><input name="year"></form>',
+])
+def test_form_rejects_unsupported_or_ambiguous_choices_without_submitting(monkeypatch, forms):
+    rows, stat, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text="<main>" + forms + "</main>",
+                                headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),)))
+    assert not rows
+    assert len([url for url in called if not url.endswith("/robots.txt")]) == 1
+    assert stat["reports"][0]["status"] == "partial"
+    assert stat["reports"][0]["error"].startswith("form_")
+
+
+def test_cli_accepts_explicit_form_fields():
+    from periscope.cli.topic import build_parser
+    args = build_parser().parse_args(["--topic", "robot", "--crawl-seeds", "https://lab.example/list",
+                                      "--crawl-field", "year=2026", "--crawl-field", "major=robot"])
+    assert args.crawl_fields == [("year", "2026"), ("major", "robot")]
+
+
+def test_cli_passes_form_fields_into_real_topic_service(monkeypatch):
+    from periscope.cli import topic as cli
+    from periscope.topics import layers
+    observed = {}
+    def crawl(topic, seeds, **kwargs):
+        observed.update(topic=topic, seeds=seeds, **kwargs)
+        return [], {"elapsed": 0.1, "reports": []}
+    monkeypatch.setattr(layers, "crawl_lookup", crawl)
+    monkeypatch.setattr(cli, "emit", lambda *args: None)
+    status = cli.main(["--topic", "robot", "--no-local", "--no-api", "--speed", "off",
+                       "--no-shard", "--crawl-seeds", "https://lab.example/list",
+                       "--crawl-field", "year=2026"])
+    assert status == 0
+    assert observed["form_fields"] == (("year", "2026"),)
+
+
+@pytest.mark.parametrize("arguments", [
+    ["--crawl-field", "year=2026"],
+    ["--crawl-seeds", "https://lab.example/list", "--crawl-field", "year=2026",
+     "--crawl-field", "year=2025"],
+    ["--crawl-seeds", "https://lab.example/list", "--crawl-depth", "0", "--crawl-field", "year=2026"],
+])
+def test_cli_rejects_invalid_form_configuration(arguments):
+    from periscope.cli.topic import main
+    with pytest.raises(SystemExit) as exc:
+        main(["--topic", "robot", *arguments])
+    assert exc.value.code == 2
+
+
+def test_explicit_form_result_precedes_discovered_attachments(monkeypatch):
+    listing = ('<main><a href="/other.pdf">robot related PDF</a>'
+               '<form action="/lookup"><input name="year"></form></main>')
+    rows, _, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/other.pdf": httpx.Response(200, content=pdf_bytes(), headers={"content-type": "application/pdf"}),
+        "/lookup": httpx.Response(200, text="<main><p>robot results</p></main>",
+                                  headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),), max_pages=2))
+    assert any("/lookup?year=2026" in url for url in called)
+    assert not any("/other.pdf" in url for url in called)
+    assert any("/lookup?" in row["url"] for row in rows)
+
+
+def test_get_form_rejects_unknown_select_value_without_request(monkeypatch):
+    listing = ('<main><form action="/lookup"><select name="year">'
+               '<option value="2025">2025</option></select></form></main>')
+    _, stat, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),)))
+    assert not any("/lookup" in url for url in called)
+    assert stat["reports"][0]["status"] == "partial"
+    assert stat["reports"][0]["error"] == "form_invalid_option"
+
+
+def test_get_form_requires_explicit_required_fields(monkeypatch):
+    listing = ('<main><form action="/lookup"><input name="year">'
+               '<input name="major" required></form></main>')
+    _, stat, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),)))
+    assert not any("/lookup" in url for url in called)
+    assert stat["reports"][0]["status"] == "partial"
+    assert stat["reports"][0]["error"] == "form_required_fields_missing"
+
+
+def test_form_fields_from_json_arrays_are_accepted(monkeypatch):
+    listing = '<main><form action="/lookup"><input name="year"></form></main>'
+    rows, _, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/lookup": httpx.Response(200, text="<main><p>robot result</p></main>",
+                                  headers={"content-type": "text/html"})},
+        form_fields=[["year", "2026"]]))
+    assert any("/lookup?year=2026" in url for url in called)
+    assert rows[0]["provenance"]["query_fields"] == {"year": "2026"}
+
+
+def test_omitted_visible_form_fields_are_reported(monkeypatch):
+    listing = ('<main><form action="/lookup"><input name="year">'
+               '<input name="degree" value="masters"></form></main>')
+    rows, stat, _ = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/lookup": httpx.Response(200, text="<main><p>robot result</p></main>",
+                                  headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),)))
+    assert rows and "form_fields_omitted" in rows[0]["provenance"]["query_warnings"]
+    assert stat["reports"][0]["status"] == "partial"
+    assert "form_fields_omitted" in stat["reports"][0]["error"]
+
+
+@pytest.mark.parametrize("control_type", ["password", "file"])
+def test_form_with_sensitive_or_upload_control_is_not_submitted(monkeypatch, control_type):
+    listing = ('<main><form action="/lookup"><input name="year">'
+               '<input type="' + control_type + '" name="account"></form></main>')
+    _, stat, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),)))
+    assert not any("/lookup" in url for url in called)
+    assert stat["reports"][0]["status"] == "partial"
+    assert stat["reports"][0]["error"] == "form_auth_or_file_unsupported"
+
+
+def test_named_submit_control_is_reported_as_omitted(monkeypatch):
+    listing = ('<main><form action="/lookup"><input name="year">'
+               '<button name="operation" value="search">Search</button></form></main>')
+    rows, stat, _ = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/lookup": httpx.Response(200, text="<main><p>robot result</p></main>",
+                                  headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),)))
+    assert rows and "form_submit_control_omitted" in rows[0]["provenance"]["query_warnings"]
+    assert stat["reports"][0]["status"] == "partial"
+
+
+def test_form_query_url_too_long_is_not_submitted(monkeypatch):
+    names = ["field%d" % i for i in range(5)]
+    listing = '<main><form action="/lookup">' + ''.join(
+        '<input name="%s">' % name for name in names) + '</form></main>'
+    fields = tuple((name, "x" * 500) for name in names)
+    _, stat, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/lookup": httpx.Response(200, text="<main>robot result</main>",
+                                  headers={"content-type": "text/html"})}, form_fields=fields))
+    assert not any("/lookup" in url for url in called)
+    assert stat["reports"][0]["status"] == "partial"
+    assert stat["reports"][0]["error"] == "form_query_url_too_long"
+
+
+def test_form_redirect_with_long_result_url_is_not_saved(monkeypatch):
+    listing = '<main><form action="/lookup"><input name="year"></form></main>'
+    rows, stat, _ = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/lookup": httpx.Response(302, headers={"location": "/result?query=" + "x" * 2100}),
+        "/result": httpx.Response(200, text="<main>robot result</main>",
+                                  headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),)))
+    assert not rows
+    assert any(report["status"] == "partial" and report["error"] == "form_result_url_too_long"
+               for report in stat["reports"])
+
+
+def test_topic_service_passes_explicit_form_conditions_to_crawler():
+    from periscope.topics.models import TopicRequest
+    from periscope.topics.service import TopicService
+    observed = {}
+    def crawl(topic, seeds, **kwargs):
+        observed.update(topic=topic, seeds=seeds, **kwargs)
+        return [], {"elapsed": 0.1, "reports": []}
+    service = TopicService(crawl_lookup=crawl)
+    service.search(TopicRequest(topic="robot", no_local=True, no_api=True, speed="off",
+                                crawl_seeds=("https://lab.example/list",),
+                                crawl_fields=(("year", "2026"),)))
+    assert observed["form_fields"] == (("year", "2026"),)
+    assert observed["seeds"] == ("https://lab.example/list",)
+
+
+def test_short_form_result_is_visible_in_terminal_and_json():
+    from periscope.topics.render import json_payload, render
+    row = {"title": "Admissions", "url": "https://lab.example/lookup?year=2026",
+           "source": "web_crawl", "kind": "media", "body": "", "text": "robot score 365"}
+    display = render("robot", [row], {})
+    payload = json_payload("robot", [row], {"elapsed": 0, "breakdown": "", "notes": []}, 1)
+    assert "robot score 365" in display
+    assert payload["results"][0]["body_chars"] == len("robot score 365")
+    assert payload["results"][0]["snippet"] == "robot score 365"
+
+
+def test_topic_service_rejects_form_conditions_without_explicit_seed():
+    from periscope.topics.models import TopicRequest
+    from periscope.topics.service import TopicService
+    with pytest.raises(ValueError, match="form query requires one seed"):
+        TopicService().search(TopicRequest(topic="robot", no_local=True, no_api=True, speed="off",
+                                           crawl_fields=(("year", "2026"),)))
 
 
 def test_listing_discovers_article_and_pdf_with_parent_evidence(monkeypatch):

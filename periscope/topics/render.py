@@ -58,7 +58,7 @@ def render(topic: str, rows: list[dict], info: dict) -> str:
         ind = r.get("_independent") or 1
         src = " · ".join((r.get("_publishers") or [r.get("author") or "?"])[:3])
         L.append("    来源: %-40s 日期: %s" % (src[:40], r.get("date") or "?"))
-        body = r.get("body") or ""
+        body = r.get("body") or r.get("text") or ""
         flag = "[多家独立报道]" if ind > 1 else ""
         L.append("    正文: %-5d 字  %s" % (len(body), flag))
         document = r.get("document") or {}
@@ -134,7 +134,7 @@ def json_payload(topic: str, rows: list[dict], info: dict, limit: int) -> dict:
              "document": r.get("document", {}),
              "publishers": r.get("_publishers"), "independent": r.get("_independent"),
              "date": r.get("date"), "score": round(r.get("_score") or 0, 3),
-             "body_chars": len(r.get("body") or ""),
+             "body_chars": len(r.get("body") or r.get("text") or ""),
              "body_source_url": r.get("body_source_url") or r.get("url"),
              "sources": r.get("sources", []), "provenance": r.get("provenance", {}),
              "comments": r.get("comments", []),

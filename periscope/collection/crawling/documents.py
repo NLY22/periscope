@@ -20,6 +20,18 @@ class Link:
     label: str = ""
 
 
+@dataclass(frozen=True)
+class Form:
+    action: str
+    method: str
+    field_names: list[str] = field(default_factory=list)
+    select_options: dict[str, list[str]] = field(default_factory=dict)
+    required_fields: list[str] = field(default_factory=list)
+    has_hidden_fields: bool = False
+    has_sensitive_controls: bool = False
+    has_named_submit: bool = False
+
+
 @dataclass
 class Document:
     title: str
@@ -34,6 +46,7 @@ class Document:
     sheet_rows: list[dict] = field(default_factory=list)
     document_blocks: list[dict] = field(default_factory=list)
     incomplete_reasons: list[str] = field(default_factory=list)
+    forms: list[Form] = field(default_factory=list)
 
     def metadata(self) -> dict:
         result = {"format": self.format, "page_spans": self.page_spans,
@@ -245,6 +258,7 @@ async def extract_document_async(body: bytes, content_type: str, url: str) -> Do
         if worker.returncode or "error" in payload:
             raise ValueError(payload.get("error") or "document_worker_failed")
         payload["links"] = [Link(**link) for link in payload["links"]]
+        payload["forms"] = [Form(**form) for form in payload.get("forms", [])]
         return Document(**payload)
     finally:
         if worker.returncode is None:
@@ -316,6 +330,50 @@ def extract_document(body: bytes, content_type: str, url: str, *,
     links = [Link(urljoin(url, anchor["href"]), anchor.get_text(" ", strip=True))
              for anchor in soup.find_all("a", href=True)
              if anchor["href"].strip() and not anchor["href"].startswith(("#", "javascript:", "mailto:", "tel:"))]
+    forms = []
+    for form in soup.find_all("form"):
+        names = []
+        select_options: dict[str, list[str]] = {}
+        required_fields = []
+        has_hidden_fields = False
+        has_sensitive_controls = False
+        has_named_submit = False
+        for control in form.find_all(("input", "select", "textarea", "button")):
+            name = str(control.get("name") or "").strip()
+            control_type = str(control.get("type") or ("submit" if control.name == "button" else "text")).lower()
+            if control.has_attr("disabled") or control.find_parent("fieldset", disabled=True):
+                continue
+            if control_type in {"password", "file"}:
+                has_sensitive_controls = True
+                continue
+            if not name:
+                continue
+            if control_type in {"submit", "image"}:
+                has_named_submit = True
+                continue
+            if control_type == "hidden":
+                has_hidden_fields = True
+                continue
+            if control_type in {"submit", "reset", "button", "image"}:
+                continue
+            if name not in names:
+                names.append(name)
+            if control.has_attr("required") and name not in required_fields:
+                required_fields.append(name)
+            if control.name == "select":
+                allowed = select_options.setdefault(name, [])
+                for option in control.find_all("option"):
+                    if option.has_attr("disabled") or option.find_parent("optgroup", disabled=True):
+                        continue
+                    value = str(option.get("value")) if option.has_attr("value") else option.get_text(" ", strip=True)
+                    if value not in allowed:
+                        allowed.append(value)
+        forms.append(Form(action=urljoin(url, str(form.get("action") or "")),
+                          method=str(form.get("method") or "get").strip().lower(),
+                          field_names=names, select_options=select_options,
+                          required_fields=required_fields, has_hidden_fields=has_hidden_fields,
+                          has_sensitive_controls=has_sensitive_controls,
+                          has_named_submit=has_named_submit))
     for node in soup.select("script, style, nav, footer, header, noscript"):
         node.decompose()
     import trafilatura
@@ -325,4 +383,5 @@ def extract_document(body: bytes, content_type: str, url: str, *,
         main = soup.find("main") or soup.find("article")
         if main:
             text = main.get_text("\n", strip=True)
-    return Document(title[:300], text[:max_chars], "html", links=links, truncated=len(text) > max_chars)
+    return Document(title[:300], text[:max_chars], "html", links=links,
+                    truncated=len(text) > max_chars, forms=forms)

@@ -25,6 +25,14 @@ from periscope.collection.registry import SourceRegistry
 ROOT = paths.ROOT
 
 
+def _crawl_field(value: str) -> tuple[str, str]:
+    name, separator, field_value = value.partition("=")
+    name = name.strip()
+    if not separator or not name:
+        raise argparse.ArgumentTypeError("查询字段需要 NAME=VALUE")
+    return name, field_value
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description="任意话题检索",
@@ -44,6 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--sources-file", default="", help="加载自定义信息源 JSON 配置")
     ap.add_argument("--crawl", action="store_true", help="自动跟进本轮检索发现的页面和 PDF 附件")
     ap.add_argument("--crawl-seeds", nargs="+", default=(), metavar="URL", help="从指定站点入口跟进页面、站点地图和 PDF 附件")
+    ap.add_argument("--crawl-field", dest="crawl_fields", type=_crawl_field, action="append", default=[],
+                    metavar="NAME=VALUE", help="为指定入口的公开 GET 表单提供查询字段，可重复")
     ap.add_argument("--crawl-pages", type=int, default=12, help="爬虫最多尝试的页面数（包含未命中与失败页面）")
     ap.add_argument("--crawl-depth", type=int, default=2, help="爬虫最大跟进层数，0 只读入口")
     ap.add_argument("--crawl-budget", type=float, default=30.0, help="爬虫独立时间预算（秒），0 表示没有总时限")
@@ -80,10 +90,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not math.isfinite(args.budget) or args.budget < 0:
         parser.error("--budget 必须是非负有限数值")
+    if args.crawl_fields and (not args.crawl_seeds or args.cached_only):
+        parser.error("--crawl-field 需要一个 --crawl-seeds 入口，且不能与 --cached-only 同用")
     if args.crawl_seeds or args.crawl:
         from periscope.collection.crawling.engine import CrawlOptions
         try:
-            CrawlOptions(tuple(args.crawl_seeds), max_pages=args.crawl_pages, depth=args.crawl_depth, budget=args.crawl_budget)
+            CrawlOptions(tuple(args.crawl_seeds), max_pages=args.crawl_pages, depth=args.crawl_depth,
+                         budget=args.crawl_budget, form_fields=tuple(args.crawl_fields))
         except ValueError as exc:
             parser.error(str(exc))
     try:
@@ -110,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         args.speed = SPEED_DEEP
     elif args.platform:
         args.speed = SPEED_NORMAL
+    args.crawl_fields = tuple(args.crawl_fields)
     request = TopicRequest(**{name: getattr(args, name) for name in TopicRequest.__dataclass_fields__})
     service = TopicService(local_lookup=local_lookup, api_lookup=api_lookup,
                            platform_lookup=platform_lookup, api_available=dsapi.available,
