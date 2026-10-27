@@ -96,7 +96,7 @@
 | 取证检索：查询扩展 + 向量路 + RRF 融合 | `src/corpus/retrieval.py` |
 | 长会话研究：子问题树、崩溃续跑、缺证时自适应加宽 | `src/research/` |
 | 报告骨架（背景调查 / 市场调研 / 方法探索）+ 引用反解核验 | `src/research/templates.py`、`src/corpus/citations.py` |
-| Web 面板、MCP 服务（29 个工具） | `src/web/`、`src/mcp/` |
+| Web 面板、MCP 服务（36 个工具） | `src/web/`、`src/mcp/` |
 | 检索消融评测（Recall / Precision / nDCG / MRR） | `src/corpus/metrics.py`、`scripts/eval_retrieval.py` |
 
 ### ⚠️ 能力已实现，效果未主张
@@ -298,7 +298,7 @@ uv run periscope-web --data-dir data        # 默认 http://localhost:8790
 uv run periscope-mcp
 ```
 
-以 stdio 方式运行，提供 **29 个工具**与 7 个 `periscope://` 资源，覆盖配置校验、分阶段流水线、公开网页采集、运行产物、证据检索、声明核查、研究会话与 Webhook 通知。详见 [MCP 工具说明](src/mcp/README.md) 与[客户端配置](src/mcp/integration.md)。
+以 stdio 方式运行，提供 **36 个工具**与 7 个 `periscope://` 资源，覆盖配置校验、分阶段流水线、公开网页采集、运行产物、证据检索、声明核查、研究会话与 Webhook 通知。详见 [MCP 工具说明](src/mcp/README.md) 与[客户端配置](src/mcp/integration.md)。
 
 ## 支持的 AI 提供商
 

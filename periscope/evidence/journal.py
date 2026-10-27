@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from collections import Counter
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,10 @@ from uuid import uuid4
 
 from periscope.operations.ingest import build
 from periscope.topics.runs import _row_for_disk, ingestable_rows
+
+
+def _corpus_id(corpus) -> str:
+    return hashlib.sha256(str(Path(corpus.path).resolve()).encode("utf-8")).hexdigest()
 
 
 def replay_batch(corpus, path: Path) -> dict:
@@ -22,6 +27,7 @@ def replay_batch(corpus, path: Path) -> dict:
         if (not isinstance(payload, dict) or payload.get("version") != 1
                 or not isinstance(payload.get("batch_id"), str) or not payload["batch_id"]
                 or not isinstance(payload.get("created_at"), str) or not payload["created_at"]
+                or "round_id" in payload and not isinstance(payload["round_id"], str)
                 or not isinstance(payload.get("rows"), list)
                 or any(not isinstance(row, dict) for row in payload["rows"])):
             raise ValueError("invalid evidence batch")
@@ -31,10 +37,17 @@ def replay_batch(corpus, path: Path) -> dict:
     count = corpus.add_items(items)
     from .versions import EvidenceVersions
     versions = EvidenceVersions(corpus).record_batch(payload)
+    if payload.get("round_id"):
+        from periscope.investigations.store import InvestigationStore
+        store = InvestigationStore(corpus)
+        record = store.get_round(payload["round_id"])
+        if record and record["status"] in {"running", "interrupted", "failed"}:
+            for reference in versions:
+                store.attach(payload["round_id"], **reference, recover=True)
     return {"new": count, "offered": len(items), "skipped": dict(skipped), "versions": versions}
 
 
-def save_batch(corpus, rows: list[dict]) -> dict:
+def save_batch(corpus, rows: list[dict], *, round_id: str | None = None) -> dict:
     """Flush a complete batch beside the corpus before attempting insertion."""
     directory = Path(corpus.path).resolve().parent / "evidence-journal"
     directory.mkdir(parents=True, exist_ok=True)
@@ -42,8 +55,11 @@ def save_batch(corpus, rows: list[dict]) -> dict:
     path = directory / (batch_id + ".jsonl")
     temp = directory / (batch_id + ".tmp")
     payload = {"version": 1, "batch_id": batch_id,
+               "corpus_id": _corpus_id(corpus),
                "created_at": datetime.now(timezone.utc).isoformat(),
                "rows": [_row_for_disk(row, row.get("_origin") or "crawl") for row in rows]}
+    if round_id is not None:
+        payload["round_id"] = round_id
     data = (json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
     try:
         with temp.open("xb") as handle:
@@ -56,7 +72,7 @@ def save_batch(corpus, rows: list[dict]) -> dict:
     return {**replay_batch(corpus, path), "batch_id": batch_id}
 
 
-def replay_directory(corpus, directory: Path) -> dict:
+def replay_directory(corpus, directory: Path, *, owner_only: bool = False) -> dict:
     """Replay valid batches, reporting corrupted files without discarding them."""
     directory = Path(directory)
     if not directory.is_dir():
@@ -65,8 +81,12 @@ def replay_directory(corpus, directory: Path) -> dict:
     skipped = Counter()
     for path in sorted(directory.glob("*.jsonl")):
         try:
+            if owner_only:
+                header = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(header, dict) or header.get("corpus_id") != _corpus_id(corpus):
+                    continue
             outcome = replay_batch(corpus, path)
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, UnicodeError) as exc:
             result["failed"].append({"batch": path.name, "error": type(exc).__name__})
             continue
         result["new"] += outcome["new"]

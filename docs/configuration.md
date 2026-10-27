@@ -1170,7 +1170,9 @@ What works instead on `NLY22/periscope`: schedule whatever can run a shell — `
 
 ## MCP Server
 
-Periscope ships an MCP server for AI assistants and MCP-compatible clients: **29 tools**, covering the staged pipeline (`ps_validate_config`, `ps_fetch_items`, `ps_score_items`, `ps_filter_items`, `ps_enrich_items`, `ps_generate_summary`, `ps_run_pipeline`), public crawling (`ps_crawl_public`), the per-run artifacts (`ps_list_runs`, `ps_get_run_*`), the evidence layer (`ps_evidence_get`, `ps_corpus_stats`, `ps_corpus_search`, `ps_corpus_recent`, `ps_corpus_import`, `ps_list_claims`, `ps_get_claim`) and the research loop (`ps_research_start`, `ps_research_followup`, `ps_research_step`, `ps_research_draft`, `ps_research_edit`, `ps_research_answer`, `ps_research_status`, `ps_research_list`).
+Periscope ships an MCP server for AI assistants and MCP-compatible clients: **36 tools**, covering the staged pipeline, public crawling, evidence and claims, the existing research loop, and seven investigation tools that use the running local backend. See `src/mcp/README.md` for the full tool list.
+
+`PERISCOPE_BACKEND_URL` selects the running local HTTP backend for the new MCP investigation tools; it defaults to `http://127.0.0.1:8790` and accepts only loopback HTTP origins. Start `periscope-web` before using these tools.
 
 ```bash
 uv run periscope-mcp

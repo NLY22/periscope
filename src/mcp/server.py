@@ -407,6 +407,52 @@ def ps_get_metrics() -> dict[str, Any]:
 
 # ------------------------------------------------------- periscope: evidence
 @mcp.tool()
+async def ps_investigation_create(question: str) -> dict[str, Any]:
+    """Create an investigation in the running local web backend."""
+    return await _run_tool("ps_investigation_create", lambda: service.investigation_create(question=question))
+
+
+@mcp.tool()
+async def ps_investigation_list(limit: int = 30) -> dict[str, Any]:
+    """List investigations in the running local backend."""
+    return await _run_tool("ps_investigation_list", lambda: service.investigation_list(limit=limit))
+
+
+@mcp.tool()
+async def ps_investigation_get(investigation_id: str) -> dict[str, Any]:
+    """Read an investigation and its saved rounds."""
+    return await _run_tool("ps_investigation_get", lambda: service.investigation_get(investigation_id=investigation_id))
+
+
+@mcp.tool()
+async def ps_investigation_submit(investigation_id: str, message: str, request_key: str,
+                                  seeds: list[str], budget: float = 120,
+                                  max_pages: int = 12, depth: int = 2) -> dict[str, Any]:
+    """Submit one bounded crawl round to the running local backend."""
+    return await _run_tool("ps_investigation_submit", lambda: service.investigation_submit(
+        investigation_id=investigation_id, message=message, request_key=request_key, seeds=seeds,
+        budget=budget, max_pages=max_pages, depth=depth))
+
+
+@mcp.tool()
+async def ps_investigation_status(round_id: str, after: int = 0) -> dict[str, Any]:
+    """Read a round's status and evidence events after a cursor."""
+    return await _run_tool("ps_investigation_status", lambda: service.investigation_status(round_id=round_id, after=after))
+
+
+@mcp.tool()
+async def ps_investigation_stop(round_id: str) -> dict[str, Any]:
+    """Stop a round in the running local backend."""
+    return await _run_tool("ps_investigation_stop", lambda: service.investigation_stop(round_id=round_id))
+
+
+@mcp.tool()
+async def ps_investigation_evidence(object_id: str, version_id: str) -> dict[str, Any]:
+    """Read the evidence version held by the running local backend."""
+    return await _run_tool("ps_investigation_evidence", lambda: service.investigation_evidence(object_id=object_id, version_id=version_id))
+
+
+@mcp.tool()
 async def ps_evidence_get(
     object_id: str,
     version_id: str,

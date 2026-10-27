@@ -22,6 +22,13 @@ The MCP layer does not reimplement business logic. It reuses the existing fetch,
 | `ps_get_metrics` | Read in-memory server metrics |
 | `ps_crawl_public` | Crawl explicit public URLs and optional GET form fields; return text and reports, optionally save to the configured corpus |
 | `ps_evidence_get` | Read a saved public-web evidence snapshot by object and version ID |
+| `ps_investigation_create` | Create an investigation in the local backend |
+| `ps_investigation_list` | List investigations in the local backend |
+| `ps_investigation_get` | Read an investigation and its saved rounds |
+| `ps_investigation_submit` | Start a bounded public-site crawl for an investigation |
+| `ps_investigation_status` | Read a round and its evidence events after a cursor |
+| `ps_investigation_stop` | Stop a running round and keep saved evidence |
+| `ps_investigation_evidence` | Read a saved evidence version from the same local backend |
 | `ps_corpus_stats` | Evidence-corpus overview (items, clusters, claims, sessions) |
 | `ps_corpus_search` | Full-text search over everything ever collected (CJK-aware) |
 | `ps_corpus_recent` | Most recent corpus items, optionally one source |

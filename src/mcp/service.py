@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from rich.console import Console
 
@@ -813,6 +813,65 @@ class PipelineService:
         stats["claims"] = claim_store.stats() if claim_store else {"claims": 0}
         stats["research"] = ResearchStore(corpus).stats()
         return stats
+
+    async def investigation_backend(self, method: str, path: str, *, payload: dict | None = None,
+                                    params: dict | None = None) -> dict[str, Any]:
+        """Forward new investigation calls to the single local backend."""
+        import httpx
+
+        base = os.environ.get("PERISCOPE_BACKEND_URL", "http://127.0.0.1:8790").rstrip("/")
+        try:
+            parsed = urlsplit(base)
+            if (parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}
+                    or parsed.username is not None or parsed.password is not None or parsed.path
+                    or parsed.query or parsed.fragment or parsed.port is not None and not 1 <= parsed.port <= 65535):
+                raise ValueError("backend must be a local HTTP origin")
+        except ValueError as exc:
+            raise McpError(code="PS_INVALID_INPUT", message=str(exc)) from exc
+        try:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=False, trust_env=False) as client:
+                response = await client.request(method, base + path, json=payload, params=params)
+        except httpx.RequestError as exc:
+            raise McpError(code="PS_BACKEND_UNAVAILABLE", message="Start the local Periscope web backend first.") from exc
+        if response.status_code >= 400 or response.is_redirect:
+            code = "PS_INVALID_INPUT" if response.status_code in {400, 422} else "PS_NOT_FOUND" if response.status_code == 404 else "PS_BACKEND_ERROR"
+            message = f"Local backend returned HTTP {response.status_code}."
+            if response.status_code in {400, 404}:
+                try:
+                    detail = response.json().get("detail")
+                    if isinstance(detail, str):
+                        message = detail[:300]
+                except (ValueError, AttributeError):
+                    pass
+            raise McpError(code=code, message=message)
+        return response.json()
+
+    async def investigation_create(self, *, question: str) -> dict[str, Any]:
+        return await self.investigation_backend("POST", "/api/investigations", payload={"question": question})
+
+    async def investigation_list(self, *, limit: int) -> dict[str, Any]:
+        return await self.investigation_backend("GET", "/api/investigations", params={"limit": limit})
+
+    async def investigation_get(self, *, investigation_id: str) -> dict[str, Any]:
+        return await self.investigation_backend("GET", "/api/investigations/" + quote(investigation_id, safe=""))
+
+    async def investigation_submit(self, *, investigation_id: str, message: str, request_key: str,
+                                   seeds: list[str], budget: float, max_pages: int, depth: int) -> dict[str, Any]:
+        return await self.investigation_backend(
+            "POST", "/api/investigations/" + quote(investigation_id, safe="") + "/rounds",
+            payload={"message": message, "request_key": request_key, "seeds": seeds,
+                     "budget": budget, "max_pages": max_pages, "depth": depth})
+
+    async def investigation_status(self, *, round_id: str, after: int) -> dict[str, Any]:
+        return await self.investigation_backend("GET", "/api/investigation-rounds/" + quote(round_id, safe=""),
+                                                params={"after": after})
+
+    async def investigation_stop(self, *, round_id: str) -> dict[str, Any]:
+        return await self.investigation_backend("POST", "/api/investigation-rounds/" + quote(round_id, safe="") + "/stop")
+
+    async def investigation_evidence(self, *, object_id: str, version_id: str) -> dict[str, Any]:
+        return await self.investigation_backend("GET", "/api/evidence/" + quote(object_id, safe=""),
+                                                params={"version": version_id})
 
     def evidence_get(
         self, *, object_id: str, version_id: str,

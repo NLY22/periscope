@@ -44,6 +44,8 @@ periscope-topic --topic "计算机" --crawl-seeds https://example.org/admissions
 
 MCP 保存的公开网页资料会附带 `object_id` 和 `version_id`，可通过 `ps_evidence_get` 读取指定版本。相同提取内容只保存一个版本并保留各批次观察；提取内容变化产生新版本。首次建立版本表之前会备份数据库到旁边的 `backups` 目录。目前版本记录仅覆盖该网页采集路径，不代表平台帖子、评论及调查引用已经实现版本化。
 
+新的调查入口可以先运行 `periscope-web`，再使用 `ps_investigation_create` 创建会话、`ps_investigation_submit` 提交包含公开入口地址的本轮、`ps_investigation_status` 逐次读取事件，以及 `ps_investigation_evidence` 查看固定版本；`ps_investigation_stop` 可停止采集，`ps_investigation_list` 和 `ps_investigation_get` 可查找历史调查。它们访问同一个本地后端，默认地址为 `http://127.0.0.1:8790`，可通过 `PERISCOPE_BACKEND_URL` 指定本地 HTTP 地址。后端启动时会重放属于当前资料库的批次，再将遗留活动轮标记为中断；不同资料库的批次不会自动混入。当前需要明确提供入口网址和检索词，尚未自动选择平台、生成回答或接入网页界面的对话流程；这些工具不同于旧 `ps_research_*` 会话。
+
 需要恢复这些批次时，指定目标资料库和批次目录：
 
 ```text

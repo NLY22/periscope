@@ -209,6 +209,12 @@ def test_import_panel_reads_only_fields_the_endpoint_returns(client) -> None:
 API_ONLY_ROUTES = {
     "/api/docs": "FastAPI's own Swagger page, not a data source for this panel",
     "/api/collect/status": "the same state /api/stats already returns; kept for API clients",
+    "/api/investigations": "new investigation backend is currently exposed to MCP; panel migration is pending",
+    "/api/investigations/{investigation_id}": "new investigation history is currently exposed to MCP; panel migration is pending",
+    "/api/investigations/{investigation_id}/rounds": "new collection rounds are currently exposed to MCP; panel migration is pending",
+    "/api/investigation-rounds/{round_id}": "new round progress is currently exposed to MCP; panel migration is pending",
+    "/api/investigation-rounds/{round_id}/stop": "new round cancellation is currently exposed to MCP; panel migration is pending",
+    "/api/evidence/{object_id}": "new versioned evidence is currently exposed to MCP; panel migration is pending",
 }
 
 

@@ -105,3 +105,65 @@ def test_immediate_replacement_does_not_surface_cancelled_task_error(scratch_pat
         corpus.close()
 
     asyncio.run(scenario())
+
+
+def test_backend_restart_marks_abandoned_round_interrupted(scratch_path):
+    from periscope.investigations.runner import InvestigationRunner
+    from periscope.investigations.store import InvestigationStore
+
+    path = scratch_path / "restart.db"
+    corpus = Corpus(path)
+    store = InvestigationStore(corpus)
+    investigation = store.create("robot")
+    round_id = store.start_round(investigation, "find", "key")
+    corpus.close()
+    corpus = Corpus(path)
+    runner = InvestigationRunner(corpus)
+    assert runner.store.get_round(round_id)["status"] == "interrupted"
+    assert runner.store.get_round(round_id)["error"] == "backend_restart"
+    corpus.close()
+
+
+def test_restart_recovers_saved_batch_and_its_round_reference(scratch_path, monkeypatch):
+    from periscope.evidence.journal import save_batch, replay_directory
+    from periscope.investigations.runner import InvestigationRunner
+    from periscope.investigations.store import InvestigationStore
+
+    path = scratch_path / "crash.db"
+    corpus = Corpus(path)
+    store = InvestigationStore(corpus)
+    investigation = store.create("robot")
+    round_id = store.start_round(investigation, "find", "key")
+    row = {"source": "web_crawl", "kind": "media", "title": "robot",
+           "url": "https://example.org/", "text": "robot preserved after crash"}
+    with monkeypatch.context() as patch:
+        patch.setattr(InvestigationStore, "attach", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("crash")))
+        try:
+            save_batch(corpus, [row], round_id=round_id)
+        except OSError:
+            pass
+        else:
+            raise AssertionError("expected simulated failure")
+    corpus.close()
+    corpus = Corpus(path)
+    runner = InvestigationRunner(corpus)
+    assert runner.store.get_round(round_id)["status"] == "interrupted"
+    assert len(runner.store.references(round_id)) == 1
+    assert len(runner.store.events(round_id)) == 1
+    replay_directory(corpus, scratch_path / "evidence-journal")
+    assert len(runner.store.events(round_id)) == 1
+    corpus.close()
+
+
+def test_automatic_recovery_does_not_import_another_corpus_journal(scratch_path):
+    from periscope.evidence.journal import save_batch
+    from periscope.investigations.runner import InvestigationRunner
+
+    first = Corpus(scratch_path / "first.db")
+    save_batch(first, [{"source": "web_crawl", "kind": "media", "title": "robot",
+                        "url": "https://example.org/", "text": "robot private corpus"}])
+    first.close()
+    second = Corpus(scratch_path / "second.db")
+    InvestigationRunner(second)
+    assert second.search("robot private") == []
+    second.close()
