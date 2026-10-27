@@ -282,17 +282,35 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
     if github_targets:
         try:
             from periscope.collection.platforms import github
+
+            async def collect_github(owner, repo, number, is_pull_request, remaining):
+                detail_result, discussion_result = await asyncio.gather(
+                    github.fetch_issue_detail(owner, repo, number, budget_seconds=remaining),
+                    github.fetch_discussion(owner, repo, number,
+                                            is_pull_request=is_pull_request,
+                                            budget_seconds=remaining),
+                    return_exceptions=True,
+                )
+                if isinstance(detail_result, Exception):
+                    detail_result = ({}, {"status": "partial", "truncated_by": [],
+                                          "errors": ["detail:%s" % type(detail_result).__name__]})
+                if isinstance(discussion_result, Exception):
+                    discussion_result = ([], {"status": "partial", "fetched_comments": 0,
+                                               "truncated_by": [],
+                                               "errors": ["discussion:%s" % type(discussion_result).__name__]})
+                return detail_result, discussion_result
+
             got = {}
             for _row, owner, repo, number, is_pull_request, key in github_targets:
                 remaining = remaining_budget()
                 if remaining == 0:
-                    got[key] = ([], {"status": "partial", "fetched_comments": 0,
-                                     "truncated_by": ["time_budget"], "errors": []})
+                    got[key] = (({}, {"status": "partial", "truncated_by": ["time_budget"], "errors": []}),
+                                ([], {"status": "partial", "fetched_comments": 0,
+                                      "truncated_by": ["time_budget"], "errors": []}))
                     continue
                 try:
-                    got[key] = asyncio.run(github.fetch_discussion(
-                        owner, repo, number, is_pull_request=is_pull_request,
-                        budget_seconds=remaining))
+                    got[key] = asyncio.run(collect_github(
+                        owner, repo, number, is_pull_request, remaining))
                 except Exception as exc:  # noqa: BLE001 - keep other rows usable
                     stat["failed"].append("github:%s/%s#%s:%s" % (
                         owner, repo, number, type(exc).__name__))
@@ -305,8 +323,20 @@ def _enrich_topk(merged: list[dict], k: int = 5, *,
             if result is None:
                 stat["failed"].append("github:%s/%s#%s" % (owner, repo, number))
                 continue
-            comments, coverage = result
+            (detail, detail_coverage), (comments, coverage) = result
+            coverage = dict(coverage)
+            coverage["detail"] = detail_coverage
+            coverage["errors"] = list(coverage.get("errors", [])) + list(detail_coverage.get("errors", []))
+            coverage["truncated_by"] = list(dict.fromkeys(
+                list(coverage.get("truncated_by", [])) + list(detail_coverage.get("truncated_by", []))))
+            if detail_coverage.get("status") != "complete":
+                coverage["status"] = "partial"
             patch = {"discussion_coverage": coverage}
+            if detail.get("text"):
+                patch["text"] = detail["text"]
+                patch["body"] = detail["text"]
+            if detail.get("author") and not row.get("author"):
+                patch["author"] = detail["author"]
             if comments:
                 patch["comments"] = comments
             row.update(patch)

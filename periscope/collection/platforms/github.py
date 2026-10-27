@@ -14,6 +14,7 @@ import httpx
 
 API_ROOT = "https://api.github.com"
 MAX_COMMENTS = 60
+MAX_BODY_CHARS = 30000
 MAX_PAGES = 2
 PAGE_SIZE = 30
 REQUEST_TIMEOUT = 8.0
@@ -66,6 +67,61 @@ def _normalize(item: dict, discussion_type: str) -> dict | None:
         if item.get("line") is not None:
             node["line"] = item["line"]
     return node
+
+
+async def fetch_issue_detail(
+    owner: str,
+    repo: str,
+    number: int | str,
+    *,
+    budget_seconds: float | None = 20.0,
+    client: httpx.AsyncClient | None = None,
+) -> tuple[dict, dict]:
+    """Fetch the issue body for an issue or pull request within the given budget."""
+    owner, repo, number_text = str(owner).strip(), str(repo).strip(), str(number).strip()
+    valid_segment = lambda value: bool(value) and all(
+        char.isalnum() or char in "-_." for char in value)
+    coverage = {"status": "partial", "truncated_by": [], "errors": []}
+    if not (valid_segment(owner) and valid_segment(repo) and number_text.isdigit()):
+        coverage["errors"].append("detail:invalid_issue_identity")
+        return {}, coverage
+    if budget_seconds is not None and budget_seconds <= 0:
+        coverage["truncated_by"].append("time_budget")
+        return {}, coverage
+    endpoint = API_ROOT + "/repos/%s/%s/issues/%s" % (owner, repo, number_text)
+
+    async def collect(active_client: httpx.AsyncClient) -> tuple[dict, dict]:
+        try:
+            request = active_client.get(endpoint)
+            response = await request if budget_seconds is None else await asyncio.wait_for(
+                request, timeout=budget_seconds)
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict) or not isinstance(payload.get("body"), (str, type(None))) or "body" not in payload:
+                coverage["errors"].append("detail:invalid_payload")
+                return {}, coverage
+            body = payload.get("body") or ""
+            if len(body) > MAX_BODY_CHARS:
+                coverage["truncated_by"].append("body_limit")
+            user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
+            detail = {"text": body[:MAX_BODY_CHARS], "author": str(user.get("login") or "")}
+            if not coverage["truncated_by"]:
+                coverage["status"] = "complete"
+            return detail, coverage
+        except asyncio.TimeoutError:
+            coverage["truncated_by"].append("time_budget")
+        except httpx.HTTPStatusError as exc:
+            coverage["errors"].append("detail:http_%d" % exc.response.status_code)
+        except Exception as exc:  # noqa: BLE001 - keep the search result usable
+            coverage["errors"].append("detail:%s" % type(exc).__name__)
+        return {}, coverage
+
+    if client is not None:
+        return await collect(client)
+    timeout = REQUEST_TIMEOUT if budget_seconds is None else max(0.1, min(REQUEST_TIMEOUT, budget_seconds))
+    async with httpx.AsyncClient(headers=_headers(), timeout=timeout,
+                                 follow_redirects=True) as active_client:
+        return await collect(active_client)
 
 
 async def _fetch_pages(

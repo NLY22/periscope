@@ -7,6 +7,59 @@ import asyncio
 import httpx
 
 
+def test_issue_detail_retrieves_body_beyond_search_excerpt():
+    from periscope.collection.platforms import github
+
+    fetch_detail = getattr(github, "fetch_issue_detail", None)
+    assert callable(fetch_detail), "GitHub issue detail retrieval is missing"
+    body = "Long issue body. " * 150
+
+    async def route(request):
+        assert request.url.path == "/repos/org/project/issues/7"
+        return httpx.Response(200, json={"number": 7, "body": body,
+                                        "user": {"login": "author"}})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(route)) as client:
+            return await fetch_detail("org", "project", 7, client=client)
+
+    detail, coverage = asyncio.run(run())
+    assert detail["text"] == body
+    assert detail["author"] == "author"
+    assert coverage["status"] == "complete"
+
+
+def test_issue_detail_reports_http_failure_without_fabricating_body():
+    from periscope.collection.platforms import github
+
+    fetch_detail = getattr(github, "fetch_issue_detail", None)
+    assert callable(fetch_detail), "GitHub issue detail retrieval is missing"
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(
+                lambda request: httpx.Response(403))) as client:
+            return await fetch_detail("org", "project", 7, client=client)
+
+    detail, coverage = asyncio.run(run())
+    assert detail == {}
+    assert coverage["status"] == "partial"
+    assert "detail:http_403" in coverage["errors"]
+
+
+def test_issue_detail_marks_body_truncation():
+    from periscope.collection.platforms.github import fetch_issue_detail
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, json={"body": "x" * 30001}))) as client:
+            return await fetch_issue_detail("org", "project", 7, client=client)
+
+    detail, coverage = asyncio.run(run())
+    assert len(detail["text"]) == 30000
+    assert coverage["status"] == "partial"
+    assert "body_limit" in coverage["truncated_by"]
+
+
 def test_github_search_rows_keep_native_identity_for_discussion_enrichment():
     import json
 
@@ -116,7 +169,12 @@ def test_topic_service_routes_github_pr_through_enrichment_and_keeps_raw_patch(m
                 {"status": "complete", "fetched_comments": 1,
                  "truncated_by": [], "errors": []})
 
+    async def fetch_issue_detail(owner, repo, number, *, budget_seconds=None):
+        return ({"text": "Complete original text " * 100, "author": "issue-author"},
+                {"status": "complete", "truncated_by": [], "errors": []})
+
     monkeypatch.setattr(github, "fetch_discussion", fetch_discussion)
+    monkeypatch.setattr(github, "fetch_issue_detail", fetch_issue_detail)
     pull = {"title": "Review request", "url": "https://github.com/org/project/pull/7",
             "source": "github_issues", "kind": "community",
             "ids": {"number": 7, "repository_url": "https://api.github.com/repos/org/project",
@@ -136,4 +194,76 @@ def test_topic_service_routes_github_pr_through_enrichment_and_keeps_raw_patch(m
     assert observed == {"owner": "org", "repo": "project", "number": "7",
                         "is_pull_request": True, "budget_seconds": 7}
     assert result.platform_rows[0]["comments"][0]["text"] == "Review detail"
+    assert result.platform_rows[0]["text"] == "Complete original text " * 100
+    assert result.raw_rows[0]["text"] == "Complete original text " * 100
+    assert result.raw_rows[0]["author"] == "issue-author"
     assert result.raw_rows[0]["discussion_coverage"]["status"] == "complete"
+    assert result.raw_rows[0]["discussion_coverage"]["detail"]["status"] == "complete"
+
+
+def test_github_detail_failure_keeps_search_text_and_discussion(monkeypatch):
+    from periscope.collection.platforms import github
+    from periscope.topics.enrichment import _enrich_topk
+
+    async def fetch_discussion(*args, **kwargs):
+        return ([{"id": "1", "text": "Helpful comment"}],
+                {"status": "complete", "fetched_comments": 1,
+                 "truncated_by": [], "errors": []})
+
+    async def fetch_issue_detail(*args, **kwargs):
+        return ({}, {"status": "partial", "truncated_by": [],
+                     "errors": ["detail:http_403"]})
+
+    monkeypatch.setattr(github, "fetch_discussion", fetch_discussion)
+    monkeypatch.setattr(github, "fetch_issue_detail", fetch_issue_detail)
+    row = {"title": "Issue", "url": "https://github.com/org/project/issues/7",
+           "source": "github_issues", "text": "Search excerpt"}
+    rows, _, patches = _enrich_topk([row], budget_seconds=5)
+    assert rows[0]["text"] == "Search excerpt"
+    assert rows[0]["comments"][0]["text"] == "Helpful comment"
+    assert patches[row["url"]]["discussion_coverage"]["status"] == "partial"
+    assert "detail:http_403" in rows[0]["discussion_coverage"]["errors"]
+
+
+def test_github_full_body_and_coverage_survive_persistence(scratch_path, monkeypatch):
+    import json
+    from periscope.collection.platforms import github
+    from periscope.operations import ingest
+    from periscope.topics import runs
+    from periscope.topics.enrichment import _enrich_topk
+    from src.corpus.store import Corpus
+
+    async def fetch_detail(*args, **kwargs):
+        return ({"text": "intro " * 300 + "githubfullbodyneedle", "author": "Alice"},
+                {"status": "complete", "truncated_by": [], "errors": []})
+
+    async def fetch_discussion(*args, **kwargs):
+        return ([{"id": "1", "text": "githubcommentneedle", "user": "Bob"}],
+                {"status": "complete", "fetched_comments": 1,
+                 "truncated_by": [], "errors": []})
+
+    monkeypatch.setattr(github, "fetch_issue_detail", fetch_detail)
+    monkeypatch.setattr(github, "fetch_discussion", fetch_discussion)
+    topic_dir = scratch_path / "topics"
+    topic_dir.mkdir()
+    monkeypatch.setattr(runs.paths, "TOPIC_DIR", topic_dir)
+    row = {"_origin": "platform", "source": "github_issues", "kind": "community",
+           "title": "Issue", "url": "https://github.com/org/project/issues/7",
+           "text": "Search excerpt"}
+    rows, _, _ = _enrich_topk([row], budget_seconds=5)
+    shard = runs.write("github issue", rows)
+    items, skipped = ingest.build(runs.ingestable_rows(runs.read(shard)), [])
+    assert not skipped
+    db_path = scratch_path / "github.db"
+    corpus = Corpus(db_path)
+    corpus.add_items(items)
+    corpus.close()
+    corpus = Corpus(db_path)
+    try:
+        assert corpus.search("githubfullbodyneedle")
+        assert corpus.search("githubcommentneedle")
+        stored = corpus._conn.execute("SELECT metadata_json FROM items WHERE url=?",
+                                     (row["url"],)).fetchone()
+        assert json.loads(stored["metadata_json"])["discussion_coverage"]["detail"]["status"] == "complete"
+    finally:
+        corpus.close()
