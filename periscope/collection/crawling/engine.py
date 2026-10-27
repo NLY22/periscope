@@ -100,7 +100,7 @@ async def crawl_async(topic: str, options: CrawlOptions, *, client=None) -> tupl
             return
         if depth > options.depth or urlsplit(identity).path.lower().endswith(ASSETS):
             return
-        priority = 100 if depth == 0 else (20 if label and _matches(label, topic) else 0) + (25 if urlsplit(identity).path.lower().endswith(".pdf") else 0)
+        priority = 100 if depth == 0 else (20 if label and _matches(label, topic) else 0) + (25 if urlsplit(identity).path.lower().endswith((".pdf", ".xlsx")) else 0)
         reports[identity] = {"url": identity, "parent_url": parent, "depth": depth,
                              "seed_url": seed or identity, "label": label, "status": "queued",
                              "error": "", "chars": 0, "bytes": 0}
@@ -194,9 +194,13 @@ async def crawl_async(topic: str, options: CrawlOptions, *, client=None) -> tupl
                                  "provenance": {"source_key": "web_crawl", "method": "crawl", "identity": "url",
                                                 "observed_at": observed, "url": final, "parent_url": report["parent_url"],
                                                 "seed_url": report["seed_url"], "depth": report["depth"], "content_role": "source_text"}})
-                    report["status"] = "ok"
+                    report["status"] = "partial" if doc.format == "xlsx" and doc.truncated else "ok"
                 else:
-                    report["status"] = "needs_ocr" if doc.needs_ocr else "discovery" if doc.links else "filtered" if doc.text else "empty"
+                    report["status"] = ("partial" if doc.format == "xlsx" and doc.truncated else
+                                        "needs_ocr" if doc.needs_ocr else "discovery" if doc.links else
+                                        "filtered" if doc.text else "empty")
+                if doc.format == "xlsx" and doc.truncated:
+                    report["error"] = "document_limit"
                 for link in doc.links:
                     enqueue(link.url, final, report["depth"] + 1, link.label, report["seed_url"])
             except asyncio.CancelledError:

@@ -28,6 +28,80 @@ def pdf_bytes(text="robot admission evidence", pages=1):
     return out.getvalue()
 
 
+def xlsx_bytes():
+    from openpyxl import Workbook
+    workbook = Workbook()
+    first = workbook.active
+    first.title = "2026 admissions"
+    first.append(["program", "score", "quota"])
+    first.append(["robot computing", 365, 12, "=1+2"])
+    second = workbook.create_sheet("2025 admissions")
+    second.append(["program", "score"])
+    second.append(["robot computing", 351])
+    out = BytesIO()
+    workbook.save(out)
+    workbook.close()
+    return out.getvalue()
+
+
+def test_xlsx_extracts_sheets_rows_and_cell_coordinates():
+    from periscope.collection.documents import extract_document
+    doc = extract_document(xlsx_bytes(), "application/octet-stream",
+                           "https://lab.example/admissions.xlsx")
+    assert doc.format == "xlsx"
+    assert "robot computing" in doc.text
+    row = next(row for row in doc.metadata()["sheet_rows"]
+               if row["sheet"] == "2026 admissions" and row["row"] == 2)
+    line = doc.text[row["start"]:row["end"]]
+    assert "A2=robot computing" in line
+    assert "B2=365" in line and "C2=12" in line
+    assert "D2==1+2" in line
+    assert any(row["sheet"] == "2025 admissions" for row in doc.metadata()["sheet_rows"])
+
+
+def test_xlsx_text_limit_is_reported():
+    from periscope.collection.documents import extract_document
+    doc = extract_document(xlsx_bytes(), "application/octet-stream",
+                           "https://lab.example/admissions.xlsx", max_chars=20)
+    assert len(doc.text) <= 20
+    assert doc.truncated
+
+
+def test_xlsx_rejects_archive_with_excessive_entries():
+    from zipfile import ZipFile
+    from periscope.collection.documents import extract_document
+    out = BytesIO()
+    with ZipFile(out, "w") as archive:
+        for index in range(4097):
+            archive.writestr("empty/%d" % index, "")
+    with pytest.raises(ValueError, match="xlsx_expanded_size_limit"):
+        extract_document(out.getvalue(), "application/octet-stream",
+                         "https://lab.example/admissions.xlsx")
+
+
+def test_xlsx_empty_sheet_without_dimension_does_not_hide_next_sheet():
+    from openpyxl import Workbook
+    from zipfile import ZipFile
+    import re
+    from periscope.collection.documents import extract_document
+    workbook = Workbook()
+    workbook.create_sheet("Admissions").append(["robot computing", 365])
+    original = BytesIO()
+    workbook.save(original)
+    workbook.close()
+    rewritten = BytesIO()
+    with ZipFile(BytesIO(original.getvalue())) as source, ZipFile(rewritten, "w") as target:
+        for entry in source.infolist():
+            data = source.read(entry.filename)
+            if entry.filename == "xl/worksheets/sheet1.xml":
+                data = re.sub(rb"<dimension[^>]*/>", b"", data)
+            target.writestr(entry, data)
+    doc = extract_document(rewritten.getvalue(), "application/octet-stream",
+                           "https://lab.example/admissions.xlsx")
+    assert "robot computing" in doc.text
+    assert not doc.truncated
+
+
 def test_html_extraction_keeps_body_and_resolves_child_links():
     from periscope.collection.documents import extract_document
     html = '<html><title>Robot admissions</title><nav>noise</nav><main><h1>Robot admissions</h1><p>' + "Independent research evidence. " * 70 + '</p><a href="../files/admissions.pdf">Admission attachment</a></main></html>'
@@ -107,6 +181,61 @@ def test_listing_discovers_article_and_pdf_with_parent_evidence(monkeypatch):
     assert all(row["provenance"]["identity"] == "url" for row in rows)
     assert not any("other.example" in url for url in called)
     assert stat["rows"] == len(rows)
+
+
+def test_listing_discovers_xlsx_with_source_and_row_locations(monkeypatch, scratch_path):
+    listing = '<main><a href="/admissions.xlsx">robot admission spreadsheet</a></main>'
+    rows, stat, _ = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/admissions.xlsx": httpx.Response(200, content=xlsx_bytes(),
+                                           headers={"content-type": "application/octet-stream"})}))
+    sheet = next(row for row in rows if row["url"].endswith("admissions.xlsx"))
+    assert sheet["provenance"]["parent_url"] == "https://lab.example/list"
+    assert sheet["document"]["format"] == "xlsx"
+    assert any(item["row"] == 2 for item in sheet["document"]["sheet_rows"])
+    assert any(report["status"] == "ok" and report["format"] == "xlsx"
+               for report in stat["reports"])
+    from periscope.operations.ingest import build
+    from periscope.topics import runs
+    from src.corpus.store import Corpus
+    path = scratch_path / "xlsx.db"
+    items, skipped = build(runs.ingestable_rows({"rows": [runs._row_for_disk(sheet, "crawl")]}), [])
+    assert not skipped
+    corpus = Corpus(path)
+    corpus.add_items(items)
+    corpus.close()
+    corpus = Corpus(path)
+    try:
+        assert corpus.search("robot computing")
+        saved = corpus._conn.execute("SELECT metadata_json FROM items WHERE url=?", (sheet["url"],)).fetchone()
+        metadata = json.loads(saved["metadata_json"])
+        assert any(row["sheet"] == "2026 admissions" and row["row"] == 2
+                   for row in metadata["document"]["sheet_rows"])
+    finally:
+        corpus.close()
+
+
+def test_truncated_xlsx_is_reported_as_partial(monkeypatch):
+    from openpyxl import Workbook
+    from periscope.topics.models import TopicRequest
+    from periscope.topics.service import TopicService
+    workbook = Workbook()
+    workbook.active.append(["robot " + "x" * 32000, "y" * 32000])
+    out = BytesIO()
+    workbook.save(out)
+    workbook.close()
+    rows, stat, _ = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, content=out.getvalue(), headers={
+            "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"})}))
+    assert rows and rows[0]["document"]["text_truncated"]
+    assert stat["reports"][0]["status"] == "partial"
+    service = TopicService(crawl_lookup=lambda *a, **kw: (rows, stat))
+    result = service.search(TopicRequest(topic="robot", no_local=True, no_api=True, speed="off",
+                                         crawl_seeds=("https://lab.example/list",)))
+    assert result.source_reports[0]["status"] == "partial"
+    from periscope.topics.render import render
+    display = render("robot", rows, {})
+    assert "Excel" in display and "已截断" in display
 
 
 def test_robots_denial_is_visible_and_never_fetched(monkeypatch):

@@ -57,8 +57,10 @@ class TopicService:
                 breakdown.append("网页采集 %d 条/%.1fs" % (len(result.crawl_rows), crawl_stat["elapsed"]))
                 crawl_states = {report["status"] for report in result.crawl_reports}
                 has_failure = bool(crawl_states & {"failed", "blocked", "too_large", "unsupported", "needs_ocr"})
-                incomplete = has_failure or bool(crawl_states & {"over_budget", "page_limit"})
-                crawl_status = ("partial" if incomplete else "ok") if result.crawl_rows else "over_budget" if "over_budget" in crawl_states else "failed" if has_failure else "empty"
+                incomplete = has_failure or bool(crawl_states & {"over_budget", "page_limit", "partial"})
+                crawl_status = (("partial" if incomplete else "ok") if result.crawl_rows else
+                                "over_budget" if "over_budget" in crawl_states else
+                                "failed" if has_failure else "partial" if "partial" in crawl_states else "empty")
                 result.source_reports.append({"key": "web_crawl", "mode": "crawl", "name": "站点爬虫",
                                               "status": crawl_status, "rows": len(result.crawl_rows)})
                 if incomplete:
