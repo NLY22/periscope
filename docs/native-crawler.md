@@ -34,13 +34,13 @@ periscope-topic --topic "计算机" --crawl-seeds https://example.org/admissions
 
 ### MCP 调用
 
-`ps_crawl_public` 接收 `topic`、公开入口 `seeds`，以及可选的 `form_fields`（字段名到值的映射）、`max_pages`、`depth`、`budget`。例如：
+`ps_crawl_public` 接收 `topic`、公开入口 `seeds`，以及可选的 `form_fields`（字段名到值的映射）、`max_pages`、`depth`、`budget` 和 `save`。例如：
 
 ```json
-{"topic":"robot", "seeds":["https://example.org/admissions"], "form_fields":{"year":"2026"}, "max_pages":4, "depth":1, "budget":30}
+{"topic":"robot", "seeds":["https://example.org/admissions"], "form_fields":{"year":"2026"}, "max_pages":4, "depth":1, "budget":30, "save":true}
 ```
 
-返回 `rows`（原文和出处）、`reports`（各页面的状态与原因）和 `stats`。调用限定最多 6 个入口、50 页、5 层和 180 秒，复用同站、公开网络地址和 robots 检查。`stored: false` 表示结果没有自动入库或接入研究会话；需要持久化时可使用命令行 `--save`。示例不代表已验证该网站存在或支持此表单。
+返回 `rows`（原文和出处）、`reports`（各页面的状态与原因）和 `stats`。调用限定最多 6 个入口、50 页、5 层和 180 秒，复用同站、公开网络地址和 robots 检查。默认不保存；`save: true` 时写入 MCP 配置指定的资料库，`storage` 报告写入数量、跳过情况或失败原因。写入失败时仍返回已采资料。保存后可用 `ps_corpus_search` 检索，但不会自动接入研究会话。当前 MCP 保存直接写入资料库，不生成可用于重建数据库的运行分片；若需要重建后恢复，请另行保留返回的资料或使用命令行 `--save`。示例不代表已验证该网站存在或支持此表单。
 
 ## 当前提取能力
 

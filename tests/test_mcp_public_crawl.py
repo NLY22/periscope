@@ -9,9 +9,11 @@ def test_public_crawl_is_registered_as_mcp_tool():
     assert "ps_crawl_public" in {tool.name for tool in asyncio.run(mcp.list_tools())}
 
 
-def test_mcp_crawls_public_form_and_returns_text_and_provenance(monkeypatch):
+def test_mcp_crawls_public_form_and_returns_text_and_provenance(monkeypatch, scratch_path):
     from periscope.collection.crawling import engine
-    from src.mcp.server import ps_crawl_public
+    from src.mcp.server import ps_crawl_public, ps_corpus_search, service
+    from src.corpus.store import Corpus
+    from types import SimpleNamespace
 
     async def public(url):
         return url
@@ -29,13 +31,42 @@ def test_mcp_crawls_public_form_and_returns_text_and_provenance(monkeypatch):
     client_type = httpx.AsyncClient
     monkeypatch.setattr(engine, "validate_public_http_url", public)
     monkeypatch.setattr(engine.httpx, "AsyncClient", lambda **kwargs: client_type(transport=httpx.MockTransport(handler)))
+    corpus = Corpus(scratch_path / "mcp-crawl.db")
+    monkeypatch.setattr(service, "_periscope_orchestrator", lambda *args: SimpleNamespace(get_corpus=lambda: corpus))
     result = asyncio.run(ps_crawl_public(topic="robot", seeds=["https://lab.example/form"],
-                                         form_fields={"year": "2026"}, max_pages=2, depth=1, budget=10))
+                                         form_fields={"year": "2026"}, max_pages=2, depth=1, budget=10, save=True))
     assert result["ok"] is True
     row = next(row for row in result["data"]["rows"] if "/result?" in row["url"])
     assert "robot score 365" in (row.get("body") or row.get("text"))
     assert row["provenance"]["query_fields"] == {"year": "2026"}
     assert any(report["status"] == "ok" for report in result["data"]["reports"])
+    assert result["data"]["storage"]["new"] == 1
+    search = asyncio.run(ps_corpus_search(query="robot"))
+    assert search["ok"] and any("robot score 365" in item["content"] for item in search["data"]["items"])
+    saved = corpus._conn.execute("SELECT metadata_json FROM items").fetchone()
+    import json
+    assert json.loads(saved["metadata_json"])["provenance"]["query_fields"] == {"year": "2026"}
+    again = asyncio.run(ps_crawl_public(topic="robot", seeds=["https://lab.example/form"],
+                                        form_fields={"year": "2026"}, max_pages=2, depth=1, budget=10, save=True))
+    assert again["data"]["storage"]["new"] == 0
+    corpus.close()
+
+
+def test_crawl_retains_results_when_storage_is_disabled(monkeypatch):
+    from periscope.collection.crawling import engine
+    from src.mcp.server import ps_crawl_public, service
+    from types import SimpleNamespace
+
+    async def crawl(topic, options):
+        return [{"title": "robot", "text": "robot result", "url": "https://example.org/", "source": "web_crawl"}], {"rows": 1, "reports": []}
+
+    monkeypatch.setattr(engine, "crawl_async", crawl)
+    monkeypatch.setattr(service, "_periscope_orchestrator", lambda *args: SimpleNamespace(get_corpus=lambda: None))
+    result = asyncio.run(ps_crawl_public(topic="robot", seeds=["https://example.org/"], save=True))
+    assert result["ok"]
+    assert result["data"]["rows"][0]["text"] == "robot result"
+    assert result["data"]["storage"]["status"] == "failed"
+    assert result["data"]["storage"]["error"] == "PS_FEATURE_DISABLED"
 
 
 def test_mcp_crawl_rejects_unbounded_or_invalid_requests():

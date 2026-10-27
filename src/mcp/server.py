@@ -414,17 +414,21 @@ async def ps_crawl_public(
     max_pages: int = 12,
     depth: int = 2,
     budget: float = 30,
+    save: bool = False,
+    periscope_path: str | None = None,
+    config_path: str | None = None,
 ) -> dict[str, Any]:
     """Collect public pages and attachments from explicit URLs.
 
     Optional form_fields submit one public GET form. Use only non-sensitive
-    values: query parameters and provenance are returned. Results are not
-    automatically stored in the evidence corpus.
+    values: query parameters and provenance are returned and may be stored.
+    Set save to insert results into the configured evidence corpus.
     """
     return await _run_tool(
         "ps_crawl_public",
         lambda: service.crawl_public(topic=topic, seeds=seeds, form_fields=form_fields,
-                                     max_pages=max_pages, depth=depth, budget=budget),
+                                     max_pages=max_pages, depth=depth, budget=budget, save=save,
+                                     periscope_path=periscope_path, config_path=config_path),
     )
 
 

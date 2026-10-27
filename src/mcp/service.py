@@ -816,9 +816,10 @@ class PipelineService:
 
     async def crawl_public(
         self, *, topic: str, seeds: list[str], form_fields: dict[str, str] | None = None,
-        max_pages: int = 12, depth: int = 2, budget: float = 30,
+        max_pages: int = 12, depth: int = 2, budget: float = 30, save: bool = False,
+        periscope_path: str | None = None, config_path: str | None = None,
     ) -> dict[str, Any]:
-        """Run the shared bounded crawler without implicitly saving its results."""
+        """Run the shared bounded crawler and optionally save its results."""
         from periscope.collection.crawling.engine import CrawlOptions, crawl_async
 
         try:
@@ -833,9 +834,24 @@ class PipelineService:
         except ValueError as exc:
             raise McpError(code="PS_INVALID_INPUT", message=str(exc)) from exc
         rows, stats = await crawl_async(topic.strip(), options)
+        storage: dict[str, Any] = {"status": "not_requested"}
+        if save:
+            try:
+                from periscope.operations.ingest import build
+
+                corpus = self._require(
+                    self._periscope_orchestrator(periscope_path, config_path).get_corpus(), "corpus"
+                )
+                items, skipped = build(rows, [])
+                count = corpus.add_items(items)
+                storage = {"status": "saved", "new": count, "offered": len(items),
+                           "skipped": dict(skipped)}
+            except Exception as exc:
+                storage = {"status": "failed", "error": exc.code if isinstance(exc, McpError)
+                           else type(exc).__name__}
         return {"topic": topic.strip(), "rows": rows, "reports": stats["reports"],
                 "stats": {key: value for key, value in stats.items() if key != "reports"},
-                "stored": False}
+                "stored": storage["status"] == "saved", "storage": storage}
 
     def corpus_search(
         self,
