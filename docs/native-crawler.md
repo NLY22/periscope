@@ -40,7 +40,15 @@ periscope-topic --topic "计算机" --crawl-seeds https://example.org/admissions
 {"topic":"robot", "seeds":["https://example.org/admissions"], "form_fields":{"year":"2026"}, "max_pages":4, "depth":1, "budget":30, "save":true}
 ```
 
-返回 `rows`（原文和出处）、`reports`（各页面的状态与原因）和 `stats`。调用限定最多 6 个入口、50 页、5 层和 180 秒，复用同站、公开网络地址和 robots 检查。默认不保存；`save: true` 时写入 MCP 配置指定的资料库，`storage` 报告写入数量、跳过情况或失败原因。写入失败时仍返回已采资料。保存后可用 `ps_corpus_search` 检索，但不会自动接入研究会话。当前 MCP 保存直接写入资料库，不生成可用于重建数据库的运行分片；若需要重建后恢复，请另行保留返回的资料或使用命令行 `--save`。示例不代表已验证该网站存在或支持此表单。
+返回 `rows`（原文和出处）、`reports`（各页面的状态与原因）和 `stats`。调用限定最多 6 个入口、50 页、5 层和 180 秒，复用同站、公开网络地址和 robots 检查。默认不保存；`save: true` 时先将本次结果作为一个批次写入资料库旁的 `evidence-journal` 目录，再写入 MCP 配置指定的资料库。`storage` 报告写入数量、跳过情况或失败原因；写库失败时已写成的批次仍可恢复。保存后可用 `ps_corpus_search` 检索，但不会自动接入研究会话。示例不代表已验证该网站存在或支持此表单。
+
+需要恢复这些批次时，指定目标资料库和批次目录：
+
+```text
+python -m periscope.evidence.journal --corpus /path/to/corpus.db --journal /path/to/evidence-journal
+```
+
+恢复会跳过已经入库的相同记录；损坏批次不会被删除，并在输出中列出。命令仅恢复这些批次里的采集资料，不恢复调查会话、草稿或旧版资料库中其他来源的数据。批次目前在整个 MCP 爬取完成后生成，还不是逐页落盘；进程在爬取结束前中断时不能保证保留已取资料。
 
 ## 当前提取能力
 

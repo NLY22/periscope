@@ -837,15 +837,12 @@ class PipelineService:
         storage: dict[str, Any] = {"status": "not_requested"}
         if save:
             try:
-                from periscope.operations.ingest import build
+                from periscope.evidence.journal import save_batch
 
                 corpus = self._require(
                     self._periscope_orchestrator(periscope_path, config_path).get_corpus(), "corpus"
                 )
-                items, skipped = build(rows, [])
-                count = corpus.add_items(items)
-                storage = {"status": "saved", "new": count, "offered": len(items),
-                           "skipped": dict(skipped)}
+                storage = {"status": "saved", **save_batch(corpus, rows)}
             except Exception as exc:
                 storage = {"status": "failed", "error": exc.code if isinstance(exc, McpError)
                            else type(exc).__name__}

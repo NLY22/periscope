@@ -41,6 +41,7 @@ def test_mcp_crawls_public_form_and_returns_text_and_provenance(monkeypatch, scr
     assert row["provenance"]["query_fields"] == {"year": "2026"}
     assert any(report["status"] == "ok" for report in result["data"]["reports"])
     assert result["data"]["storage"]["new"] == 1
+    assert len(list((scratch_path / "evidence-journal").glob("*.jsonl"))) == 1
     search = asyncio.run(ps_corpus_search(query="robot"))
     assert search["ok"] and any("robot score 365" in item["content"] for item in search["data"]["items"])
     saved = corpus._conn.execute("SELECT metadata_json FROM items").fetchone()
