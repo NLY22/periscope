@@ -292,6 +292,14 @@ def _stable_id(namespace: str, identity: str) -> str:
     return "%s:%s" % (namespace, digest)
 
 
+def _v2ex_discussion_version(row):
+    comments = [{key: comment.get(key) for key in ("id", "text", "user", "parent_id", "created_at")}
+                for comment in row.get("comments") or [] if isinstance(comment, dict)]
+    content = {"title": row.get("title") or "", "text": row.get("text") or "",
+               "author": row.get("author") or "", "comments": comments}
+    return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 def _http_row_identity(row):
     version = ""
     if row.get("source") == "web_crawl":
@@ -299,6 +307,8 @@ def _http_row_identity(row):
         body = max((row.get("body") or "", row.get("text") or ""), key=len).strip()
         _, body = _split_title((row.get("title") or "").strip(), body)
         version = document.get("sha256") or hashlib.sha256(body.encode("utf-8")).hexdigest()
+    elif row.get("source") == "v2ex_search" and (row.get("topic_detail") or {}).get("topic_id"):
+        version = _v2ex_discussion_version(row)
     return row.get("source"), row.get("url") or row.get("title"), version
 
 
@@ -342,6 +352,8 @@ def build(http_rows, ugc_rows):
             document = row.get("document") if isinstance(row.get("document"), dict) else {}
             version = document.get("sha256") or hashlib.sha256(body.encode("utf-8")).hexdigest()
             identity += "\x00" + version
+        elif src_key == "v2ex_search" and (row.get("topic_detail") or {}).get("topic_id"):
+            identity += "\x00" + _v2ex_discussion_version(row)
         items.append(ContentItem(
             id=_stable_id(row.get("source", "src"), identity),
             source_type=source,

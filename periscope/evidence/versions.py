@@ -54,28 +54,47 @@ class EvidenceVersions:
     def record_batch(self, batch: dict) -> list[dict]:
         references = []
         with self.conn:
-            for row in batch["rows"]:
-                if row.get("source") != "web_crawl":
-                    continue
-                locator = canonical_url(row.get("url") or "")
-                if not locator:
-                    continue
-                object_id = _id("obj_", "web_crawl\0document\0" + locator)
-                document = dict(row.get("document") or {})
-                original_hash = document.pop("sha256", "")
-                snapshot = {"title": row.get("title") or "", "text": row.get("text") or row.get("body") or "",
-                            "author": row.get("author") or "", "published_at": row.get("date") or "",
-                            "url": locator, "document": document}
+            def record(source, kind, identity, locator, snapshot, provenance, original_hash=""):
+                object_id = _id("obj_", source + "\0" + kind + "\0" + identity)
                 encoded = _json(snapshot)
                 version_id = _id("ver_", object_id + "\0" + encoded)
                 self.conn.execute("INSERT OR IGNORE INTO evidence_objects VALUES (?, ?, ?, ?)",
-                                  (object_id, "web_crawl", "document", locator))
+                                  (object_id, source, kind, locator))
                 self.conn.execute("INSERT OR IGNORE INTO evidence_versions VALUES (?, ?, ?)",
                                   (version_id, object_id, encoded))
                 self.conn.execute("INSERT OR IGNORE INTO evidence_observations VALUES (?, ?, ?, ?, ?, ?)",
                                   (batch["batch_id"], object_id, version_id, batch["created_at"],
-                                   _json(row.get("provenance") or {}), original_hash))
+                                   _json(provenance), original_hash))
                 references.append({"object_id": object_id, "version_id": version_id})
+
+            for row in batch["rows"]:
+                locator = canonical_url(row.get("url") or "")
+                if not locator:
+                    continue
+                provenance = row.get("provenance") or {}
+                if row.get("source") == "web_crawl":
+                    document = dict(row.get("document") or {})
+                    original_hash = document.pop("sha256", "")
+                    snapshot = {"title": row.get("title") or "", "text": row.get("text") or row.get("body") or "",
+                                "author": row.get("author") or "", "published_at": row.get("date") or "",
+                                "url": locator, "document": document}
+                    record("web_crawl", "document", locator, locator, snapshot, provenance, original_hash)
+                elif row.get("source") == "v2ex_search" and (row.get("topic_detail") or {}).get("topic_id"):
+                    provenance = {**provenance, "discussion_coverage": row.get("discussion_coverage") or {}}
+                    topic_id = str(row["topic_detail"]["topic_id"])
+                    snapshot = {"type": "topic", "native_id": topic_id, "url": locator,
+                                "title": row.get("title") or "", "text": row.get("text") or "",
+                                "author": row.get("author") or "", "published_at": row["topic_detail"].get("created_at")}
+                    if row["topic_detail"].get("available", True):
+                        record("v2ex", "topic", topic_id, locator, snapshot, provenance)
+                    for comment in row.get("comments") or []:
+                        if not isinstance(comment, dict) or not comment.get("id") or not comment.get("text"):
+                            continue
+                        reply_id = str(comment["id"])
+                        reply = {"type": "reply", "native_id": reply_id, "parent_native_id": topic_id,
+                                 "text": comment["text"], "author": comment.get("user") or "",
+                                 "published_at": comment.get("created_at"), "url": comment.get("url") or locator}
+                        record("v2ex", "reply", reply_id, reply["url"], reply, provenance)
         return references
 
     def get_version(self, object_id: str, version_id: str) -> dict | None:

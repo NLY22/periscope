@@ -62,8 +62,9 @@ class InvestigationRunner:
             self.store.finish_round(round_id, "cancelled")
         except TimeoutError:
             self.store.finish_round(round_id, "partial")
-        except CollectionIncomplete:
-            self.store.finish_round(round_id, "partial", "collection_incomplete")
+        except CollectionIncomplete as exc:
+            reason = str(exc)
+            self.store.finish_round(round_id, "partial", reason if reason.startswith("v2ex") else "collection_incomplete")
         except Exception as exc:
             self.store.finish_round(round_id, "failed", type(exc).__name__)
 

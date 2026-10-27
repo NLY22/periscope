@@ -42,9 +42,11 @@ periscope-topic --topic "计算机" --crawl-seeds https://example.org/admissions
 
 返回 `rows`（原文和出处）、`reports`（各页面的状态与原因）和 `stats`。调用限定最多 6 个入口、50 页、5 层和 180 秒，复用同站、公开网络地址和 robots 检查。默认不保存；`save: true` 时先将本次结果作为一个批次写入资料库旁的 `evidence-journal` 目录，再写入 MCP 配置指定的资料库。`storage` 报告写入数量、跳过情况或失败原因；写库失败时已写成的批次仍可恢复。保存后可用 `ps_corpus_search` 检索，但不会自动接入研究会话。示例不代表已验证该网站存在或支持此表单。
 
-MCP 保存的公开网页资料会附带 `object_id` 和 `version_id`，可通过 `ps_evidence_get` 读取指定版本。相同提取内容只保存一个版本并保留各批次观察；提取内容变化产生新版本。首次建立版本表之前会备份数据库到旁边的 `backups` 目录。目前版本记录仅覆盖该网页采集路径，不代表平台帖子、评论及调查引用已经实现版本化。
+MCP 保存的公开网页资料会附带 `object_id` 和 `version_id`，可通过 `ps_evidence_get` 读取指定版本。相同提取内容只保存一个版本并保留各批次观察；提取内容变化产生新版本。首次建立版本表之前会备份数据库到旁边的 `backups` 目录。目前新调查链支持网页和 V2EX 帖子／回复的版本记录，其余平台尚未接入。
 
 新的调查入口可以先运行 `periscope-web`，再使用 `ps_investigation_create` 创建会话、`ps_investigation_submit` 提交包含公开入口地址的本轮、`ps_investigation_status` 逐次读取事件，以及 `ps_investigation_evidence` 查看固定版本；`ps_investigation_stop` 可停止采集，`ps_investigation_list` 和 `ps_investigation_get` 可查找历史调查。它们访问同一个本地后端，默认地址为 `http://127.0.0.1:8790`，可通过 `PERISCOPE_BACKEND_URL` 指定本地 HTTP 地址。后端启动时会重放属于当前资料库的批次，再将遗留活动轮标记为中断；不同资料库的批次不会自动混入。当前需要明确提供入口网址和检索词，尚未自动选择平台、生成回答或接入网页界面的对话流程；这些工具不同于旧 `ps_research_*` 会话。
+
+当本轮唯一入口是 `https://www.v2ex.com/t/<帖子编号>` 时，新调查链会匹配 V2EX 适配器，取得正文和有限回复；主题与每条回复分别保留原生编号、版本、采集覆盖和所属关系。讨论内容在全文库可检索，不作为作者事实声明。该接入目前通过隔离接口样本验证，尚未重新进行在线验证；其他平台尚未接入这一新调查链。
 
 需要恢复这些批次时，指定目标资料库和批次目录：
 

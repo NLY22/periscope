@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import re
+from urllib.parse import urlsplit
 
 from periscope.collection.crawling.engine import crawl_async
 
@@ -11,6 +13,25 @@ class CollectionIncomplete(Exception):
 
 
 async def stream_crawl(topic, options):
+    if len(options.seeds) == 1:
+        url = urlsplit(options.seeds[0])
+        match = re.fullmatch(r"/t/(\d+)/?", url.path)
+        if url.hostname in {"v2ex.com", "www.v2ex.com"} and match:
+            from periscope.collection.platforms.v2ex import fetch_discussion
+            detail, comments, coverage = await fetch_discussion(match.group(1), budget_seconds=options.budget)
+            if detail or comments:
+                yield [{"source": "v2ex_search", "kind": "community", "_origin": "platform",
+                        "title": detail.get("title") or options.seeds[0], "url": detail.get("url") or options.seeds[0],
+                        "text": detail.get("text") or "", "author": detail.get("author") or "",
+                        "topic_detail": {"topic_id": match.group(1), "created_at": detail.get("created_at"),
+                                         "available": bool(detail)},
+                        "comments": comments, "discussion_coverage": coverage,
+                        "provenance": {"method": "v2ex_api", "content_role": "community",
+                                       "observed_at": coverage.get("collected_at")}}]
+            if coverage.get("status") != "complete":
+                reasons = list(coverage.get("errors") or []) + list(coverage.get("truncated_by") or [])
+                raise CollectionIncomplete(("v2ex:" + ",".join(reasons))[:200] if reasons else "v2ex_incomplete")
+            return
     queue = asyncio.Queue(maxsize=1)
 
     async def on_row(row):

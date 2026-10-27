@@ -133,7 +133,13 @@ async def fetch_discussion(
                 active_client, "/replies/show.json",
                 {"topic_id": topic_id, "from": 0, "to": max_replies}, deadline))
         wait = None if deadline is None else max(0.0, deadline - time.monotonic())
-        done, pending = await asyncio.wait(requests.values(), timeout=wait)
+        try:
+            done, pending = await asyncio.wait(requests.values(), timeout=wait)
+        except asyncio.CancelledError:
+            for task in requests.values():
+                task.cancel()
+            await asyncio.gather(*requests.values(), return_exceptions=True)
+            raise
         for task in pending:
             task.cancel()
         if pending:
@@ -159,6 +165,8 @@ async def fetch_discussion(
         reported = detail.get("reported_replies")
         if isinstance(reported, int):
             coverage["reported_replies"] = reported
+        if "replies" in results and not isinstance(results["replies"], list):
+            coverage["errors"].append("replies:invalid_payload")
         comments, returned = _replies(results.get("replies"), topic_id, max_replies)
         coverage["returned_replies"] = returned
         coverage["fetched_replies"] = len(comments)
