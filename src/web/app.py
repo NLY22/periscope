@@ -25,9 +25,9 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from periscope.collection.crawling.engine import CrawlOptions
-from periscope.investigations.crawl import stream_crawl
+from periscope.investigations.crawl import stream_crawl, stream_v2ex_search
 from periscope.investigations.runner import InvestigationRunner
 from periscope.evidence.versions import EvidenceVersions
 
@@ -70,7 +70,7 @@ class InvestigationRequest(BaseModel):
 class InvestigationRoundRequest(BaseModel):
     message: str
     request_key: str
-    seeds: list[str]
+    seeds: list[str] = Field(default_factory=list)
     budget: float = 120
     max_pages: int = 12
     depth: int = 2
@@ -290,12 +290,15 @@ def create_app(orchestrator: Any) -> FastAPI:
     @app.post("/api/investigations/{investigation_id}/rounds")
     async def submit_investigation_round(investigation_id: str, req: InvestigationRoundRequest) -> dict[str, Any]:
         try:
-            if not 1 <= len(req.seeds) <= 6 or not 1 <= req.max_pages <= 50 or not 0 <= req.depth <= 5 or not 30 <= req.budget <= 180:
+            if len(req.seeds) > 6 or not 1 <= req.max_pages <= 50 or not 0 <= req.depth <= 5 or not 30 <= req.budget <= 180:
                 raise ValueError("invalid seeds or collection limits")
-            options = CrawlOptions(tuple(req.seeds), max_pages=req.max_pages, depth=req.depth, budget=req.budget)
+            options = (CrawlOptions(tuple(req.seeds), max_pages=req.max_pages, depth=req.depth, budget=req.budget)
+                       if req.seeds else None)
+            collector = (lambda message: stream_crawl(message, options)) if options else (
+                lambda message: stream_v2ex_search(message, budget=req.budget, max_pages=req.max_pages, depth=req.depth))
             runner = state.investigations()
             round_id = runner.submit(investigation_id, req.message, req.request_key,
-                                     collector=lambda message: stream_crawl(message, options), budget=req.budget,
+                                     collector=collector, budget=req.budget,
                                      options={"seeds": req.seeds, "budget": req.budget,
                                               "max_pages": req.max_pages, "depth": req.depth})
             return {"round_id": round_id}

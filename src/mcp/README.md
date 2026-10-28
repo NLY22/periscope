@@ -25,7 +25,7 @@ The MCP layer does not reimplement business logic. It reuses the existing fetch,
 | `ps_investigation_create` | Create an investigation in the local backend |
 | `ps_investigation_list` | List investigations in the local backend |
 | `ps_investigation_get` | Read an investigation and its saved rounds |
-| `ps_investigation_submit` | Start a bounded public-site crawl for an investigation |
+| `ps_investigation_submit` | Start a bounded crawl from public URLs, or discover V2EX posts by keyword when URLs are omitted |
 | `ps_investigation_status` | Read a round and its evidence events after a cursor |
 | `ps_investigation_stop` | Stop a running round and keep saved evidence |
 | `ps_investigation_evidence` | Read a saved evidence version from the same local backend |

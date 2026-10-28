@@ -133,3 +133,28 @@ def test_remote_client_cannot_spoof_local_host_header(scratch_path):
     with TestClient(app, base_url="http://localhost", client=("203.0.113.8", 50000)) as client:
         assert client.post("/api/investigations", json={"question": "robot"}).status_code == 403
     corpus.close()
+
+
+def test_web_can_discover_v2ex_without_a_seed_url(monkeypatch, scratch_path):
+    from src.web import app as web
+
+    corpus = Corpus(scratch_path / "discovery.db")
+    async def search(topic, *, budget, max_pages, depth):
+        yield [{"source": "v2ex_search", "kind": "community", "title": "robot question",
+                "url": "https://www.v2ex.com/t/123", "text": "robot result",
+                "topic_detail": {"topic_id": "123", "content_level": "search_result"}}]
+    monkeypatch.setattr(web, "stream_v2ex_search", search)
+    with TestClient(web.create_app(SimpleNamespace(get_corpus=lambda: corpus)),
+                    base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        investigation = client.post("/api/investigations", json={"question": "robot"}).json()["investigation_id"]
+        response = client.post(f"/api/investigations/{investigation}/rounds",
+                               json={"message": "robot", "request_key": "one"})
+        assert response.status_code == 200
+        round_id = response.json()["round_id"]
+        for _ in range(100):
+            status = client.get(f"/api/investigation-rounds/{round_id}").json()
+            if status["round"]["status"] != "running":
+                break
+            time.sleep(0.02)
+        assert status["round"]["status"] == "completed" and status["events"]
+    corpus.close()

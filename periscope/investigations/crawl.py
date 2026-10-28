@@ -3,13 +3,74 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from urllib.parse import urlsplit
 
 from periscope.collection.crawling.engine import crawl_async
+from periscope.collection.crawling.engine import CrawlOptions
 
 
 class CollectionIncomplete(Exception):
     """The source reports that part of the requested crawl was not completed."""
+
+
+async def stream_v2ex_search(topic: str, *, budget: float, max_pages: int = 12, depth: int = 2):
+    """Discover relevant V2EX topics, save search cards, then follow up to three."""
+    from periscope.collection.strategies.focused import collect_topic_async
+
+    deadline = time.monotonic() + budget
+    rows, stats = await collect_topic_async(topic, sources=["v2ex_search"], pages=1,
+                                            timeout=min(15, budget), budget=min(30, budget))
+    candidates = []
+    seen = set()
+    for row in rows:
+        url = urlsplit(row.get("url") or "")
+        match = re.fullmatch(r"/t/(\d+)/?", url.path)
+        if url.hostname not in {"v2ex.com", "www.v2ex.com"} or not match or match.group(1) in seen:
+            continue
+        seen.add(match.group(1))
+        candidates.append((row, match.group(1)))
+    incomplete = []
+    for row, topic_id in candidates:
+        if time.monotonic() >= deadline:
+            incomplete.append("time_budget")
+            break
+        seed = "https://www.v2ex.com/t/" + topic_id
+        card = {**row, "url": seed, "source": "v2ex_search", "kind": "community", "_origin": "platform",
+                "topic_detail": {"topic_id": topic_id, "available": True, "content_level": "search_result",
+                                 "created_at": row.get("date") or None},
+                "discussion_coverage": {"status": "not_attempted"},
+                "provenance": {"method": "v2ex_search", "content_role": "community"}}
+        yield [card]
+    remaining_pages = max(0, max_pages - 1) if depth > 0 else 0
+    followed = 0
+    for _row, topic_id in candidates[:3]:
+        if remaining_pages == 0:
+            break
+        seed = "https://www.v2ex.com/t/" + topic_id
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            incomplete.append("time_budget")
+            break
+        try:
+            pages = min(2, remaining_pages)
+            remaining_pages -= pages
+            followed += 1
+            options = CrawlOptions((seed,), max_pages=pages, depth=1, budget=remaining)
+            async for batch in stream_crawl(topic, options):
+                yield batch
+        except CollectionIncomplete as exc:
+            incomplete.append(str(exc))
+    if len(candidates) > followed:
+        incomplete.append("depth_limit" if depth == 0 else "page_limit" if remaining_pages == 0 else "candidate_limit")
+    if stats.get("over_budget"):
+        incomplete.append("search_time_budget")
+    if stats.get("failed"):
+        errors = [str(item[3]) for item in stats.get("per", []) if len(item) >= 4 and item[3]]
+        codes = [match.group(1) for error in errors if (match := re.search(r"\bHTTP\s+(\d{3})\b", error))]
+        incomplete.append("search_http_" + codes[0] if codes else "search_unavailable")
+    if incomplete:
+        raise CollectionIncomplete(("v2ex:" + ",".join(incomplete))[:200])
 
 
 async def stream_crawl(topic, options):
@@ -18,7 +79,9 @@ async def stream_crawl(topic, options):
         match = re.fullmatch(r"/t/(\d+)/?", url.path)
         if url.hostname in {"v2ex.com", "www.v2ex.com"} and match:
             from periscope.collection.platforms.v2ex import fetch_discussion
-            detail, comments, coverage = await fetch_discussion(match.group(1), budget_seconds=options.budget)
+            max_replies = 0 if options.depth == 0 or options.max_pages == 1 else 60
+            detail, comments, coverage = await fetch_discussion(match.group(1), budget_seconds=options.budget,
+                                                                 max_replies=max_replies)
             if detail or comments:
                 yield [{"source": "v2ex_search", "kind": "community", "_origin": "platform",
                         "title": detail.get("title") or options.seeds[0], "url": detail.get("url") or options.seeds[0],

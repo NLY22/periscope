@@ -193,7 +193,8 @@ def _when(raw: str) -> datetime:
             except Exception:
                 continue
         try:
-            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
         except Exception:
             pass
         # RFC 822 with a named zone. Google News writes
@@ -296,7 +297,8 @@ def _v2ex_discussion_version(row):
     comments = [{key: comment.get(key) for key in ("id", "text", "user", "parent_id", "created_at")}
                 for comment in row.get("comments") or [] if isinstance(comment, dict)]
     content = {"title": row.get("title") or "", "text": row.get("text") or "",
-               "author": row.get("author") or "", "comments": comments}
+               "author": row.get("author") or "", "comments": comments,
+               "content_level": (row.get("topic_detail") or {}).get("content_level") or "full"}
     return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 

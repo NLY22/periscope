@@ -84,7 +84,8 @@ class EvidenceVersions:
                     topic_id = str(row["topic_detail"]["topic_id"])
                     snapshot = {"type": "topic", "native_id": topic_id, "url": locator,
                                 "title": row.get("title") or "", "text": row.get("text") or "",
-                                "author": row.get("author") or "", "published_at": row["topic_detail"].get("created_at")}
+                                "author": row.get("author") or "", "published_at": row["topic_detail"].get("created_at"),
+                                "content_level": row["topic_detail"].get("content_level") or "full"}
                     if row["topic_detail"].get("available", True):
                         record("v2ex", "topic", topic_id, locator, snapshot, provenance)
                     for comment in row.get("comments") or []:

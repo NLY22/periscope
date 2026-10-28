@@ -157,6 +157,8 @@ async def fetch_discussion(
                     coverage["truncated_by"].append(error)
             elif error:
                 coverage["errors"].append("%s:%s" % (key, error))
+            elif key == "replies" and not isinstance(payload, list):
+                coverage["errors"].append("replies:invalid_payload")
 
         detail = _topic(results.get("topic"), topic_id) or {}
         if not detail and "topic:missing" not in coverage["errors"]:
@@ -165,8 +167,6 @@ async def fetch_discussion(
         reported = detail.get("reported_replies")
         if isinstance(reported, int):
             coverage["reported_replies"] = reported
-        if "replies" in results and not isinstance(results["replies"], list):
-            coverage["errors"].append("replies:invalid_payload")
         comments, returned = _replies(results.get("replies"), topic_id, max_replies)
         coverage["returned_replies"] = returned
         coverage["fetched_replies"] = len(comments)
