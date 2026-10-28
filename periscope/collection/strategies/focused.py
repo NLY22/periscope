@@ -87,12 +87,20 @@ async def collect_topic_async(
     rows: list[dict] = []
     per: list[tuple[str, int, float, str]] = []
 
+    tls = httpx.create_ssl_context(verify=True, trust_env=True)
     async with httpx.AsyncClient(
-            headers=collector.UA, timeout=25, follow_redirects=True) as cli:
+            headers=collector.UA, timeout=25, follow_redirects=True, verify=tls) as cli:
         tasks = [asyncio.ensure_future(_one(cli, s, topic, pages, timeout))
                  for s in http_sources]
         if budget and budget > 0:
-            done, pending = await asyncio.wait(tasks, timeout=budget)
+            try:
+                remaining = max(0.0, budget - (time.monotonic() - t0))
+                done, pending = await asyncio.wait(tasks, timeout=remaining)
+            except asyncio.CancelledError:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
             for task in pending:
                 task.cancel()
             # Let the cancellations settle so the client closes cleanly and no

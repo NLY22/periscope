@@ -9,6 +9,7 @@
 <link rel="preload" href="/assets/fonts/NotoSansSC-VF.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/panel.css?v=f2144ba441">
 <link rel="stylesheet" href="/assets/gallery.css?v=23f46046b3">
+<link rel="stylesheet" href="/assets/investigation.css?v=940a8106e7">
 <script src="/assets/waterlight.js?v=7c60474690" defer></script>
 </head>
 <body data-ui-revision="waterlight-quiet-20">
@@ -44,12 +45,13 @@
     <button class="new-research" id="newResearch"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>新建调查</button>
 
     <nav class="nav" aria-label="主要功能">
-      <button class="nav-btn active" data-view="research" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>工作台<span class="nav-end">↗</span></button>
+      <button class="nav-btn active" data-view="investigation" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>深度调查<span class="nav-end">↗</span></button>
+      <button class="nav-btn" data-view="research"><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>已有研究</button>
       <button class="nav-btn" data-view="library"><svg class="icon" aria-hidden="true"><use href="#i-library"/></svg>资料库</button>
       <button class="nav-btn" data-view="claims"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>核查台</button>
       <button class="nav-btn" data-view="import"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>导入资料</button>
     </nav>
-    <div class="history-heading"><span>最近调查</span><span id="historyCount">0</span></div>
+    <div class="history-heading"><span>已有研究记录</span><span id="historyCount">0</span></div>
     <div class="tabs" id="tabs" aria-label="历史调查"><p class="history-empty">正在读取历史调查…</p></div>
     <div class="sidebar-bottom"><div class="space-card"><svg class="icon" aria-hidden="true"><use href="#i-orbit"/></svg><strong><span class="local-dot"></span> 本地保存</strong></div><button class="guide-btn" id="guideBtn"><svg class="icon" aria-hidden="true"><use href="#i-help"/></svg>使用指南</button></div>
   </aside>
@@ -82,12 +84,18 @@
         </section>
         <aside class="pane evidence-panel" id="evidencePanel" aria-label="已保存资料"><div class="pane-header"><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg><h2>资料库</h2><span class="count-badge" id="evidenceCount">—</span><span class="spacer"></span><button class="icon-btn" id="refreshItems" aria-label="刷新资料"><svg class="icon"><use href="#i-refresh"/></svg></button></div><div class="search"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input id="q" placeholder="搜索已保存的资料" aria-label="搜索已保存资料"><button id="clearSearch" class="clear-search" aria-label="清除搜索" title="清除搜索" hidden><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button><button id="qBtn">检索</button></div><div class="evidence-toolbar"><span><i></i><span id="evidenceLabel">最近保存</span></span></div><div class="body" id="items" aria-busy="false"><div class="empty"><span class="spin"></span><p>正在读取你的资料…</p></div></div></aside>
       </div>
+      <section id="investigationView" class="investigation" aria-label="深度调查" hidden>
+        <div class="inv-bar"><div><span class="inv-overline">探索 · 追问 · 留存</span><h2 id="invTitle">从一个问题开始</h2><p id="invStatus" role="status" aria-live="polite">发现公开资料，沿着线索继续追问。</p></div><div class="inv-history"><label for="invHistory">调查记录</label><select id="invHistory" aria-label="选择调查记录"><option value="">新调查</option></select></div></div>
+        <div class="inv-layout"><div class="inv-main"><div id="invRounds" class="inv-rounds" aria-live="polite"><div class="inv-empty"><span class="inv-empty-mark">◌</span><h3>让每一次发现，都能继续深入。</h3><p>输入问题，或指定公开网址作为调查入口。</p></div></div>
+          <form id="invForm" class="inv-composer"><label class="sr-only" for="invMessage">调查问题或追问</label><textarea id="invMessage" rows="3" placeholder="你想了解什么？"></textarea><details class="inv-options"><summary>指定公开网址 <span>可选</span></summary><label for="invSeeds">每行一个网址，最多 6 个</label><textarea id="invSeeds" rows="2" placeholder="https://example.org/"></textarea><p>不指定时，通过 V2EX 和 Hacker News 发现话题。指定网址时按该网站采集。</p></details><div class="inv-actions"><span>Enter 发送 · Shift + Enter 换行</span><button class="btn" type="button" id="invStop" hidden>停止本轮</button><button class="btn btn-primary" id="invSend" type="submit">开始调查</button></div></form>
+        </div><aside class="inv-evidence"><div class="inv-evidence-head"><div><span class="inv-overline">本轮资料</span><h3>发现与出处</h3></div><span class="inv-count" id="invEvidenceCount">0</span></div><p class="inv-evidence-note">采集后可查看原文、时间和来源。</p><div id="invEvidence" class="inv-evidence-list"><p class="inv-evidence-empty">资料会在调查过程中陆续出现。</p></div></aside></div>
+      </section>
       <section class="pane aux-view" id="claimsView" hidden><div class="aux-header"><div class="eyebrow">声明与证据</div><h2>声明核查</h2><div id="claimMeta" class="session-meta"></div></div><div class="aux-body" id="claims"><div class="empty"><span class="spin"></span><p>正在读取核查记录…</p></div></div></section>
       <section class="pane aux-view" id="importView" hidden><div class="aux-header"><div class="eyebrow">扩展你的资料库</div><h2>导入资料</h2><p>粘贴 JSON 或选择文件。</p><div id="importMeta" class="session-meta"></div></div><div class="aux-body"><label for="importBox" class="field-label">JSON 内容</label><textarea id="importBox" class="import-box" spellcheck="false" placeholder='{"items":[{"title":"…","url":"…","content":"…","source_type":"discourse"}]}'></textarea><div class="import-actions"><label for="importFile" style="position:absolute;left:-10000px">选择 JSON 导出文件</label><input type="file" id="importFile" class="import-file" accept=".json,application/json"><button class="btn" id="importCheck">预检</button><button class="btn btn-coral" id="importRun">导入</button></div><p class="import-note">预检不会保存资料。</p><div id="importOut" class="import-result" aria-live="polite"></div></div></section>
     </div>
   </main>
 </div>
-<dialog class="guide-dialog" id="guideDialog" aria-labelledby="guideTitle"><button class="icon-btn guide-close" id="guideClose" aria-label="关闭使用指南"><svg class="icon"><use href="#i-close"/></svg></button><div class="aux-header"><div class="eyebrow">认识你的研究空间</div><h2 id="guideTitle">使用指南</h2></div><div class="aux-body"><h3>从一个问题开始</h3><p>在工作台输入问题，利用已保存资料开展调查。之后可以继续追问，也可以从左侧回到历史调查。</p><h3>把发现与出处放在一起</h3><p>资料库支持关键词检索，点击标题可查看原始来源。核查台可展开声明关联的证据。</p><h3>资料与模型各有状态</h3><p>连接模型后可获得模型辅助分析；模型未连接时，已有资料仍可检索，并使用基础研究流程。</p><h3>一些顺手的小操作</h3><p>Enter 发送问题，Shift + Enter 换行。Ctrl / ⌘ + K 打开资料检索。新建调查会保留已有会话。</p><button class="btn btn-coral" id="guideDone">开始探索</button></div></dialog>
+<dialog class="guide-dialog" id="guideDialog" aria-labelledby="guideTitle"><button class="icon-btn guide-close" id="guideClose" aria-label="关闭使用指南"><svg class="icon"><use href="#i-close"/></svg></button><div class="aux-header"><div class="eyebrow">认识你的研究空间</div><h2 id="guideTitle">使用指南</h2></div><div class="aux-body"><h3>从一个问题开始</h3><p>在深度调查中输入问题，或指定公开网址。采集会在后台进行，你可以查看资料并继续追问。</p><h3>把发现与出处放在一起</h3><p>展开资料查看原文；点击回答中的编号可定位对应出处。调查记录可以在工作区重新打开。</p><h3>资料与模型各有状态</h3><p>连接模型后可获得简答；模型不可用时，仍可查看已经采集的资料。</p><h3>一些顺手的小操作</h3><p>Enter 发送问题，Shift + Enter 换行。Ctrl / ⌘ + K 打开资料检索。新建调查会保留已有会话。</p><button class="btn btn-coral" id="guideDone">开始探索</button></div></dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
@@ -108,6 +116,7 @@ const safeLink=value=>{try{const u=new URL(value);return /^(https?:)$/.test(u.pr
 const emptyState=(symbol,title,description)=>`<div class="empty"><span class="empty-symbol">${icon(symbol)}</span><strong>${esc(title)}</strong><p>${esc(description)}</p></div>`;
 let researchBusy=false, sessionLoading=false, sessionRequest=0, itemRequest=0;
 const VIEW={
+  investigation:['深度调查','深度调查','从资料出发，沿着问题继续追问。'],
   research:['工作台','调查工作台','检索已保存的资料，继续你的调查。'],
   library:['资料库','已保存的资料','检索已经收集的内容，循着出处，找到下一条线索。'],
   claims:['核查台','声明与证据','展开原始证据，理解支撑、分歧与尚待核实的部分。'],
@@ -125,6 +134,7 @@ function setView(name){
   $('#workGrid').hidden=!['research','library'].includes(name);
   $('#workGrid').classList.toggle('library-mode',name==='library');
   $('#researchPane').hidden=name!=='research';$('#evidencePanel').hidden=!['research','library'].includes(name);
+  $('#investigationView').hidden=name!=='investigation';
   $('#claimsView').hidden=name!=='claims';$('#importView').hidden=name!=='import';
   document.querySelectorAll('.nav-btn').forEach(button=>{
     const active=button.dataset.view===name;button.classList.toggle('active',active);
@@ -152,7 +162,7 @@ function resetResearch(){
   $('#ask').focus();
 }
 document.querySelectorAll('.nav-btn').forEach(button=>button.onclick=()=>setView(button.dataset.view));
-$('#newResearch').onclick=resetResearch;
+$('#newResearch').onclick=()=>{if($('#workspace').dataset.view==='research')resetResearch();else window.periscopeInvestigation?.newSession()};
 $('#menuBtn').onclick=()=>{const open=document.body.classList.toggle('nav-open');$('#menuBtn').setAttribute('aria-expanded',String(open));if(open)$('#newResearch').focus()};
 $('#sidebarBackdrop').onclick=closeNavigation;
 window.matchMedia('(max-width:860px)').addEventListener('change',event=>{if(!event.matches)closeNavigation()});
@@ -523,8 +533,9 @@ $('#importCheck').onclick=()=>doImport(true);
 $('#importRun').onclick=()=>doImport(false);
 
 /* ---------------- boot ---------------- */
-setView('research');loadStats(); loadItems(); loadClaims(); loadSessions();
+setView('investigation');loadStats(); loadItems(); loadClaims(); loadSessions();
 setInterval(()=>{loadStats();},15000);
 </script>
+<script src="/assets/investigation.js?v=6a89e6ad14"></script>
 </body>
 </html>

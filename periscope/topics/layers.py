@@ -59,9 +59,9 @@ def local_lookup(topic: str, limit: int) -> tuple[list[dict], int]:
     return out, total
 
 
-def crawl_lookup(topic: str, seeds: tuple[str, ...], *, max_pages=12, depth=2, budget=30):
+def crawl_lookup(topic: str, seeds: tuple[str, ...], *, max_pages=12, depth=2, budget=30, form_fields=()):
     from periscope.collection.crawling.engine import crawl_topic
-    return crawl_topic(topic, seeds, max_pages=max_pages, depth=depth, budget=budget)
+    return crawl_topic(topic, seeds, max_pages=max_pages, depth=depth, budget=budget, form_fields=form_fields)
 
 
 def api_lookup(topic: str, count: int, depth: int = 1) -> tuple[list[dict], float, str]:
@@ -187,6 +187,7 @@ def platform_lookup(topic: str, speed: str = SPEED_NORMAL,
                 "kind": r.get("kind") or "community",
                 **({"provenance": r["provenance"]} if r.get("provenance") else {}),
                 **({"published_text": r["published_text"]} if r.get("published_text") else {}),
+                **{key: r[key] for key in ("body_source_url", "discussion_url") if r.get(key)},
                 "_origin": "platform",
                 # Carried through only when the collector actually captured
                 # them; an empty dict is dropped rather than stored as "no

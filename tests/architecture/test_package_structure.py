@@ -154,9 +154,9 @@ except SystemExit as exc:
 assert dict(os.environ) == before
 """
     env = {**os.environ, "PERISCOPE_DATA_DIR": str(scratch_path),
-           "PERISCOPE_SCRATCH_DIR": str(scratch_path)}
+           "PERISCOPE_SCRATCH_DIR": str(scratch_path), "PYTHONIOENCODING": "utf-8"}
     proc = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env,
-                          capture_output=True, text=True, timeout=30)
+                          capture_output=True, text=True, encoding="utf-8", timeout=30)
     assert proc.returncode == 0, proc.stderr
 
 

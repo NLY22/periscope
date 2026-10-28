@@ -407,6 +407,93 @@ def ps_get_metrics() -> dict[str, Any]:
 
 # ------------------------------------------------------- periscope: evidence
 @mcp.tool()
+async def ps_investigation_create(question: str) -> dict[str, Any]:
+    """Create an investigation in the running local web backend."""
+    return await _run_tool("ps_investigation_create", lambda: service.investigation_create(question=question))
+
+
+@mcp.tool()
+async def ps_investigation_list(limit: int = 30) -> dict[str, Any]:
+    """List investigations in the running local backend."""
+    return await _run_tool("ps_investigation_list", lambda: service.investigation_list(limit=limit))
+
+
+@mcp.tool()
+async def ps_investigation_get(investigation_id: str) -> dict[str, Any]:
+    """Read an investigation and its saved rounds."""
+    return await _run_tool("ps_investigation_get", lambda: service.investigation_get(investigation_id=investigation_id))
+
+
+@mcp.tool()
+async def ps_investigation_submit(investigation_id: str, message: str, request_key: str,
+                                  seeds: list[str] | None = None, budget: float = 120,
+                                  max_pages: int = 12, depth: int = 2) -> dict[str, Any]:
+    """Submit a bounded round: use explicit URLs or discover V2EX and HN by keyword."""
+    return await _run_tool("ps_investigation_submit", lambda: service.investigation_submit(
+        investigation_id=investigation_id, message=message, request_key=request_key, seeds=seeds,
+        budget=budget, max_pages=max_pages, depth=depth))
+
+
+@mcp.tool()
+async def ps_investigation_status(round_id: str, after: int = 0) -> dict[str, Any]:
+    """Read a round's status and evidence events after a cursor."""
+    return await _run_tool("ps_investigation_status", lambda: service.investigation_status(round_id=round_id, after=after))
+
+
+@mcp.tool()
+async def ps_investigation_stop(round_id: str) -> dict[str, Any]:
+    """Stop a round in the running local backend."""
+    return await _run_tool("ps_investigation_stop", lambda: service.investigation_stop(round_id=round_id))
+
+
+@mcp.tool()
+async def ps_investigation_evidence(object_id: str, version_id: str) -> dict[str, Any]:
+    """Read the evidence version held by the running local backend."""
+    return await _run_tool("ps_investigation_evidence", lambda: service.investigation_evidence(object_id=object_id, version_id=version_id))
+
+
+@mcp.tool()
+async def ps_evidence_get(
+    object_id: str,
+    version_id: str,
+    periscope_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Read a saved public-web evidence snapshot by its fixed version."""
+    return await _run_tool(
+        "ps_evidence_get",
+        lambda: service.evidence_get(object_id=object_id, version_id=version_id,
+                                     periscope_path=periscope_path, config_path=config_path),
+    )
+
+
+@mcp.tool()
+async def ps_crawl_public(
+    topic: str,
+    seeds: list[str],
+    form_fields: dict[str, str] | None = None,
+    max_pages: int = 12,
+    depth: int = 2,
+    budget: float = 30,
+    save: bool = False,
+    periscope_path: str | None = None,
+    config_path: str | None = None,
+) -> dict[str, Any]:
+    """Collect public pages and attachments from explicit URLs.
+
+    Optional form_fields submit one public GET form. Use only non-sensitive
+    values: query parameters and provenance are returned and may be stored.
+    Set save to insert results into the configured evidence corpus.
+    """
+    return await _run_tool(
+        "ps_crawl_public",
+        lambda: service.crawl_public(topic=topic, seeds=seeds, form_fields=form_fields,
+                                     max_pages=max_pages, depth=depth, budget=budget, save=save,
+                                     periscope_path=periscope_path, config_path=config_path),
+    )
+
+
+@mcp.tool()
 async def ps_corpus_stats(
     periscope_path: str | None = None,
     config_path: str | None = None,

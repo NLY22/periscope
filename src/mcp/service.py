@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import os
+import math
 import re
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from rich.console import Console
 
@@ -812,6 +813,116 @@ class PipelineService:
         stats["claims"] = claim_store.stats() if claim_store else {"claims": 0}
         stats["research"] = ResearchStore(corpus).stats()
         return stats
+
+    async def investigation_backend(self, method: str, path: str, *, payload: dict | None = None,
+                                    params: dict | None = None) -> dict[str, Any]:
+        """Forward new investigation calls to the single local backend."""
+        import httpx
+
+        base = os.environ.get("PERISCOPE_BACKEND_URL", "http://127.0.0.1:8790").rstrip("/")
+        try:
+            parsed = urlsplit(base)
+            if (parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}
+                    or parsed.username is not None or parsed.password is not None or parsed.path
+                    or parsed.query or parsed.fragment or parsed.port is not None and not 1 <= parsed.port <= 65535):
+                raise ValueError("backend must be a local HTTP origin")
+        except ValueError as exc:
+            raise McpError(code="PS_INVALID_INPUT", message=str(exc)) from exc
+        try:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=False, trust_env=False) as client:
+                response = await client.request(method, base + path, json=payload, params=params)
+        except httpx.RequestError as exc:
+            raise McpError(code="PS_BACKEND_UNAVAILABLE", message="Start the local Periscope web backend first.") from exc
+        if response.status_code >= 400 or response.is_redirect:
+            code = "PS_INVALID_INPUT" if response.status_code in {400, 422} else "PS_NOT_FOUND" if response.status_code == 404 else "PS_BACKEND_ERROR"
+            message = f"Local backend returned HTTP {response.status_code}."
+            if response.status_code in {400, 404}:
+                try:
+                    detail = response.json().get("detail")
+                    if isinstance(detail, str):
+                        message = detail[:300]
+                except (ValueError, AttributeError):
+                    pass
+            raise McpError(code=code, message=message)
+        return response.json()
+
+    async def investigation_create(self, *, question: str) -> dict[str, Any]:
+        return await self.investigation_backend("POST", "/api/investigations", payload={"question": question})
+
+    async def investigation_list(self, *, limit: int) -> dict[str, Any]:
+        return await self.investigation_backend("GET", "/api/investigations", params={"limit": limit})
+
+    async def investigation_get(self, *, investigation_id: str) -> dict[str, Any]:
+        return await self.investigation_backend("GET", "/api/investigations/" + quote(investigation_id, safe=""))
+
+    async def investigation_submit(self, *, investigation_id: str, message: str, request_key: str,
+                                   seeds: list[str] | None, budget: float, max_pages: int, depth: int) -> dict[str, Any]:
+        return await self.investigation_backend(
+            "POST", "/api/investigations/" + quote(investigation_id, safe="") + "/rounds",
+            payload={"message": message, "request_key": request_key, "seeds": seeds or [],
+                     "budget": budget, "max_pages": max_pages, "depth": depth})
+
+    async def investigation_status(self, *, round_id: str, after: int) -> dict[str, Any]:
+        return await self.investigation_backend("GET", "/api/investigation-rounds/" + quote(round_id, safe=""),
+                                                params={"after": after})
+
+    async def investigation_stop(self, *, round_id: str) -> dict[str, Any]:
+        return await self.investigation_backend("POST", "/api/investigation-rounds/" + quote(round_id, safe="") + "/stop")
+
+    async def investigation_evidence(self, *, object_id: str, version_id: str) -> dict[str, Any]:
+        return await self.investigation_backend("GET", "/api/evidence/" + quote(object_id, safe=""),
+                                                params={"version": version_id})
+
+    def evidence_get(
+        self, *, object_id: str, version_id: str,
+        periscope_path: str | None = None, config_path: str | None = None,
+    ) -> dict[str, Any]:
+        corpus = self._require(self._periscope_orchestrator(periscope_path, config_path).get_corpus(), "corpus")
+        if not corpus._conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='evidence_versions'").fetchone():
+            raise McpError(code="PS_NOT_FOUND", message="evidence version not found")
+        from periscope.evidence.versions import EvidenceVersions
+        store = EvidenceVersions(corpus)
+        version = store.get_version(object_id, version_id)
+        if version is None:
+            raise McpError(code="PS_NOT_FOUND", message="evidence version not found")
+        return {"object_id": object_id, "version_id": version_id, "version": version,
+                "observations": store.observations(object_id, version_id), "observations_limit": 50}
+
+    async def crawl_public(
+        self, *, topic: str, seeds: list[str], form_fields: dict[str, str] | None = None,
+        max_pages: int = 12, depth: int = 2, budget: float = 30, save: bool = False,
+        periscope_path: str | None = None, config_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Run the shared bounded crawler and optionally save its results."""
+        from periscope.collection.crawling.engine import CrawlOptions, crawl_async
+
+        try:
+            if not topic.strip() or not 1 <= len(seeds) <= 6:
+                raise ValueError("a topic and one to six seed URLs are required")
+            if not 1 <= max_pages <= 50 or not 0 <= depth <= 5:
+                raise ValueError("max_pages must be 1–50 and depth must be 0–5")
+            if not math.isfinite(budget) or not 0 < budget <= 180:
+                raise ValueError("budget must be greater than zero and at most 180 seconds")
+            options = CrawlOptions(tuple(seeds), max_pages=max_pages, depth=depth, budget=budget,
+                                   form_fields=tuple((form_fields or {}).items()))
+        except ValueError as exc:
+            raise McpError(code="PS_INVALID_INPUT", message=str(exc)) from exc
+        rows, stats = await crawl_async(topic.strip(), options)
+        storage: dict[str, Any] = {"status": "not_requested"}
+        if save:
+            try:
+                from periscope.evidence.journal import save_batch
+
+                corpus = self._require(
+                    self._periscope_orchestrator(periscope_path, config_path).get_corpus(), "corpus"
+                )
+                storage = {"status": "saved", **save_batch(corpus, rows)}
+            except Exception as exc:
+                storage = {"status": "failed", "error": exc.code if isinstance(exc, McpError)
+                           else type(exc).__name__}
+        return {"topic": topic.strip(), "rows": rows, "reports": stats["reports"],
+                "stats": {key: value for key, value in stats.items() if key != "reports"},
+                "stored": storage["status"] == "saved", "storage": storage}
 
     def corpus_search(
         self,

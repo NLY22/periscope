@@ -320,6 +320,9 @@ def extract_rows(source: Source, body: str, ctype: str,
         if (url and not url.startswith("http")
                 and source.key == "v2ex_search" and url.isdigit()):
             url = "https://www.v2ex.com/t/%s" % url
+        if (url and not url.startswith("http")
+                and source.key in {"juejin_search", "juejin_column"} and url.isdigit()):
+            url = "https://juejin.cn/post/%s" % url
         rows.append({
             "title": title,
             "url": url,

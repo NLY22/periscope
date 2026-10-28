@@ -29,6 +29,13 @@ class TopicService:
         self.crawl_lookup = crawl_lookup or layers.crawl_lookup
 
     def search(self, request: TopicRequest) -> TopicResult:
+        if request.crawl_fields:
+            if request.cached_only:
+                raise ValueError("form query cannot run in cached-only mode")
+            from periscope.collection.crawling.engine import CrawlOptions
+            CrawlOptions(tuple(request.crawl_seeds), max_pages=request.crawl_pages,
+                         depth=request.crawl_depth, budget=request.crawl_budget,
+                         form_fields=tuple(request.crawl_fields))
         started = time.monotonic()
         topic = request.topic.strip()
         result = TopicResult(topic=topic)
@@ -43,7 +50,7 @@ class TopicService:
                 result.notes.append("--save 在此路径下无事可做：本地行本来就在库里"
                                     "（用 --ingest-last 或去掉 --cached-only 才需要入库）")
         else:
-            api_succeeded = self._gather(request, result, breakdown)
+            api_succeeded, platform_elapsed = self._gather(request, result, breakdown)
             crawl_seeds = request.crawl_seeds
             if request.crawl and not crawl_seeds:
                 from periscope.collection.crawling.engine import select_seeds
@@ -51,14 +58,18 @@ class TopicService:
                 if not crawl_seeds:
                     result.notes.append("本轮没有可跟进的链接，可使用 --crawl-seeds 指定站点入口")
             if crawl_seeds:
+                form_options = {"form_fields": request.crawl_fields} if request.crawl_fields else {}
                 result.crawl_rows, crawl_stat = self.crawl_lookup(topic, crawl_seeds, max_pages=request.crawl_pages,
-                                                                 depth=request.crawl_depth, budget=request.crawl_budget)
+                                                                 depth=request.crawl_depth, budget=request.crawl_budget,
+                                                                 **form_options)
                 result.crawl_reports = crawl_stat.get("reports", [])
                 breakdown.append("网页采集 %d 条/%.1fs" % (len(result.crawl_rows), crawl_stat["elapsed"]))
                 crawl_states = {report["status"] for report in result.crawl_reports}
                 has_failure = bool(crawl_states & {"failed", "blocked", "too_large", "unsupported", "needs_ocr"})
-                incomplete = has_failure or bool(crawl_states & {"over_budget", "page_limit"})
-                crawl_status = ("partial" if incomplete else "ok") if result.crawl_rows else "over_budget" if "over_budget" in crawl_states else "failed" if has_failure else "empty"
+                incomplete = has_failure or bool(crawl_states & {"over_budget", "page_limit", "partial"})
+                crawl_status = (("partial" if incomplete else "ok") if result.crawl_rows else
+                                "over_budget" if "over_budget" in crawl_states else
+                                "failed" if has_failure else "partial" if "partial" in crawl_states else "empty")
                 result.source_reports.append({"key": "web_crawl", "mode": "crawl", "name": "站点爬虫",
                                               "status": crawl_status, "rows": len(result.crawl_rows)})
                 if incomplete:
@@ -68,13 +79,14 @@ class TopicService:
             if request.speed == "off" and not crawl_seeds:
                 result.notes.append("平台采集已关闭（--speed off），只有本地与 API 两层")
             if request.enrich:
-                self._enrich(request, result, breakdown)
+                remaining_budget = None if request.budget == 0 else max(0.0, request.budget - platform_elapsed)
+                self._enrich(request, result, breakdown, budget_seconds=remaining_budget)
 
         result.elapsed = time.monotonic() - started
         result.breakdown = " · ".join(breakdown)
         return result
 
-    def _gather(self, request: TopicRequest, result: TopicResult, breakdown: list[str]) -> bool:
+    def _gather(self, request: TopicRequest, result: TopicResult, breakdown: list[str]) -> tuple[bool, float]:
         api_succeeded = False
         if not request.no_api:
             if not self.api_available():
@@ -88,12 +100,13 @@ class TopicService:
                     api_succeeded = True
                     breakdown.append("API %d 条/%d 问法/%.1fs" % (len(result.api_rows), max(depth, 1), elapsed))
         if request.speed == "off":
-            return api_succeeded
+            return api_succeeded, 0.0
         options = {}
         if request.coverage != "focused" or request.sources or request.source_kinds or request.sources_file:
             options = {"coverage": request.coverage, "sources": request.sources,
                        "kinds": request.source_kinds, "sources_file": request.sources_file}
         result.platform_rows, stat = self.platform_lookup(result.topic, request.speed, request.budget, **options)
+        platform_elapsed = float(stat.get("elapsed") or 0.0)
         result.source_reports = stat.get("source_reports", [])
         breakdown.append("平台 %d 条/%.1fs" % (len(result.platform_rows), stat["elapsed"]))
         if stat["failed"]:
@@ -104,14 +117,89 @@ class TopicService:
         if request.coverage == "focused" and request.speed == SPEED_FAST:
             result.notes.append("平台用快速模式（12 源 1 页）。"
                                 "--normal 更全(26s)，--deep 含小红书/抖音(60s+)")
-        return api_succeeded
+        return api_succeeded, platform_elapsed
 
-    def _enrich(self, request: TopicRequest, result: TopicResult, breakdown: list[str]) -> None:
-        result.merged, stat, patches = self.enrich_lookup(result.merged, k=max(1, request.limit))
+    def _enrich(self, request: TopicRequest, result: TopicResult, breakdown: list[str], *,
+                budget_seconds: float | None) -> None:
+        if self.enrich_lookup is _enrich_topk:
+            result.merged, stat, patches = self.enrich_lookup(
+                result.merged, k=max(1, request.limit),
+                budget_seconds=budget_seconds)
+        else:
+            # Preserve the original injected callback contract for embedders.
+            result.merged, stat, patches = self.enrich_lookup(
+                result.merged, k=max(1, request.limit))
         if stat["targets"]:
             breakdown.append("富化 %d/%d 条/%.1fs" % (stat["done"], stat["targets"], stat["elapsed"]))
         else:
-            result.notes.append("富化：本次结果里没有可富化的视频条目")
+            result.notes.append("富化：本次结果里没有可补采的平台详情或讨论")
+        if stat.get("bilibili_discussion_targets"):
+            breakdown.append("B站评论 %d/%d 条" % (
+                stat.get("bilibili_discussion_done", 0),
+                stat["bilibili_discussion_targets"]))
+        if stat.get("bilibili_discussion_partial"):
+            result.notes.append("%d 条 B 站评论达到分页、条数或时间上限；具体覆盖范围随分片保存"
+                                % stat["bilibili_discussion_partial"])
+        if stat.get("csdn_discussion_targets"):
+            breakdown.append("CSDN 正文与评论 %d/%d 条" % (
+                stat.get("csdn_discussion_done", 0), stat["csdn_discussion_targets"]))
+        if stat.get("csdn_discussion_partial"):
+            result.notes.append("%d 条 CSDN 讨论达到分页、条数或时间上限；覆盖详情随分片保存"
+                                % stat["csdn_discussion_partial"])
+        if stat.get("discussion_targets"):
+            breakdown.append("HN 讨论树 %d/%d 条" % (
+                stat.get("discussion_done", 0), stat["discussion_targets"]))
+        if stat.get("discussion_partial"):
+            result.notes.append("%d 条 HN 讨论树达到深度、条数或时间上限；覆盖详情随分片保存"
+                                % stat["discussion_partial"])
+        if stat.get("github_discussion_targets"):
+            breakdown.append("GitHub 讨论 %d/%d 条" % (
+                stat.get("github_discussion_done", 0), stat["github_discussion_targets"]))
+        if stat.get("github_discussion_partial"):
+            result.notes.append("%d 条 GitHub 讨论达到条数、分页或时间上限；覆盖详情随分片保存"
+                                % stat["github_discussion_partial"])
+        if stat.get("v2ex_discussion_targets"):
+            breakdown.append("V2EX 回复 %d/%d 条" % (
+                stat.get("v2ex_discussion_done", 0), stat["v2ex_discussion_targets"]))
+        if stat.get("v2ex_discussion_partial"):
+            result.notes.append("%d 条 V2EX 回复达到条数或时间上限；平台不提供回复间的父子关系"
+                                % stat["v2ex_discussion_partial"])
+        if stat.get("stack_discussion_targets"):
+            breakdown.append("Stack Overflow 答案与评论 %d/%d 条" % (
+                stat.get("stack_discussion_done", 0), stat["stack_discussion_targets"]))
+        if stat.get("stack_discussion_partial"):
+            result.notes.append("%d 条 Stack Overflow 讨论达到答案、评论或时间上限；覆盖详情随分片保存"
+                                % stat["stack_discussion_partial"])
+        if stat.get("juejin_discussion_targets"):
+            breakdown.append("掘金正文与评论 %d/%d 条" % (
+                stat.get("juejin_discussion_done", 0), stat["juejin_discussion_targets"]))
+        if stat.get("juejin_discussion_partial"):
+            result.notes.append("%d 条掘金讨论受评论分页或楼中楼预览范围限制；覆盖详情随分片保存"
+                                % stat["juejin_discussion_partial"])
+        if stat.get("zhihu_discussion_targets"):
+            breakdown.append("知乎回答与评论 %d/%d 条" % (
+                stat.get("zhihu_discussion_done", 0), stat["zhihu_discussion_targets"]))
+        if stat.get("zhihu_discussion_partial"):
+            result.notes.append("%d 条知乎资料受匿名正文权限、评论分页或时间预算限制；可复用已配置会话"
+                                % stat["zhihu_discussion_partial"])
+        if stat.get("weibo_discussion_targets"):
+            breakdown.append("微博正文与评论 %d/%d 条" % (
+                stat.get("weibo_discussion_done", 0), stat["weibo_discussion_targets"]))
+        if stat.get("weibo_discussion_partial"):
+            result.notes.append("%d 条微博资料受登录状态、评论分页或时间预算限制；覆盖详情随分片保存"
+                                % stat["weibo_discussion_partial"])
+        if stat.get("xhs_discussion_targets"):
+            breakdown.append("小红书正文与讨论 %d/%d 条" % (
+                stat.get("xhs_discussion_done", 0), stat["xhs_discussion_targets"]))
+        if stat.get("xhs_discussion_partial"):
+            result.notes.append("%d 条小红书资料受登录状态、评论/回复分页或楼中楼预览范围限制；覆盖详情随分片保存"
+                                % stat["xhs_discussion_partial"])
+        if stat.get("douyin_discussion_targets"):
+            breakdown.append("抖音评论 %d/%d 条" % (
+                stat.get("douyin_discussion_done", 0), stat["douyin_discussion_targets"]))
+        if stat.get("douyin_discussion_partial"):
+            result.notes.append("%d 条抖音讨论受评论分页、回复线程或时间预算限制；覆盖详情随分片保存"
+                                % stat["douyin_discussion_partial"])
         if stat["failed"]:
             result.notes.append("富化失败: %s" % ", ".join(stat["failed"][:3]))
         if stat["no_transcript"]:

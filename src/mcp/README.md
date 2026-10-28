@@ -1,6 +1,6 @@
 # Periscope MCP
 
-The MCP server exposes the fetch → score → digest pipeline as staged tools, the evidence corpus and claim layer as read tools, and the research session as **per-round verbs**. 27 tools in total.
+The MCP server exposes the fetch → score → digest pipeline as staged tools, public crawling, the evidence corpus and claim layer as read tools, and the research session as **per-round verbs**.
 
 The MCP layer does not reimplement business logic. It reuses the existing fetch, score, filter, enrich, and summarize modules, and the same `corpus.db` that the CLI and the web panel share.
 
@@ -20,6 +20,15 @@ The MCP layer does not reimplement business logic. It reuses the existing fetch,
 | `ps_get_run_stage` | Read items from a run stage |
 | `ps_get_run_summary` | Read a generated summary |
 | `ps_get_metrics` | Read in-memory server metrics |
+| `ps_crawl_public` | Crawl explicit public URLs and optional GET form fields; return text and reports, optionally save to the configured corpus |
+| `ps_evidence_get` | Read a saved public-web evidence snapshot by object and version ID |
+| `ps_investigation_create` | Create an investigation in the local backend |
+| `ps_investigation_list` | List investigations in the local backend |
+| `ps_investigation_get` | Read an investigation and its saved rounds |
+| `ps_investigation_submit` | Start a bounded crawl from public URLs, or discover V2EX and HN posts by keyword when URLs are omitted |
+| `ps_investigation_status` | Read a round and its evidence events after a cursor |
+| `ps_investigation_stop` | Stop a running round and keep saved evidence |
+| `ps_investigation_evidence` | Read a saved evidence version from the same local backend |
 | `ps_corpus_stats` | Evidence-corpus overview (items, clusters, claims, sessions) |
 | `ps_corpus_search` | Full-text search over everything ever collected (CJK-aware) |
 | `ps_corpus_recent` | Most recent corpus items, optionally one source |

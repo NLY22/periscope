@@ -14,16 +14,23 @@ collection — reads take microseconds, and the only heavy operation
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import mimetypes
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from periscope.collection.crawling.engine import CrawlOptions
+from periscope.investigations.crawl import stream_crawl, stream_auto_search
+from periscope.investigations.runner import InvestigationRunner
+from periscope.investigations.answer import EvidenceAnswerer
+from periscope.evidence.versions import EvidenceVersions
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +64,19 @@ class CollectRequest(BaseModel):
     hours: Optional[int] = None
 
 
+class InvestigationRequest(BaseModel):
+    question: str
+
+
+class InvestigationRoundRequest(BaseModel):
+    message: str
+    request_key: str
+    seeds: list[str] = Field(default_factory=list)
+    budget: float = 120
+    max_pages: int = 12
+    depth: int = 2
+
+
 class PanelState:
     """Mutable app state: one orchestrator, one in-flight collection slot."""
 
@@ -65,6 +85,17 @@ class PanelState:
         self.ai_available: Optional[bool] = None  # probed lazily, silently
         self.collect_task: Optional[asyncio.Task] = None
         self.collect_result: dict[str, Any] = {"state": "idle"}
+        self.investigation_runner: InvestigationRunner | None = None
+
+    def investigations(self) -> InvestigationRunner:
+        if self.investigation_runner is None:
+            corpus = self.orchestrator.get_corpus()
+            if corpus is None:
+                raise HTTPException(status_code=503, detail="corpus is disabled in config")
+            get_client = getattr(self.orchestrator, "_get_optional_ai_client", None)
+            client = get_client() if get_client else None
+            self.investigation_runner = InvestigationRunner(corpus, answerer=EvidenceAnswerer(client) if client else None)
+        return self.investigation_runner
 
     def probe_ai(self) -> bool:
         if self.ai_available is None:
@@ -104,6 +135,21 @@ def create_app(orchestrator: Any) -> FastAPI:
     app = FastAPI(title="Periscope", docs_url="/api/docs", redoc_url=None)
     state = PanelState(orchestrator)
     app.state.panel = state
+
+    @app.middleware("http")
+    async def investigation_local_only(request: Request, call_next):
+        path = request.url.path
+        if path.startswith(("/api/investigations", "/api/investigation-rounds", "/api/evidence/")):
+            try:
+                host = urlsplit("http://" + request.headers.get("host", ""))
+                origin = request.headers.get("origin")
+                peer = ipaddress.ip_address(request.client.host if request.client else "")
+                if (not peer.is_loopback or host.hostname not in {"localhost", "127.0.0.1", "::1"}
+                        or origin and urlsplit(origin).netloc.lower() != host.netloc.lower()):
+                    return JSONResponse(status_code=403, content={"detail": "local access only"})
+            except ValueError:
+                return JSONResponse(status_code=403, content={"detail": "local access only"})
+        return await call_next(request)
 
     # ------------------------------------------------------------------ ui
     # Some Windows registry mappings classify WOFF2 as text/plain.
@@ -224,6 +270,69 @@ def create_app(orchestrator: Any) -> FastAPI:
         if found is None:
             raise HTTPException(status_code=404, detail="claim not found")
         return {"claim": found.to_dict(), "evidence": store.evidence_for(claim_id)}
+
+    # ------------------------------------------------------ investigation rounds
+    @app.get("/api/investigations")
+    async def list_investigations(limit: int = 30) -> dict[str, Any]:
+        return {"investigations": state.investigations().store.list_investigations(limit)}
+
+    @app.get("/api/investigations/{investigation_id}")
+    async def get_investigation(investigation_id: str) -> dict[str, Any]:
+        result = state.investigations().store.investigation(investigation_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="investigation not found")
+        return result
+
+    @app.post("/api/investigations")
+    async def create_investigation(req: InvestigationRequest) -> dict[str, Any]:
+        try:
+            return {"investigation_id": state.investigations().store.create(req.question)}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/investigations/{investigation_id}/rounds")
+    async def submit_investigation_round(investigation_id: str, req: InvestigationRoundRequest) -> dict[str, Any]:
+        try:
+            if len(req.seeds) > 6 or not 1 <= req.max_pages <= 50 or not 0 <= req.depth <= 5 or not 30 <= req.budget <= 180:
+                raise ValueError("invalid seeds or collection limits")
+            options = (CrawlOptions(tuple(req.seeds), max_pages=req.max_pages, depth=req.depth, budget=req.budget)
+                       if req.seeds else None)
+            collector = (lambda message: stream_crawl(message, options)) if options else (
+                lambda message: stream_auto_search(message, budget=req.budget, max_pages=req.max_pages, depth=req.depth))
+            runner = state.investigations()
+            round_id = runner.submit(investigation_id, req.message, req.request_key,
+                                     collector=collector, budget=req.budget,
+                                     options={"seeds": req.seeds, "budget": req.budget,
+                                              "max_pages": req.max_pages, "depth": req.depth})
+            return {"round_id": round_id}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/investigation-rounds/{round_id}")
+    async def investigation_round(round_id: str, after: int = 0) -> dict[str, Any]:
+        store = state.investigations().store
+        record = store.get_round(round_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="round not found")
+        return {"round": record, "events": store.events(round_id, after=after), "answer": store.answer(round_id),
+                "collection": store.collection_result(round_id)}
+
+    @app.post("/api/investigation-rounds/{round_id}/stop")
+    async def stop_investigation_round(round_id: str) -> dict[str, Any]:
+        try:
+            return {"status": state.investigations().stop(round_id)}
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/evidence/{object_id}")
+    async def investigation_evidence(object_id: str, version: str) -> dict[str, Any]:
+        runner = state.investigations()
+        store = EvidenceVersions(runner.corpus)
+        snapshot = store.get_version(object_id, version)
+        if snapshot is None:
+            raise HTTPException(status_code=404, detail="evidence version not found")
+        return {"object_id": object_id, "version_id": version, "version": snapshot,
+                "observations": store.observations(object_id, version), "observations_limit": 50}
 
     # ------------------------------------------------------------ research
     @app.get("/api/research")
