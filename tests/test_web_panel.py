@@ -209,12 +209,6 @@ def test_import_panel_reads_only_fields_the_endpoint_returns(client) -> None:
 API_ONLY_ROUTES = {
     "/api/docs": "FastAPI's own Swagger page, not a data source for this panel",
     "/api/collect/status": "the same state /api/stats already returns; kept for API clients",
-    "/api/investigations": "new investigation backend is currently exposed to MCP; panel migration is pending",
-    "/api/investigations/{investigation_id}": "new investigation history is currently exposed to MCP; panel migration is pending",
-    "/api/investigations/{investigation_id}/rounds": "new collection rounds are currently exposed to MCP; panel migration is pending",
-    "/api/investigation-rounds/{round_id}": "new round progress is currently exposed to MCP; panel migration is pending",
-    "/api/investigation-rounds/{round_id}/stop": "new round cancellation is currently exposed to MCP; panel migration is pending",
-    "/api/evidence/{object_id}": "new versioned evidence is currently exposed to MCP; panel migration is pending",
 }
 
 
@@ -229,7 +223,7 @@ def test_every_api_route_is_reachable_from_the_panel_or_declared_api_only(client
     JS): it can be fooled by a coincidental string, but it did catch the
     missing import call, which is the failure this guards.
     """
-    html = PANEL_HTML.read_text(encoding="utf-8")
+    html = PANEL_HTML.read_text(encoding="utf-8") + (PANEL_HTML.parent / "assets" / "investigation.js").read_text(encoding="utf-8")
     routes = sorted(
         {
             route.path
