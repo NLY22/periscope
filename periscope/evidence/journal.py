@@ -42,6 +42,7 @@ def replay_batch(corpus, path: Path) -> dict:
         store = InvestigationStore(corpus)
         record = store.get_round(payload["round_id"])
         if record and record["status"] in {"running", "interrupted", "failed"}:
+            store.attach_batch(payload["round_id"], payload["batch_id"])
             for reference in versions:
                 store.attach(payload["round_id"], **reference, recover=True)
     return {"new": count, "offered": len(items), "skipped": dict(skipped), "versions": versions}

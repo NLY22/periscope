@@ -15,13 +15,14 @@ from .store import InvestigationStore
 class InvestigationRunner:
     """Run one cancellable collector per investigation; persist every batch."""
 
-    def __init__(self, corpus, collector: Callable | None = None, *, budget: float = 120, clock: Callable = time.monotonic):
+    def __init__(self, corpus, collector: Callable | None = None, *, budget: float = 120, clock: Callable = time.monotonic, answerer=None):
         if not 30 <= budget <= 180:
             raise ValueError("budget must be between 30 and 180 seconds")
         self.corpus = corpus
         self.collector = collector
         self.budget = budget
         self.clock = clock
+        self.answerer = answerer
         self.store = InvestigationStore(corpus)
         journal = Path(corpus.path).resolve().parent / "evidence-journal"
         self.recovery = replay_directory(corpus, journal, owner_only=True) if journal.is_dir() else None
@@ -47,6 +48,7 @@ class InvestigationRunner:
 
     async def _run(self, round_id: str, message: str, collector: Callable, budget: float) -> None:
         deadline = self.clock() + budget
+        status, reason = "completed", ""
         try:
             async with asyncio.timeout(budget):
                 async with aclosing(collector(message)) as batches:
@@ -54,19 +56,34 @@ class InvestigationRunner:
                         if self.store.get_round(round_id)["status"] != "running":
                             return
                         if self.clock() >= deadline:
-                            self.store.finish_round(round_id, "partial")
-                            return
+                            raise TimeoutError
                         save_batch(self.corpus, rows, round_id=round_id)
-            self.store.finish_round(round_id, "completed")
         except asyncio.CancelledError:
             self.store.finish_round(round_id, "cancelled")
+            return
         except TimeoutError:
-            self.store.finish_round(round_id, "partial")
+            status = "partial"
         except CollectionIncomplete as exc:
             reason = str(exc)
-            self.store.finish_round(round_id, "partial", reason if reason.startswith("v2ex") else "collection_incomplete")
+            status, reason = "partial", reason if reason.startswith("v2ex") else "collection_incomplete"
         except Exception as exc:
             self.store.finish_round(round_id, "failed", type(exc).__name__)
+            return
+        self.store.save_collection_result(round_id, status, reason)
+        try:
+            if self.answerer is not None:
+                try:
+                    async with asyncio.timeout(60):
+                        answer = await self.answerer.answer(self.corpus, message, self.store.references(round_id),
+                                                           context=self.store.context(round_id),
+                                                           collection_status=status, collection_reason=reason,
+                                                           coverage=lambda ref: self.store.coverage(round_id, ref))
+                except Exception as exc:
+                    answer = {"status": "failed", "text": "", "citations": [], "reason": type(exc).__name__}
+                self.store.save_answer(round_id, answer)
+            self.store.finish_round(round_id, status, reason)
+        except asyncio.CancelledError:
+            self.store.finish_round(round_id, "cancelled")
 
     async def wait(self, round_id: str) -> None:
         task = self._tasks.get(round_id)

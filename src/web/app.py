@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 from periscope.collection.crawling.engine import CrawlOptions
 from periscope.investigations.crawl import stream_crawl, stream_v2ex_search
 from periscope.investigations.runner import InvestigationRunner
+from periscope.investigations.answer import EvidenceAnswerer
 from periscope.evidence.versions import EvidenceVersions
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,9 @@ class PanelState:
             corpus = self.orchestrator.get_corpus()
             if corpus is None:
                 raise HTTPException(status_code=503, detail="corpus is disabled in config")
-            self.investigation_runner = InvestigationRunner(corpus)
+            get_client = getattr(self.orchestrator, "_get_optional_ai_client", None)
+            client = get_client() if get_client else None
+            self.investigation_runner = InvestigationRunner(corpus, answerer=EvidenceAnswerer(client) if client else None)
         return self.investigation_runner
 
     def probe_ai(self) -> bool:
@@ -311,7 +314,8 @@ def create_app(orchestrator: Any) -> FastAPI:
         record = store.get_round(round_id)
         if record is None:
             raise HTTPException(status_code=404, detail="round not found")
-        return {"round": record, "events": store.events(round_id, after=after)}
+        return {"round": record, "events": store.events(round_id, after=after), "answer": store.answer(round_id),
+                "collection": store.collection_result(round_id)}
 
     @app.post("/api/investigation-rounds/{round_id}/stop")
     async def stop_investigation_round(round_id: str) -> dict[str, Any]:

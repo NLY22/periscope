@@ -18,8 +18,11 @@ class InvestigationStore:
         self.conn = corpus._conn
         existing = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigations'").fetchone()
         events_exist = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_events'").fetchone()
+        answers_exist = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_answers'").fetchone()
+        batches_exist = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_batches'").fetchone()
+        results_exist = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_collection_results'").fetchone()
         columns = {row[1] for row in self.conn.execute("PRAGMA table_info(investigation_rounds)")}
-        if not existing or not events_exist or not {"error", "options_json"} <= columns:
+        if not existing or not events_exist or not answers_exist or not batches_exist or not results_exist or not {"error", "options_json"} <= columns:
             backup_corpus(corpus)
         self.conn.executescript('''
             CREATE TABLE IF NOT EXISTS investigations (
@@ -42,6 +45,16 @@ class InvestigationStore:
                 object_id TEXT NOT NULL, version_id TEXT NOT NULL, created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_investigation_events_round ON investigation_events(round_id, seq);
+            CREATE TABLE IF NOT EXISTS investigation_answers (
+                round_id TEXT PRIMARY KEY REFERENCES investigation_rounds(id), result_json TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS investigation_batches (
+                round_id TEXT NOT NULL REFERENCES investigation_rounds(id), batch_id TEXT NOT NULL,
+                PRIMARY KEY(round_id, batch_id)
+            );
+            CREATE TABLE IF NOT EXISTS investigation_collection_results (
+                round_id TEXT PRIMARY KEY REFERENCES investigation_rounds(id), status TEXT NOT NULL, reason TEXT NOT NULL
+            );
         ''')
         current_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(investigation_rounds)")}
         if "error" not in current_columns:
@@ -131,9 +144,54 @@ class InvestigationStore:
                 raise ValueError("evidence version not found")
 
     def references(self, round_id: str) -> list[dict]:
-        rows = self.conn.execute("SELECT object_id, version_id FROM investigation_round_evidence WHERE round_id=? ORDER BY rowid",
-                                 (round_id,)).fetchall()
+        rows = self.conn.execute('''SELECT r.object_id, r.version_id FROM investigation_round_evidence r
+            WHERE r.round_id=? ORDER BY COALESCE((SELECT MAX(o.observed_at) FROM evidence_observations o
+                JOIN investigation_batches b ON b.batch_id=o.batch_id
+                WHERE b.round_id=r.round_id AND o.object_id=r.object_id AND o.version_id=r.version_id), ''), r.rowid''',
+            (round_id,)).fetchall()
         return [dict(row) for row in rows]
+
+    def save_answer(self, round_id: str, answer: dict) -> bool:
+        with self.conn:
+            cursor = self.conn.execute('''INSERT OR REPLACE INTO investigation_answers(round_id, result_json)
+                SELECT id, ? FROM investigation_rounds WHERE id=? AND status='running' ''',
+                (json.dumps(answer, ensure_ascii=False), round_id))
+        return bool(cursor.rowcount)
+
+    def save_collection_result(self, round_id: str, status: str, reason: str) -> None:
+        with self.conn:
+            self.conn.execute('''INSERT OR REPLACE INTO investigation_collection_results(round_id, status, reason)
+                SELECT id, ?, ? FROM investigation_rounds WHERE id=? AND status='running' ''', (status, reason, round_id))
+
+    def collection_result(self, round_id: str) -> dict | None:
+        row = self.conn.execute("SELECT status, reason FROM investigation_collection_results WHERE round_id=?", (round_id,)).fetchone()
+        return dict(row) if row else None
+
+    def attach_batch(self, round_id: str, batch_id: str) -> None:
+        with self.conn:
+            self.conn.execute("INSERT OR IGNORE INTO investigation_batches VALUES (?, ?)", (round_id, batch_id))
+
+    def coverage(self, round_id: str, reference: dict) -> dict:
+        row = self.conn.execute('''SELECT o.provenance_json FROM evidence_observations o
+            JOIN investigation_batches b ON b.batch_id=o.batch_id
+            WHERE b.round_id=? AND o.object_id=? AND o.version_id=?
+            ORDER BY o.observed_at DESC, o.batch_id DESC LIMIT 1''',
+            (round_id, reference["object_id"], reference["version_id"])).fetchone()
+        return (json.loads(row[0]).get("discussion_coverage") or {}) if row else {}
+
+    def answer(self, round_id: str) -> dict | None:
+        row = self.conn.execute("SELECT result_json FROM investigation_answers WHERE round_id=?", (round_id,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def context(self, round_id: str) -> dict:
+        row = self.conn.execute('''SELECT i.question, r.investigation_id FROM investigation_rounds r
+            JOIN investigations i ON i.id=r.investigation_id WHERE r.id=?''', (round_id,)).fetchone()
+        if row is None:
+            raise ValueError("round not found")
+        messages = self.conn.execute('''SELECT message FROM investigation_rounds
+            WHERE investigation_id=? AND rowid < (SELECT rowid FROM investigation_rounds WHERE id=?)
+            ORDER BY rowid DESC''', (row["investigation_id"], round_id)).fetchall()
+        return {"main_question": row["question"], "previous_messages": [m["message"] for m in reversed(messages)]}
 
     def events(self, round_id: str, *, after: int = 0, limit: int = 100) -> list[dict]:
         rows = self.conn.execute('''SELECT seq, object_id, version_id, created_at FROM investigation_events
