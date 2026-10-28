@@ -19,7 +19,7 @@ class EvidenceAnswerer:
         self.client = client
 
     async def answer(self, corpus, message: str, references: list[dict], *, context: dict | None = None,
-                     collection_status: str = "completed", collection_reason: str = "", coverage=None) -> dict:
+                     collection_status: str = "completed", collection_reason: str = "", coverage=None, origin=None) -> dict:
         versions = EvidenceVersions(corpus)
         candidates = []
         # Later references win when the same object has multiple versions.
@@ -30,22 +30,29 @@ class EvidenceAnswerer:
             item = dict(snapshot)
             item["text"] = (item.get("text") or "")[:3000]
             priority = 2 if item.get("content_level") == "search_result" else (1 if item.get("type") == "reply" else 0)
-            candidates.append((priority, reference, item))
-        groups = [[item for item in candidates if item[0] == priority] for priority in range(3)]
-        candidates = []
-        # Reserve room for replies when there are many full topics.
-        while groups[0] or groups[1]:
-            for group in groups[:2]:
-                if group:
-                    candidates.append(group.pop(0))
-        candidates.extend(groups[2])
+            candidates.append((priority, reference, item, origin(reference) if origin else {"kind": "unknown"}))
+
+        def order(entries):
+            groups = [[entry for entry in entries if entry[0] == priority] for priority in range(3)]
+            ordered = []
+            while groups[0] or groups[1]:
+                for group in groups[:2]:
+                    if group:
+                        ordered.append(group.pop(0))
+            return ordered + groups[2]
+
+        current = order([item for item in candidates if item[3]["kind"] != "reused"])
+        historical = order(list(reversed([item for item in candidates if item[3]["kind"] == "reused"])))
+        candidates = current[:12] + historical[:8] + current[12:] + historical[8:]
         items, seen = [], set()
-        for _, reference, item in candidates:
-            if reference["object_id"] in seen:
+        for _, reference, item, source_origin in candidates:
+            identity = (reference["object_id"], item.get("content_level") or "full")
+            if identity in seen:
                 continue
-            seen.add(reference["object_id"])
+            seen.add(identity)
             items.append({"number": len(items) + 1, "reference": reference, "source": item,
-                          "coverage": coverage(reference) if coverage else {}})
+                          "coverage": coverage(reference) if coverage else {},
+                          "origin": source_origin})
             if len(items) == 20:
                 break
         if not items:
@@ -53,7 +60,7 @@ class EvidenceAnswerer:
         payload = {"question": message, "context": context or {}, "collection_status": collection_status,
                    "collection_reason": collection_reason, "evidence_available": len(references),
                    "evidence_considered": len(items),
-                   "evidence": [{"number": i["number"], "source": i["source"], "coverage": i["coverage"]} for i in items]}
+                   "evidence": [{"number": i["number"], "source": i["source"], "coverage": i["coverage"], "origin": i["origin"]} for i in items]}
         raw = await self.client.complete(system=SYSTEM, user=json.dumps(payload, ensure_ascii=False), temperature=0)
         data = json.loads(raw)
         answer = data.get("answer") if isinstance(data, dict) else None
@@ -63,7 +70,7 @@ class EvidenceAnswerer:
         if not cited or any(n < 1 or n > len(items) for n in cited):
             raise ValueError("invalid_citations")
         return {"status": "completed", "text": answer.strip(),
-                "citations": [{"number": item["number"], "reference": item["reference"]}
+                "citations": [{"number": item["number"], "reference": item["reference"], "origin": item["origin"]}
                               for item in items if item["number"] in cited],
                 "reason": "", "evidence_considered": len(items),
                 "evidence_available": len(references)}

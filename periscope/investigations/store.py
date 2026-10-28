@@ -21,8 +21,11 @@ class InvestigationStore:
         answers_exist = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_answers'").fetchone()
         batches_exist = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_batches'").fetchone()
         results_exist = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_collection_results'").fetchone()
+        reuse_exists = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_reuse'").fetchone()
+        refresh_exists = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_refresh_events'").fetchone()
+        initial_exists = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_initial_events'").fetchone()
         columns = {row[1] for row in self.conn.execute("PRAGMA table_info(investigation_rounds)")}
-        if not existing or not events_exist or not answers_exist or not batches_exist or not results_exist or not {"error", "options_json"} <= columns:
+        if not existing or not events_exist or not answers_exist or not batches_exist or not results_exist or not reuse_exists or not refresh_exists or not initial_exists or not {"error", "options_json"} <= columns:
             backup_corpus(corpus)
         self.conn.executescript('''
             CREATE TABLE IF NOT EXISTS investigations (
@@ -54,6 +57,19 @@ class InvestigationStore:
             );
             CREATE TABLE IF NOT EXISTS investigation_collection_results (
                 round_id TEXT PRIMARY KEY REFERENCES investigation_rounds(id), status TEXT NOT NULL, reason TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS investigation_reuse (
+                round_id TEXT NOT NULL REFERENCES investigation_rounds(id), object_id TEXT NOT NULL,
+                version_id TEXT NOT NULL, origin_round_id TEXT NOT NULL, observed_at TEXT NOT NULL,
+                coverage_json TEXT NOT NULL, PRIMARY KEY(round_id, object_id, version_id)
+            );
+            CREATE TABLE IF NOT EXISTS investigation_refresh_events (
+                seq INTEGER PRIMARY KEY REFERENCES investigation_events(seq), round_id TEXT NOT NULL,
+                batch_id TEXT NOT NULL, object_id TEXT NOT NULL, version_id TEXT NOT NULL,
+                UNIQUE(round_id, batch_id, object_id, version_id)
+            );
+            CREATE TABLE IF NOT EXISTS investigation_initial_events (
+                seq INTEGER PRIMARY KEY REFERENCES investigation_events(seq), batch_id TEXT NOT NULL
             );
         ''')
         current_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(investigation_rounds)")}
@@ -126,7 +142,7 @@ class InvestigationStore:
             cursor = self.conn.execute("UPDATE investigation_rounds SET status='interrupted', error='backend_restart' WHERE status='running'")
         return cursor.rowcount
 
-    def attach(self, round_id: str, *, object_id: str, version_id: str, recover: bool = False) -> None:
+    def attach(self, round_id: str, *, object_id: str, version_id: str, recover: bool = False, batch_id: str | None = None) -> None:
         with self.conn:
             statuses = "('running', 'interrupted', 'failed')" if recover else "('running')"
             cursor = self.conn.execute('''
@@ -135,13 +151,24 @@ class InvestigationStore:
                 WHERE r.id=? AND r.status IN ''' + statuses + ''' AND v.id=? AND v.object_id=?
             ''', (round_id, version_id, object_id))
             if cursor.rowcount:
-                self.conn.execute("INSERT INTO investigation_events (round_id, object_id, version_id, created_at) VALUES (?, ?, ?, ?)",
-                                  (round_id, object_id, version_id, _now()))
+                event = self.conn.execute("INSERT INTO investigation_events (round_id, object_id, version_id, created_at) VALUES (?, ?, ?, ?)",
+                                          (round_id, object_id, version_id, _now()))
+                if batch_id:
+                    self.conn.execute("INSERT INTO investigation_initial_events VALUES (?, ?)", (event.lastrowid, batch_id))
                 return
             if not self.conn.execute("SELECT 1 FROM investigation_rounds WHERE id=? AND status IN " + statuses, (round_id,)).fetchone():
                 raise ValueError("round is not active")
             if not self.conn.execute("SELECT 1 FROM evidence_versions WHERE id=? AND object_id=?", (version_id, object_id)).fetchone():
                 raise ValueError("evidence version not found")
+            if batch_id and not self.conn.execute('''SELECT 1 FROM investigation_initial_events i
+                JOIN investigation_events e ON e.seq=i.seq WHERE e.round_id=? AND i.batch_id=? AND e.object_id=? AND e.version_id=?''',
+                (round_id, batch_id, object_id, version_id)).fetchone() and not self.conn.execute('''
+                SELECT 1 FROM investigation_refresh_events WHERE round_id=? AND batch_id=? AND object_id=? AND version_id=?''',
+                (round_id, batch_id, object_id, version_id)).fetchone():
+                event = self.conn.execute("INSERT INTO investigation_events (round_id, object_id, version_id, created_at) VALUES (?, ?, ?, ?)",
+                                          (round_id, object_id, version_id, _now()))
+                self.conn.execute("INSERT INTO investigation_refresh_events VALUES (?, ?, ?, ?, ?)",
+                                  (event.lastrowid, round_id, batch_id, object_id, version_id))
 
     def references(self, round_id: str) -> list[dict]:
         rows = self.conn.execute('''SELECT r.object_id, r.version_id FROM investigation_round_evidence r
@@ -177,7 +204,39 @@ class InvestigationStore:
             WHERE b.round_id=? AND o.object_id=? AND o.version_id=?
             ORDER BY o.observed_at DESC, o.batch_id DESC LIMIT 1''',
             (round_id, reference["object_id"], reference["version_id"])).fetchone()
-        return (json.loads(row[0]).get("discussion_coverage") or {}) if row else {}
+        if row:
+            return json.loads(row[0]).get("discussion_coverage") or {}
+        row = self.conn.execute('''SELECT coverage_json FROM investigation_reuse
+            WHERE round_id=? AND object_id=? AND version_id=?''',
+            (round_id, reference["object_id"], reference["version_id"])).fetchone()
+        return json.loads(row[0]) if row else {}
+
+    def attach_reused(self, round_id: str, item: dict) -> None:
+        with self.conn:
+            active = self.conn.execute("SELECT 1 FROM investigation_rounds WHERE id=? AND status='running'", (round_id,)).fetchone()
+            if not active:
+                return
+            self.conn.execute("INSERT OR IGNORE INTO investigation_reuse VALUES (?, ?, ?, ?, ?, ?)",
+                (round_id, item["object_id"], item["version_id"], item["round_id"], item["observed_at"],
+                 json.dumps(item["coverage"], ensure_ascii=False)))
+            cursor = self.conn.execute("INSERT OR IGNORE INTO investigation_round_evidence VALUES (?, ?, ?)",
+                (round_id, item["object_id"], item["version_id"]))
+            if cursor.rowcount:
+                self.conn.execute("INSERT INTO investigation_events (round_id, object_id, version_id, created_at) VALUES (?, ?, ?, ?)",
+                    (round_id, item["object_id"], item["version_id"], _now()))
+
+    def origin(self, round_id: str, reference: dict) -> dict:
+        current = self.conn.execute('''SELECT MAX(o.observed_at) FROM evidence_observations o
+            JOIN investigation_batches b ON b.batch_id=o.batch_id WHERE b.round_id=? AND o.object_id=? AND o.version_id=?''',
+            (round_id, reference["object_id"], reference["version_id"])).fetchone()[0]
+        if current:
+            investigation = self.get_round(round_id)["investigation_id"]
+            return {"kind": "collected", "investigation_id": investigation, "round_id": round_id, "observed_at": current}
+        row = self.conn.execute('''SELECT u.origin_round_id, u.observed_at, r.investigation_id FROM investigation_reuse u
+            JOIN investigation_rounds r ON r.id=u.origin_round_id
+            WHERE u.round_id=? AND u.object_id=? AND u.version_id=?''',
+            (round_id, reference["object_id"], reference["version_id"])).fetchone()
+        return {"kind": "reused", "investigation_id": row[2], "round_id": row[0], "observed_at": row[1]} if row else {"kind": "unknown"}
 
     def answer(self, round_id: str) -> dict | None:
         row = self.conn.execute("SELECT result_json FROM investigation_answers WHERE round_id=?", (round_id,)).fetchone()
@@ -197,6 +256,25 @@ class InvestigationStore:
         rows = self.conn.execute('''SELECT seq, object_id, version_id, created_at FROM investigation_events
                                     WHERE round_id=? AND seq>? ORDER BY seq LIMIT ?''',
                                  (round_id, max(0, after), max(1, min(limit, 500)))).fetchall()
-        return [{"seq": row["seq"], "type": "evidence", "created_at": row["created_at"],
-                 "references": [{"object_id": row["object_id"], "version_id": row["version_id"]}]}
-                for row in rows]
+        events = []
+        for row in rows:
+            reference = {"object_id": row["object_id"], "version_id": row["version_id"]}
+            reused = self.conn.execute('''SELECT u.origin_round_id, u.observed_at, r.investigation_id FROM investigation_reuse u
+                JOIN investigation_rounds r ON r.id=u.origin_round_id
+                WHERE u.round_id=? AND u.object_id=? AND u.version_id=?''',
+                (round_id, reference["object_id"], reference["version_id"])).fetchone()
+            refresh = self.conn.execute('''SELECT o.observed_at FROM investigation_refresh_events f
+                JOIN evidence_observations o ON o.batch_id=f.batch_id AND o.object_id=f.object_id AND o.version_id=f.version_id
+                WHERE f.seq=?''', (row["seq"],)).fetchone()
+            initial = self.conn.execute('''SELECT o.observed_at FROM investigation_initial_events i
+                JOIN evidence_observations o ON o.batch_id=i.batch_id AND o.object_id=? AND o.version_id=?
+                WHERE i.seq=?''', (reference["object_id"], reference["version_id"], row["seq"])).fetchone()
+            event_origin = ({"kind": "collected", "investigation_id": self.get_round(round_id)["investigation_id"],
+                             "round_id": round_id, "observed_at": refresh[0]} if refresh else
+                            {"kind": "collected", "investigation_id": self.get_round(round_id)["investigation_id"],
+                             "round_id": round_id, "observed_at": initial[0]} if initial else
+                            {"kind": "reused", "investigation_id": reused[2], "round_id": reused[0], "observed_at": reused[1]}
+                            if reused else self.origin(round_id, reference))
+            events.append({"seq": row["seq"], "type": "evidence_refreshed" if refresh else "evidence", "created_at": row["created_at"],
+                           "references": [reference], "origin": event_origin})
+        return events

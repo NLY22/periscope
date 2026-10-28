@@ -41,8 +41,10 @@ def test_v2ex_round_saves_post_and_reply_versions(monkeypatch, scratch_path):
         reply_text[0] = "robot updated reply"
         second = runner.submit(session, "robot", "second")
         await runner.wait(second)
-        updated = next(ref for ref in runner.store.references(second)
-                       if EvidenceVersions(corpus).get_version(**ref).get("type") == "reply")
+        replies = [ref for ref in runner.store.references(second)
+                   if EvidenceVersions(corpus).get_version(**ref).get("type") == "reply"]
+        assert old_reply in replies
+        updated = replies[-1]
         assert old_reply["object_id"] == updated["object_id"] and old_reply["version_id"] != updated["version_id"]
         assert corpus.search("robot unique reply") and corpus.search("robot updated reply")
         corpus.close()

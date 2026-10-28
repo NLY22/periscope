@@ -44,7 +44,7 @@ def replay_batch(corpus, path: Path) -> dict:
         if record and record["status"] in {"running", "interrupted", "failed"}:
             store.attach_batch(payload["round_id"], payload["batch_id"])
             for reference in versions:
-                store.attach(payload["round_id"], **reference, recover=True)
+                store.attach(payload["round_id"], **reference, recover=True, batch_id=payload["batch_id"])
     return {"new": count, "offered": len(items), "skipped": dict(skipped), "versions": versions}
 
 
@@ -80,12 +80,20 @@ def replay_directory(corpus, directory: Path, *, owner_only: bool = False) -> di
         raise ValueError("journal directory does not exist")
     result = {"new": 0, "batches": 0, "failed": [], "skipped": {}}
     skipped = Counter()
-    for path in sorted(directory.glob("*.jsonl")):
+    batches = []
+    for path in directory.glob("*.jsonl"):
         try:
-            if owner_only:
-                header = json.loads(path.read_text(encoding="utf-8"))
-                if not isinstance(header, dict) or header.get("corpus_id") != _corpus_id(corpus):
-                    continue
+            header = json.loads(path.read_text(encoding="utf-8"))
+            if owner_only and isinstance(header, dict) and header.get("corpus_id") != _corpus_id(corpus):
+                continue
+            if not isinstance(header, dict) or not isinstance(header.get("created_at"), str):
+                raise ValueError("invalid evidence batch")
+            batches.append((header["created_at"], path.name, path))
+        except (ValueError, OSError, UnicodeError) as exc:
+            result["failed"].append({"batch": path.name, "error": type(exc).__name__})
+            continue
+    for _, _, path in sorted(batches):
+        try:
             outcome = replay_batch(corpus, path)
         except (ValueError, OSError, UnicodeError) as exc:
             result["failed"].append({"batch": path.name, "error": type(exc).__name__})

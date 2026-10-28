@@ -10,6 +10,7 @@ from pathlib import Path
 from periscope.evidence.journal import replay_directory, save_batch
 from .crawl import CollectionIncomplete
 from .store import InvestigationStore
+from .reuse import find_history
 
 
 class InvestigationRunner:
@@ -51,6 +52,8 @@ class InvestigationRunner:
         status, reason = "completed", ""
         try:
             async with asyncio.timeout(budget):
+                for item in find_history(self.store, round_id, message):
+                    self.store.attach_reused(round_id, item)
                 async with aclosing(collector(message)) as batches:
                     async for rows in batches:
                         if self.store.get_round(round_id)["status"] != "running":
@@ -77,7 +80,8 @@ class InvestigationRunner:
                         answer = await self.answerer.answer(self.corpus, message, self.store.references(round_id),
                                                            context=self.store.context(round_id),
                                                            collection_status=status, collection_reason=reason,
-                                                           coverage=lambda ref: self.store.coverage(round_id, ref))
+                                                           coverage=lambda ref: self.store.coverage(round_id, ref),
+                                                           origin=lambda ref: self.store.origin(round_id, ref))
                 except Exception as exc:
                     answer = {"status": "failed", "text": "", "citations": [], "reason": type(exc).__name__}
                 self.store.save_answer(round_id, answer)
