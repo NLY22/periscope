@@ -68,7 +68,7 @@ class InvestigationRunner:
             status = "partial"
         except CollectionIncomplete as exc:
             reason = str(exc)
-            status, reason = "partial", reason if reason.startswith("v2ex") else "collection_incomplete"
+            status, reason = "partial", reason if reason.startswith(("v2ex", "hn:", "sources:")) else "collection_incomplete"
         except Exception as exc:
             self.store.finish_round(round_id, "failed", type(exc).__name__)
             return

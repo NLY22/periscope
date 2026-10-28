@@ -143,7 +143,7 @@ def test_web_can_discover_v2ex_without_a_seed_url(monkeypatch, scratch_path):
         yield [{"source": "v2ex_search", "kind": "community", "title": "robot question",
                 "url": "https://www.v2ex.com/t/123", "text": "robot result",
                 "topic_detail": {"topic_id": "123", "content_level": "search_result"}}]
-    monkeypatch.setattr(web, "stream_v2ex_search", search)
+    monkeypatch.setattr(web, "stream_auto_search", search)
     with TestClient(web.create_app(SimpleNamespace(get_corpus=lambda: corpus)),
                     base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
         investigation = client.post("/api/investigations", json={"question": "robot"}).json()["investigation_id"]

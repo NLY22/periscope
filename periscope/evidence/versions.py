@@ -96,6 +96,29 @@ class EvidenceVersions:
                                  "text": comment["text"], "author": comment.get("user") or "",
                                  "published_at": comment.get("created_at"), "url": comment.get("url") or locator}
                         record("v2ex", "reply", reply_id, reply["url"], reply, provenance)
+                elif row.get("source") == "hn_ai" and (row.get("topic_detail") or {}).get("story_id"):
+                    provenance = {**provenance, "discussion_coverage": row.get("discussion_coverage") or {}}
+                    story_id = str(row["topic_detail"]["story_id"])
+                    snapshot = {"type": "story", "native_id": story_id, "url": locator,
+                                "title": row.get("title") or "", "text": row.get("text") or "",
+                                "author": row.get("author") or "", "published_at": row.get("date") or "",
+                                "external_url": row["topic_detail"].get("external_url") or "",
+                                "content_level": row["topic_detail"].get("content_level") or "full"}
+                    record("hackernews", "story", story_id, locator, snapshot, provenance)
+                    pending = list(row.get("comments") or [])
+                    while pending:
+                        comment = pending.pop()
+                        if not isinstance(comment, dict):
+                            continue
+                        pending.extend(comment.get("replies") or [])
+                        if not comment.get("id") or not comment.get("text"):
+                            continue
+                        reply_id = str(comment["id"])
+                        reply = {"type": "reply", "native_id": reply_id,
+                                 "parent_native_id": str(comment.get("parent_id") or story_id),
+                                 "text": comment["text"], "author": comment.get("user") or "",
+                                 "published_at": comment.get("created_at"), "url": comment.get("url") or locator}
+                        record("hackernews", "reply", reply_id, reply["url"], reply, provenance)
         return references
 
     def get_version(self, object_id: str, version_id: str) -> dict | None:

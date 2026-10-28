@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from periscope.collection.crawling.engine import CrawlOptions
-from periscope.investigations.crawl import stream_crawl, stream_v2ex_search
+from periscope.investigations.crawl import stream_crawl, stream_auto_search
 from periscope.investigations.runner import InvestigationRunner
 from periscope.investigations.answer import EvidenceAnswerer
 from periscope.evidence.versions import EvidenceVersions
@@ -298,7 +298,7 @@ def create_app(orchestrator: Any) -> FastAPI:
             options = (CrawlOptions(tuple(req.seeds), max_pages=req.max_pages, depth=req.depth, budget=req.budget)
                        if req.seeds else None)
             collector = (lambda message: stream_crawl(message, options)) if options else (
-                lambda message: stream_v2ex_search(message, budget=req.budget, max_pages=req.max_pages, depth=req.depth))
+                lambda message: stream_auto_search(message, budget=req.budget, max_pages=req.max_pages, depth=req.depth))
             runner = state.investigations()
             round_id = runner.submit(investigation_id, req.message, req.request_key,
                                      collector=collector, budget=req.budget,

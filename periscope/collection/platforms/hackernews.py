@@ -68,6 +68,7 @@ async def fetch_discussion(
     concurrency: int = MAX_CONCURRENCY,
     budget_seconds: float | None = 20.0,
     client: httpx.AsyncClient | None = None,
+    story: dict | None = None,
 ) -> tuple[list[dict], dict]:
     """Fetch an HN story's comment tree and return `(tree, coverage)`.
 
@@ -109,9 +110,10 @@ async def fetch_discussion(
             if timeout == 0:
                 coverage["truncated_by"].append("time_budget")
                 return [], coverage
-            story_request = _get_item(active_client, story_id)
-            story = (await story_request if timeout is None else
-                     await asyncio.wait_for(story_request, timeout=timeout))
+            story_request = _get_item(active_client, story_id) if story is None else None
+            fetched_story = (story if story is not None else
+                             await story_request if timeout is None else
+                             await asyncio.wait_for(story_request, timeout=timeout))
         except asyncio.TimeoutError:
             coverage["truncated_by"].append("time_budget")
             return [], coverage
@@ -119,10 +121,10 @@ async def fetch_discussion(
             coverage["errors"].append("story:%s" % type(exc).__name__)
             return [], coverage
 
-        if not story:
+        if not fetched_story:
             coverage["errors"].append("story_missing")
             return [], coverage
-        descendants = story.get("descendants")
+        descendants = fetched_story.get("descendants")
         if isinstance(descendants, int) and descendants >= 0:
             coverage["reported_descendants"] = descendants
 
@@ -130,7 +132,7 @@ async def fetch_discussion(
         queued: set[str] = set()
         order: dict[str, int] = {}
         next_order = 0
-        for child in story.get("kids") or []:
+        for child in fetched_story.get("kids") or []:
             child_id = _item_id(child)
             if child_id and child_id not in queued:
                 todo.append((child_id, story_id, 1))
@@ -172,7 +174,13 @@ async def fetch_discussion(
             tasks = {asyncio.create_task(fetch_one(item_id)): (item_id, parent_id, depth)
                      for item_id, parent_id, depth in batch}
             timeout = remaining()
-            done, pending = await asyncio.wait(tasks, timeout=timeout)
+            try:
+                done, pending = await asyncio.wait(tasks, timeout=timeout)
+            except asyncio.CancelledError:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
             for task in pending:
                 task.cancel()
             if pending:

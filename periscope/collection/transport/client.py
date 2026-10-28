@@ -315,7 +315,8 @@ async def collect(client: httpx.AsyncClient, source: Source,
                     row["kind"] = source.kind
                 fresh = 0
                 for row in got:
-                    key = row["url"] or row["title"]
+                    hn_id = (row.get("ids") or {}).get("objectID") if source.key in {"hn_ai", "hn_ai_monthly", "hn_cn"} else None
+                    key = "hn:" + str(hn_id) if hn_id else row["url"] or row["title"]
                     if not key or key in seen:
                         continue
                     seen.add(key)

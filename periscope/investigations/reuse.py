@@ -35,10 +35,10 @@ def find_history(store, round_id: str, message: str, *, limit: int = 8) -> list[
     hosts.discard("")
     if seeds and not hosts:
         return []
-    v2ex_only = "seeds" in options and not seeds
+    default_sources = "seeds" in options and not seeds
     scope, params = "", [round_id]
-    if v2ex_only:
-        scope += " AND obj.source='v2ex'"
+    if default_sources:
+        scope += " AND obj.source IN ('v2ex', 'hackernews')"
     if hosts:
         patterns = [f"{scheme}://{prefix}{host}{suffix}" for host in hosts for scheme in ("http", "https")
                     for prefix in ("", "www.") for suffix in ("/%", ":%")]
@@ -62,7 +62,7 @@ def find_history(store, round_id: str, message: str, *, limit: int = 8) -> list[
     for row in rows:
         obj = row["object_id"]
         host = (urlsplit(row["locator"]).hostname or "").lower().removeprefix("www.")
-        if v2ex_only and row["source"] != "v2ex":
+        if default_sources and row["source"] not in {"v2ex", "hackernews"}:
             continue
         if hosts and host not in hosts:
             continue

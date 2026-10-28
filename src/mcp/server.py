@@ -428,7 +428,7 @@ async def ps_investigation_get(investigation_id: str) -> dict[str, Any]:
 async def ps_investigation_submit(investigation_id: str, message: str, request_key: str,
                                   seeds: list[str] | None = None, budget: float = 120,
                                   max_pages: int = 12, depth: int = 2) -> dict[str, Any]:
-    """Submit a bounded round: use explicit URLs or discover V2EX by keyword."""
+    """Submit a bounded round: use explicit URLs or discover V2EX and HN by keyword."""
     return await _run_tool("ps_investigation_submit", lambda: service.investigation_submit(
         investigation_id=investigation_id, message=message, request_key=request_key, seeds=seeds,
         budget=budget, max_pages=max_pages, depth=depth))

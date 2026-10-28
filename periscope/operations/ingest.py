@@ -302,6 +302,16 @@ def _v2ex_discussion_version(row):
     return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
+def _hn_discussion_version(row):
+    coverage = {key: value for key, value in (row.get("discussion_coverage") or {}).items() if key != "collected_at"}
+    content = {"title": row.get("title") or "", "text": row.get("text") or "",
+               "author": row.get("author") or "", "comments": row.get("comments") or [],
+               "date": row.get("date") or "", "coverage": coverage,
+               "external_url": (row.get("topic_detail") or {}).get("external_url") or "",
+               "content_level": (row.get("topic_detail") or {}).get("content_level") or "full"}
+    return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 def _http_row_identity(row):
     version = ""
     if row.get("source") == "web_crawl":
@@ -311,6 +321,8 @@ def _http_row_identity(row):
         version = document.get("sha256") or hashlib.sha256(body.encode("utf-8")).hexdigest()
     elif row.get("source") == "v2ex_search" and (row.get("topic_detail") or {}).get("topic_id"):
         version = _v2ex_discussion_version(row)
+    elif row.get("source") == "hn_ai" and (row.get("topic_detail") or {}).get("story_id"):
+        version = _hn_discussion_version(row)
     return row.get("source"), row.get("url") or row.get("title"), version
 
 
@@ -356,6 +368,8 @@ def build(http_rows, ugc_rows):
             identity += "\x00" + version
         elif src_key == "v2ex_search" and (row.get("topic_detail") or {}).get("topic_id"):
             identity += "\x00" + _v2ex_discussion_version(row)
+        elif src_key == "hn_ai" and (row.get("topic_detail") or {}).get("story_id"):
+            identity += "\x00" + _hn_discussion_version(row)
         items.append(ContentItem(
             id=_stable_id(row.get("source", "src"), identity),
             source_type=source,
