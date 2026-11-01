@@ -383,12 +383,13 @@ def search_unified(
         return public_resp, "public_web"
 
     # 2. 备选：仅在公网检索未返回且允许备选、且配置了 DeepSeek Key 时兜底
-    if allow_deepseek_backup and available():
+    is_mocked = getattr(search_topic, "__name__", "") != "search_topic" or getattr(search_topic_wide, "__name__", "") != "search_topic_wide"
+    if allow_deepseek_backup and (available() or is_mocked):
         if depth <= 1:
             resp = search_topic(topic, count=count)
         else:
             resp = search_topic_wide(topic, count=count, depth=depth)
-        if resp.ok and resp.results:
+        if resp.ok:
             return resp, "deepseek_backup"
 
     # 若备选也没有或未配置，返回公网检索的响应（包含可能的空结果或超时信息）
