@@ -45,6 +45,7 @@ class TopicRequest:
     crawl_pages: int = 12
     crawl_depth: int = 2
     crawl_budget: float = 30.0
+    crawl_fields: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass

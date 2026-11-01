@@ -6,7 +6,7 @@
 > Web/MCP 能力。结构与运行方式见 [代码组织说明](docs/code-organization.md)，
 > 数据与历史演进见 [框架记录](docs/foundation.md)。
 
-> **目录导航：** [文档入口](docs/README.md) · [代码与数据布局](docs/code-organization.md) · [采集链路与边界](docs/collection-pipeline.md) · [功能审计](docs/project-audit-2026-10-22.md)。网络采集、调度、爬虫分别归入 `periscope/collection/transport/`、`strategies/`、`crawling/`；历史产物统一放入 `.periscope-scratch/collect/` 与 `.periscope-scratch/reports/`。
+> **目录导航：** [文档入口](docs/README.md) · [代码与数据布局](docs/code-organization.md) · [采集链路与边界](docs/collection-pipeline.md) · [12 平台深采验收](docs/platform-deep-collection-matrix.md) · [功能审计](docs/project-audit-2026-10-22.md)。网络采集、调度、爬虫分别归入 `periscope/collection/transport/`、`strategies/`、`crawling/`；历史产物统一放入 `.periscope-scratch/collect/` 与 `.periscope-scratch/reports/`。
 
 > **信息源重构：** 统一登记 184 个来源配置，默认查询计划接入 25 个搜索入口和 84 个相关订阅源；支持按来源筛选、追加机构订阅、逐源状态及本轮 API 链接差集。登记数不代表在线可用数，详见[信息源体系与边界](docs/source-system.md)。
 
@@ -96,7 +96,7 @@
 | 取证检索：查询扩展 + 向量路 + RRF 融合 | `src/corpus/retrieval.py` |
 | 长会话研究：子问题树、崩溃续跑、缺证时自适应加宽 | `src/research/` |
 | 报告骨架（背景调查 / 市场调研 / 方法探索）+ 引用反解核验 | `src/research/templates.py`、`src/corpus/citations.py` |
-| Web 面板、MCP 服务（27 个工具） | `src/web/`、`src/mcp/` |
+| Web 面板、MCP 服务（36 个工具） | `src/web/`、`src/mcp/` |
 | 检索消融评测（Recall / Precision / nDCG / MRR） | `src/corpus/metrics.py`、`scripts/eval_retrieval.py` |
 
 ### ⚠️ 能力已实现，效果未主张
@@ -298,7 +298,7 @@ uv run periscope-web --data-dir data        # 默认 http://localhost:8790
 uv run periscope-mcp
 ```
 
-以 stdio 方式运行，提供 **27 个工具**与 7 个 `periscope://` 资源，覆盖配置校验、分阶段流水线、运行产物、证据检索、声明核查、研究会话与 Webhook 通知。详见 [MCP 工具说明](src/mcp/README.md) 与[客户端配置](src/mcp/integration.md)。
+以 stdio 方式运行，提供 **36 个工具**与 7 个 `periscope://` 资源，覆盖配置校验、分阶段流水线、公开网页采集、运行产物、证据检索、声明核查、研究会话与 Webhook 通知。详见 [MCP 工具说明](src/mcp/README.md) 与[客户端配置](src/mcp/integration.md)。
 
 ## 支持的 AI 提供商
 

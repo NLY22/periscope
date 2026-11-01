@@ -17,24 +17,75 @@ def test_query_round_trip_keeps_comment_text_author_and_reply_parent(scratch_pat
     monkeypatch.setattr(runs.paths, "TOPIC_DIR", topic_dir)
     row = {"_origin": "platform", "source": "bili_search", "kind": "community",
            "title": "A video description", "url": "https://www.bilibili.com/video/BV1234567890",
-           "text": "Creator description", "comments": [
+           "text": "Creator description",
+           "discussion_url": "https://news.ycombinator.com/item?id=123",
+           "discussion_coverage": {"status": "partial", "attempted_ids": 1,
+                                   "reported_descendants": 12, "truncated_by": ["comment_limit"]},
+           "topic_detail": {"topic_id": "85405", "node": "python", "created_at": 1700000000},
+           "question_detail": {"accepted_answer_id": 77, "tags": ["python"]},
+           "provenance": {"source_key": "bili_search", "method": "http",
+                          "observed_at": "2026-10-24T00:00:00+00:00"},
+           "comments": [
                {"rpid": 21, "user": "Alice", "text": "parentcommentneedle", "likes": 3,
-                "replies": [{"rpid": 22, "user": "Bob", "text": "deepreplyneedle"}]}]}
+                "url": "https://news.ycombinator.com/item?id=21",
+                "replies": [{"rpid": 22, "user": "Bob", "text": "deepreplyneedle",
+                             "url": "https://news.ycombinator.com/item?id=22"}]},
+               {"id": "31", "user": "Reviewer", "text": "inline reviewneedle",
+                "discussion_type": "review", "path": "src/main.py", "line": 12,
+                "url": "https://github.com/org/project/pull/7#discussion_r31"}]}
+    row["answers"] = [{"id": "77", "user": "Solver", "text": "stackanswerneedle",
+                        "parent_id": "85405", "url": "https://stackoverflow.com/a/77",
+                        "replies": [{"id": "88", "user": "Reader", "text": "stackcommentneedle",
+                                     "parent_id": "77", "discussion_type": "answer",
+                                     "reply_to_user": "Solver",
+                                     "url": "https://stackoverflow.com/questions/85405#comment88_77"}]}]
+    row["comments"].append({"id": "89", "user": "Reader", "text": "stackquestioncommentneedle",
+                            "parent_id": "85405", "discussion_type": "question",
+                            "url": "https://stackoverflow.com/questions/85405#comment89_85405"})
     path = runs.write("investigation", [row])
     converted = runs.ingestable_rows(runs.read(path))
     items, skipped = ingest.build(converted, [])
     assert not skipped
-    with_corpus = Corpus(scratch_path / "corpus.db")
+    corpus_path = scratch_path / "corpus.db"
+    with_corpus = Corpus(corpus_path)
+    with_corpus.add_items(items)
+    with_corpus.close()
+
+    # Reopen the database so relation assertions prove the persisted record,
+    # not only the in-memory ContentItem produced before ingestion.
+    with_corpus = Corpus(corpus_path)
     try:
-        with_corpus.add_items(items)
         assert len(with_corpus.search("deepreplyneedle")) == 1
         assert not with_corpus.search("deepreplyneedle", tier="claimable")
-        reply = next(s for s in items[0].sections if "deepreplyneedle" in s.text)
-        assert reply.tier == "community" and reply.author == "Bob"
-        assert str(reply.meta["parent_id"]) == "21"
-        assert reply.locator
-        parent = next(s for s in items[0].sections if "parentcommentneedle" in s.text)
-        assert parent.author == "Alice" and parent.meta["likes"] == 3
+        stored = with_corpus._conn.execute(
+            "SELECT sections_json, metadata_json FROM items WHERE url=?",
+            ("https://www.bilibili.com/video/BV1234567890",),
+        ).fetchone()
+        sections = json.loads(stored["sections_json"])
+        metadata = json.loads(stored["metadata_json"])
+        reply = next(s for s in sections if "deepreplyneedle" in s["text"])
+        assert reply["tier"] == "community" and reply["author"] == "Bob"
+        assert str(reply["meta"]["parent_id"]) == "21"
+        assert reply["locator"] == "https://news.ycombinator.com/item?id=22"
+        parent = next(s for s in sections if "parentcommentneedle" in s["text"])
+        assert parent["author"] == "Alice" and parent["meta"]["likes"] == 3
+        review = next(s for s in sections if "inline reviewneedle" in s["text"])
+        assert review["meta"]["discussion_type"] == "review"
+        assert review["meta"]["path"] == "src/main.py" and review["meta"]["line"] == 12
+        assert metadata["source_key"] == "bili_search"
+        assert metadata["provenance"]["source_key"] == "bili_search"
+        assert metadata["discussion_url"] == "https://news.ycombinator.com/item?id=123"
+        assert metadata["discussion_coverage"]["status"] == "partial"
+        assert metadata["topic_detail"]["node"] == "python"
+        assert metadata["question_detail"]["accepted_answer_id"] == 77
+        assert len(with_corpus.search("stackanswerneedle")) == 1
+        assert not with_corpus.search("stackanswerneedle", tier="claimable")
+        answer = next(s for s in sections if "stackanswerneedle" in s["text"])
+        assert answer["meta"]["parent_id"] == "85405"
+        answer_comment = next(s for s in sections if "stackcommentneedle" in s["text"])
+        assert answer_comment["meta"]["parent_id"] == "77"
+        assert answer_comment["meta"]["reply_to_user"] == "Solver"
+        assert answer_comment["locator"].endswith("comment88_77")
     finally:
         with_corpus.close()
 

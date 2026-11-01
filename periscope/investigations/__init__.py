@@ -1,0 +1,1 @@
+"""Persistent investigation state."""

@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from periscope.search.identity import community_source_key
 from ..models import ContentItem
 from .sections import claimable_of, claimable_text, marker_sections_to_model
 from .simhash import cluster_pairs, fingerprint
@@ -170,6 +171,7 @@ CREATE TABLE IF NOT EXISTS transcripts (
     UNIQUE(item_id, lang, method)
 );
 CREATE INDEX IF NOT EXISTS idx_transcripts_item ON transcripts(item_id);
+CREATE TABLE IF NOT EXISTS corpus_migrations (name TEXT PRIMARY KEY);
 """
 
 
@@ -225,8 +227,62 @@ class Corpus:
             # written before the index existed, so rebuild both mirrors.
             self._conn.execute("INSERT INTO items_fts(items_fts) VALUES('rebuild')")
             self._conn.execute("INSERT INTO claim_fts(claim_fts) VALUES('rebuild')")
+        self._conn.commit()
+        self._backfill_community_search_results()
         self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         self._conn.commit()
+
+    def _backfill_community_search_results(self) -> None:
+        """Correct old crawler/search community rows without deleting source text."""
+        from periscope.collection.families import SOURCE_KEY_TO_SOURCE
+        from types import SimpleNamespace
+
+        marker = "community_search_results_v1"
+        with self._conn:
+            self._conn.execute("BEGIN IMMEDIATE")
+            if self._conn.execute("SELECT 1 FROM corpus_migrations WHERE name=?", (marker,)).fetchone():
+                return
+            candidates = []
+            for row in self._conn.execute("SELECT rowid, url, locator, content, sections_json, metadata_json, source_type, author, published_at, fetched_at, time_basis FROM items WHERE claimable<>''"):
+                try:
+                    metadata = json.loads(row["metadata_json"] or "{}")
+                except (ValueError, TypeError):
+                    continue
+                if (isinstance(metadata, dict) and metadata.get("source_key") in {"web_crawl", "public_web", "dsapi"}
+                        and community_source_key(row["url"] or row["locator"])):
+                    candidates.append((row, metadata))
+            if candidates:
+                from periscope.evidence.versions import backup_corpus
+                source = sqlite3.connect(str(self.path))
+                try:
+                    backup_corpus(SimpleNamespace(path=self.path, _conn=source))
+                finally:
+                    source.close()
+            for row, metadata in candidates:
+                try:
+                    sections = json.loads(row["sections_json"] or "[]")
+                    if not isinstance(sections, list) or any(not isinstance(section, dict) for section in sections):
+                        raise ValueError("invalid sections")
+                except (ValueError, TypeError):
+                    sections = [{"tier": "community", "text": row["content"], "provenance": "author"}]
+                for section in sections:
+                    if section.get("tier") == "primary":
+                        section["tier"] = "community"
+                family = SOURCE_KEY_TO_SOURCE.get(community_source_key(row["url"] or row["locator"]))
+                source_type = family.value if family else row["source_type"]
+                first = sections[0] if sections else {}
+                provenance = first.get("provenance") if isinstance(first.get("provenance"), str) else "author"
+                confidence = first.get("confidence")
+                if not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
+                    confidence = None
+                features = compute_features(source_type=source_type, text="", author=row["author"],
+                    provenance=provenance, confidence=confidence,
+                    published_at=_parse_time(row["published_at"]), time_basis=row["time_basis"] or "published",
+                    meta=metadata, now=_parse_time(row["fetched_at"]))
+                self._conn.execute("UPDATE items SET claimable='', sections_json=?, source_type=?, trust=?, trust_features_json=? WHERE rowid=?",
+                                   (json.dumps(sections, ensure_ascii=False), source_type, trust_score(features),
+                                    json.dumps(features.to_dict(), ensure_ascii=False), row["rowid"]))
+            self._conn.execute("INSERT INTO corpus_migrations VALUES (?)", (marker,))
 
     def _backfill_legacy_layers(self) -> bool:
         """Add and fill the author-written column on a pre-tiering database.
@@ -488,11 +544,11 @@ class Corpus:
                 f"{sorted(self._FTS_BY_TIER)}"
             )
         fts_table, body_column = self._FTS_BY_TIER[tier]
-        scoped = ""
+        scoped = " AND i.claimable<>''" if tier == "claimable" else ""
         params_filter: List[Any] = []
         if source_types:
             placeholders = ",".join("?" * len(source_types))
-            scoped = f" AND i.source_type IN ({placeholders})"
+            scoped += f" AND i.source_type IN ({placeholders})"
             params_filter = list(source_types)
         fts_terms, like_terms = [], []
         for term in query.split():
@@ -521,11 +577,11 @@ class Corpus:
                 break
             escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             like = f"%{escaped}%"
-            like_scoped = ""
+            like_scoped = " AND claimable<>''" if tier == "claimable" else ""
             like_params: List[Any] = [like, like]
             if source_types:
                 placeholders = ",".join("?" * len(source_types))
-                like_scoped = f" AND source_type IN ({placeholders})"
+                like_scoped += f" AND source_type IN ({placeholders})"
                 like_params += list(source_types)
             rows = self._conn.execute(
                 f"""SELECT * FROM items

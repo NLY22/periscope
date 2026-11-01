@@ -147,16 +147,21 @@ class RunStore:
 
             created = meta.get("created_at") or ""
             updated = meta.get("updated_at") or created
+            meta_mtime_ns = meta_path.stat().st_mtime_ns
             entries.append(
                 {
                     "run_id": meta.get("run_id", run_dir.name),
                     "created_at": created,
                     "updated_at": updated,
                     "meta": meta,
+                    "_meta_mtime_ns": meta_mtime_ns,
                 }
             )
 
-        entries.sort(key=lambda x: x["updated_at"] or x["created_at"], reverse=True)
+        entries.sort(key=lambda x: (x["updated_at"] or x["created_at"],
+                                    x["_meta_mtime_ns"], x["run_id"]), reverse=True)
+        for entry in entries:
+            entry.pop("_meta_mtime_ns", None)
         return entries[: max(0, limit)]
 
     def write_json(self, run_id: str, filename: str, payload: Any) -> Path:

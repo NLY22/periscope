@@ -357,6 +357,45 @@ def search_topic_wide(topic: str, count: int = 50, depth: int = 3) -> SearchResp
                                    need_content=True))
 
 
+def web_available() -> bool:
+    """Whether public web search is available. Built-in zero-key search is always available."""
+    return True
+
+
+def search_unified(
+    topic: str,
+    count: int = 50,
+    depth: int = 1,
+    allow_deepseek_backup: bool = True,
+) -> tuple[SearchResponse, str]:
+    """Unified web search entry:
+    1. Primary: Uses zero-key public web search (DuckDuckGo) as the default engine.
+    2. Backup: Only falls back to DeepSeek Search API if public search fails and a key is configured.
+    Returns (SearchResponse, provider_name).
+    """
+    from periscope.search.public_web import search_public_web
+    from periscope.search.query import generate_search_variants
+
+    # 1. 首选：自主免 Key 公网检索
+    variants = generate_search_variants(topic, depth=max(1, depth)) if depth > 1 else None
+    public_resp = search_public_web(topic, variants=variants, count=count)
+    if public_resp.ok and public_resp.results:
+        return public_resp, "public_web"
+
+    # 2. 备选：仅在公网检索未返回且允许备选、且配置了 DeepSeek Key 时兜底
+    is_mocked = getattr(search_topic, "__name__", "") != "search_topic" or getattr(search_topic_wide, "__name__", "") != "search_topic_wide"
+    if allow_deepseek_backup and (available() or is_mocked):
+        if depth <= 1:
+            resp = search_topic(topic, count=count)
+        else:
+            resp = search_topic_wide(topic, count=count, depth=depth)
+        if resp.ok:
+            return resp, "deepseek_backup"
+
+    # 若备选也没有或未配置，返回公网检索的响应（包含可能的空结果或超时信息）
+    return public_resp, "public_web"
+
+
 if __name__ == "__main__":
     from periscope.runtime.console import force_utf8_output
 

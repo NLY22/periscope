@@ -28,6 +28,228 @@ def pdf_bytes(text="robot admission evidence", pages=1):
     return out.getvalue()
 
 
+def xlsx_bytes():
+    from openpyxl import Workbook
+    workbook = Workbook()
+    first = workbook.active
+    first.title = "2026 admissions"
+    first.append(["program", "score", "quota"])
+    first.append(["robot computing", 365, 12, "=1+2"])
+    second = workbook.create_sheet("2025 admissions")
+    second.append(["program", "score"])
+    second.append(["robot computing", 351])
+    out = BytesIO()
+    workbook.save(out)
+    workbook.close()
+    return out.getvalue()
+
+
+def docx_bytes():
+    from zipfile import ZipFile
+    out = BytesIO()
+    with ZipFile(out, "w") as archive:
+        archive.writestr("[Content_Types].xml", '''<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>''')
+        archive.writestr("_rels/.rels", '''<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>''')
+        archive.writestr("word/document.xml", '''<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:p><w:r><w:t>robot admissions guide</w:t></w:r></w:p>
+<w:tbl><w:tr><w:tc><w:p><w:r><w:t>program</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>score</w:t></w:r></w:p></w:tc></w:tr>
+<w:tr><w:tc><w:p><w:r><w:t>robot computing</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>365</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
+<w:p><w:r><w:t>contact admissions office</w:t></w:r></w:p><w:sectPr/>
+</w:body></w:document>''')
+    return out.getvalue()
+
+
+def test_docx_preserves_paragraph_and_table_order_and_locations():
+    from periscope.collection.documents import extract_document
+    doc = extract_document(docx_bytes(), "application/octet-stream",
+                           "https://lab.example/admissions.docx")
+    assert doc.format == "docx"
+    assert doc.text.index("robot admissions guide") < doc.text.index("robot computing")
+    assert doc.text.index("robot computing") < doc.text.index("contact admissions office")
+    block = next(block for block in doc.metadata()["document_blocks"]
+                 if block["type"] == "table_row" and block["table"] == 1 and block["row"] == 2)
+    line = doc.text[block["start"]:block["end"]]
+    assert "robot computing" in line and "365" in line
+
+
+def test_docx_text_limit_is_reported():
+    from periscope.collection.documents import extract_document
+    doc = extract_document(docx_bytes(), "application/octet-stream",
+                           "https://lab.example/admissions.docx", max_chars=20)
+    assert len(doc.text) <= 20 and doc.truncated
+
+
+def test_docx_exact_limit_before_following_paragraph_marks_partial():
+    from periscope.collection.documents import extract_document
+    expected = ("robot admissions guide\n"
+                "[table: 1 | row: 1] cell 1=program | cell 2=score\n"
+                "[table: 1 | row: 2] cell 1=robot computing | cell 2=365")
+    doc = extract_document(docx_bytes(), "application/octet-stream",
+                           "https://lab.example/admissions.docx", max_chars=len(expected))
+    assert doc.text == expected
+    assert doc.truncated
+    assert "text_limit" in doc.metadata()["incomplete_reasons"]
+
+
+def test_docx_with_header_text_marks_unread_content():
+    from docx import Document as WordDocument
+    from periscope.collection.documents import extract_document
+    word = WordDocument()
+    word.add_paragraph("robot admissions")
+    word.sections[0].header.paragraphs[0].text = "header details"
+    out = BytesIO()
+    word.save(out)
+    doc = extract_document(out.getvalue(), "application/octet-stream",
+                           "https://lab.example/admissions.docx")
+    assert "robot admissions" in doc.text
+    assert doc.truncated
+    assert "additional_parts_not_extracted" in doc.metadata()["incomplete_reasons"]
+
+
+def test_docx_with_inline_structured_text_marks_unread_content():
+    from zipfile import ZipFile
+    from periscope.collection.documents import extract_document
+    out = BytesIO()
+    with ZipFile(BytesIO(docx_bytes())) as source, ZipFile(out, "w") as target:
+        for entry in source.infolist():
+            data = source.read(entry.filename)
+            if entry.filename == "word/document.xml":
+                data = data.replace(b"</w:body>", b'<w:p><w:sdt><w:sdtContent><w:r><w:t>hidden robot detail</w:t></w:r></w:sdtContent></w:sdt></w:p></w:body>')
+            target.writestr(entry, data)
+    doc = extract_document(out.getvalue(), "application/octet-stream",
+                           "https://lab.example/admissions.docx")
+    assert "robot admissions guide" in doc.text
+    assert doc.truncated
+    assert "structured_content_not_extracted" in doc.metadata()["incomplete_reasons"]
+
+
+def test_listing_discovers_docx_and_saves_locations(monkeypatch, scratch_path):
+    listing = '<main><a href="/admissions.docx">robot admissions</a></main>'
+    rows, stat, _ = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/admissions.docx": httpx.Response(200, content=docx_bytes(),
+                                           headers={"content-type": "application/octet-stream"})}))
+    document = next(row for row in rows if row["url"].endswith("admissions.docx"))
+    assert document["provenance"]["parent_url"] == "https://lab.example/list"
+    assert document["document"]["format"] == "docx"
+    assert any(block["type"] == "table_row" and block["row"] == 2
+               for block in document["document"]["document_blocks"])
+    assert any(report["status"] == "ok" and report["format"] == "docx"
+               for report in stat["reports"])
+    from periscope.operations.ingest import build
+    from periscope.topics import runs
+    from src.corpus.store import Corpus
+    items, skipped = build(runs.ingestable_rows({"rows": [runs._row_for_disk(document, "crawl")]}), [])
+    assert not skipped
+    path = scratch_path / "docx.db"
+    corpus = Corpus(path)
+    corpus.add_items(items)
+    corpus.close()
+    corpus = Corpus(path)
+    try:
+        assert corpus.search("robot computing")
+        saved = corpus._conn.execute("SELECT metadata_json FROM items WHERE url=?",
+                                     (document["url"],)).fetchone()
+        metadata = json.loads(saved["metadata_json"])
+        assert any(block["type"] == "table_row" and block["row"] == 2
+                   for block in metadata["document"]["document_blocks"])
+    finally:
+        corpus.close()
+
+
+def test_docx_nested_table_is_reported_as_partial(monkeypatch):
+    from docx import Document as WordDocument
+    from periscope.topics.models import TopicRequest
+    from periscope.topics.service import TopicService
+    word = WordDocument()
+    word.add_paragraph("robot admissions")
+    table = word.add_table(rows=1, cols=1)
+    table.cell(0, 0).text = "robot program"
+    table.cell(0, 0).add_table(rows=1, cols=1).cell(0, 0).text = "nested details"
+    out = BytesIO()
+    word.save(out)
+    rows, stat, _ = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, content=out.getvalue(), headers={
+            "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"})}))
+    assert rows and rows[0]["document"]["text_truncated"]
+    assert stat["reports"][0]["status"] == "partial"
+    assert stat["reports"][0]["error"] == "nested_table_not_extracted"
+    service = TopicService(crawl_lookup=lambda *a, **kw: (rows, stat))
+    result = service.search(TopicRequest(topic="robot", no_local=True, no_api=True, speed="off",
+                                         crawl_seeds=("https://lab.example/list",)))
+    assert result.source_reports[0]["status"] == "partial"
+    from periscope.topics.render import render
+    assert "Word" in render("robot", rows, {})
+
+
+def test_xlsx_extracts_sheets_rows_and_cell_coordinates():
+    from periscope.collection.documents import extract_document
+    doc = extract_document(xlsx_bytes(), "application/octet-stream",
+                           "https://lab.example/admissions.xlsx")
+    assert doc.format == "xlsx"
+    assert "robot computing" in doc.text
+    row = next(row for row in doc.metadata()["sheet_rows"]
+               if row["sheet"] == "2026 admissions" and row["row"] == 2)
+    line = doc.text[row["start"]:row["end"]]
+    assert "A2=robot computing" in line
+    assert "B2=365" in line and "C2=12" in line
+    assert "D2==1+2" in line
+    assert any(row["sheet"] == "2025 admissions" for row in doc.metadata()["sheet_rows"])
+
+
+def test_xlsx_text_limit_is_reported():
+    from periscope.collection.documents import extract_document
+    doc = extract_document(xlsx_bytes(), "application/octet-stream",
+                           "https://lab.example/admissions.xlsx", max_chars=20)
+    assert len(doc.text) <= 20
+    assert doc.truncated
+
+
+@pytest.mark.parametrize("extension", ["xlsx", "docx"])
+def test_office_document_rejects_archive_with_excessive_entries(extension):
+    from zipfile import ZipFile
+    from periscope.collection.documents import extract_document
+    out = BytesIO()
+    with ZipFile(out, "w") as archive:
+        for index in range(4097):
+            archive.writestr("empty/%d" % index, "")
+    with pytest.raises(ValueError, match=extension + "_expanded_size_limit"):
+        extract_document(out.getvalue(), "application/octet-stream",
+                         "https://lab.example/admissions." + extension)
+
+
+def test_xlsx_empty_sheet_without_dimension_does_not_hide_next_sheet():
+    from openpyxl import Workbook
+    from zipfile import ZipFile
+    import re
+    from periscope.collection.documents import extract_document
+    workbook = Workbook()
+    workbook.create_sheet("Admissions").append(["robot computing", 365])
+    original = BytesIO()
+    workbook.save(original)
+    workbook.close()
+    rewritten = BytesIO()
+    with ZipFile(BytesIO(original.getvalue())) as source, ZipFile(rewritten, "w") as target:
+        for entry in source.infolist():
+            data = source.read(entry.filename)
+            if entry.filename == "xl/worksheets/sheet1.xml":
+                data = re.sub(rb"<dimension[^>]*/>", b"", data)
+            target.writestr(entry, data)
+    doc = extract_document(rewritten.getvalue(), "application/octet-stream",
+                           "https://lab.example/admissions.xlsx")
+    assert "robot computing" in doc.text
+    assert not doc.truncated
+
+
 def test_html_extraction_keeps_body_and_resolves_child_links():
     from periscope.collection.documents import extract_document
     html = '<html><title>Robot admissions</title><nav>noise</nav><main><h1>Robot admissions</h1><p>' + "Independent research evidence. " * 70 + '</p><a href="../files/admissions.pdf">Admission attachment</a></main></html>'
@@ -86,10 +308,256 @@ async def crawl_fixture(monkeypatch, responses, **options):
         return value
     settings = crawler.CrawlOptions(seeds=tuple(options.pop("seeds", ("https://lab.example/list",))),
                                    max_pages=options.pop("max_pages", 8), depth=options.pop("depth", 2),
-                                   budget=options.pop("budget", 8), delay=0, max_bytes=options.pop("max_bytes", 1024 * 1024))
+                                   budget=options.pop("budget", 8), delay=0, max_bytes=options.pop("max_bytes", 1024 * 1024),
+                                   **({"form_fields": options.pop("form_fields")} if "form_fields" in options else {}))
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         rows, stat = await crawler.crawl_async("robot", settings, client=client)
     return rows, stat, called
+
+
+def test_explicit_get_form_collects_result_and_keeps_query_conditions(monkeypatch, scratch_path):
+    listing = ('<main><form method="get" action="/lookup">'
+               '<select name="year"><option value="2026">2026</option></select>'
+               '<input name="major"><input type="hidden" name="csrf" value="secret">'
+               '</form></main>')
+
+    async def lookup(request):
+        assert dict(request.url.params) == {"year": "2026", "major": "robot"}
+        return httpx.Response(200, text='<main><h1>robot admissions</h1><p>robot program score 365</p></main>',
+                              headers={"content-type": "text/html"})
+
+    rows, stat, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/lookup": lookup}, form_fields=(("year", "2026"), ("major", "robot"))))
+    record = next(row for row in rows if "/lookup?" in row["url"])
+    assert record["provenance"]["query_fields"] == {"year": "2026", "major": "robot"}
+    assert "form_hidden_fields_omitted" in record["provenance"]["query_warnings"]
+    assert record["provenance"]["parent_url"] == "https://lab.example/list"
+    assert not any("csrf" in url or "secret" in url for url in called)
+    assert "secret" not in json.dumps(stat)
+    assert any(report["status"] == "ok" and "/lookup?" in report["url"] for report in stat["reports"])
+    assert stat["reports"][0]["status"] == "partial"
+    assert stat["reports"][0]["error"] == "form_hidden_fields_omitted"
+    from periscope.topics.models import TopicRequest
+    from periscope.topics.service import TopicService
+    service = TopicService(crawl_lookup=lambda *args, **kwargs: (rows, stat))
+    result = service.search(TopicRequest(topic="robot", no_local=True, no_api=True, speed="off",
+                                         crawl_seeds=("https://lab.example/list",),
+                                         crawl_fields=(("year", "2026"), ("major", "robot"))))
+    assert result.source_reports[0]["status"] == "partial"
+    from periscope.operations.ingest import build
+    from periscope.topics import runs
+    from src.corpus.store import Corpus
+    items, skipped = build(runs.ingestable_rows({"rows": [runs._row_for_disk(record, "crawl")]}), [])
+    assert not skipped
+    corpus = Corpus(scratch_path / "form.db")
+    corpus.add_items(items)
+    corpus.close()
+    corpus = Corpus(scratch_path / "form.db")
+    try:
+        saved = corpus._conn.execute("SELECT metadata_json FROM items WHERE url=?", (record["url"],)).fetchone()
+        provenance = json.loads(saved["metadata_json"])["provenance"]
+        assert provenance["query_fields"]["year"] == "2026"
+        assert "form_hidden_fields_omitted" in provenance["query_warnings"]
+    finally:
+        corpus.close()
+
+
+@pytest.mark.parametrize("forms", [
+    '<form method="post" action="/lookup"><input name="year"></form>',
+    '<form action="/one"><input name="year"></form><form action="/two"><input name="year"></form>',
+    '<form action="https://other.example/lookup"><input name="year"></form>',
+])
+def test_form_rejects_unsupported_or_ambiguous_choices_without_submitting(monkeypatch, forms):
+    rows, stat, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text="<main>" + forms + "</main>",
+                                headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),)))
+    assert not rows
+    assert len([url for url in called if not url.endswith("/robots.txt")]) == 1
+    assert stat["reports"][0]["status"] == "partial"
+    assert stat["reports"][0]["error"].startswith("form_")
+
+
+def test_cli_accepts_explicit_form_fields():
+    from periscope.cli.topic import build_parser
+    args = build_parser().parse_args(["--topic", "robot", "--crawl-seeds", "https://lab.example/list",
+                                      "--crawl-field", "year=2026", "--crawl-field", "major=robot"])
+    assert args.crawl_fields == [("year", "2026"), ("major", "robot")]
+
+
+def test_cli_passes_form_fields_into_real_topic_service(monkeypatch):
+    from periscope.cli import topic as cli
+    from periscope.topics import layers
+    observed = {}
+    def crawl(topic, seeds, **kwargs):
+        observed.update(topic=topic, seeds=seeds, **kwargs)
+        return [], {"elapsed": 0.1, "reports": []}
+    monkeypatch.setattr(layers, "crawl_lookup", crawl)
+    monkeypatch.setattr(cli, "emit", lambda *args: None)
+    status = cli.main(["--topic", "robot", "--no-local", "--no-api", "--speed", "off",
+                       "--no-shard", "--crawl-seeds", "https://lab.example/list",
+                       "--crawl-field", "year=2026"])
+    assert status == 0
+    assert observed["form_fields"] == (("year", "2026"),)
+
+
+@pytest.mark.parametrize("arguments", [
+    ["--crawl-field", "year=2026"],
+    ["--crawl-seeds", "https://lab.example/list", "--crawl-field", "year=2026",
+     "--crawl-field", "year=2025"],
+    ["--crawl-seeds", "https://lab.example/list", "--crawl-depth", "0", "--crawl-field", "year=2026"],
+])
+def test_cli_rejects_invalid_form_configuration(arguments):
+    from periscope.cli.topic import main
+    with pytest.raises(SystemExit) as exc:
+        main(["--topic", "robot", *arguments])
+    assert exc.value.code == 2
+
+
+def test_explicit_form_result_precedes_discovered_attachments(monkeypatch):
+    listing = ('<main><a href="/other.pdf">robot related PDF</a>'
+               '<form action="/lookup"><input name="year"></form></main>')
+    rows, _, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/other.pdf": httpx.Response(200, content=pdf_bytes(), headers={"content-type": "application/pdf"}),
+        "/lookup": httpx.Response(200, text="<main><p>robot results</p></main>",
+                                  headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),), max_pages=2))
+    assert any("/lookup?year=2026" in url for url in called)
+    assert not any("/other.pdf" in url for url in called)
+    assert any("/lookup?" in row["url"] for row in rows)
+
+
+def test_get_form_rejects_unknown_select_value_without_request(monkeypatch):
+    listing = ('<main><form action="/lookup"><select name="year">'
+               '<option value="2025">2025</option></select></form></main>')
+    _, stat, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),)))
+    assert not any("/lookup" in url for url in called)
+    assert stat["reports"][0]["status"] == "partial"
+    assert stat["reports"][0]["error"] == "form_invalid_option"
+
+
+def test_get_form_requires_explicit_required_fields(monkeypatch):
+    listing = ('<main><form action="/lookup"><input name="year">'
+               '<input name="major" required></form></main>')
+    _, stat, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),)))
+    assert not any("/lookup" in url for url in called)
+    assert stat["reports"][0]["status"] == "partial"
+    assert stat["reports"][0]["error"] == "form_required_fields_missing"
+
+
+def test_form_fields_from_json_arrays_are_accepted(monkeypatch):
+    listing = '<main><form action="/lookup"><input name="year"></form></main>'
+    rows, _, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/lookup": httpx.Response(200, text="<main><p>robot result</p></main>",
+                                  headers={"content-type": "text/html"})},
+        form_fields=[["year", "2026"]]))
+    assert any("/lookup?year=2026" in url for url in called)
+    assert rows[0]["provenance"]["query_fields"] == {"year": "2026"}
+
+
+def test_omitted_visible_form_fields_are_reported(monkeypatch):
+    listing = ('<main><form action="/lookup"><input name="year">'
+               '<input name="degree" value="masters"></form></main>')
+    rows, stat, _ = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/lookup": httpx.Response(200, text="<main><p>robot result</p></main>",
+                                  headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),)))
+    assert rows and "form_fields_omitted" in rows[0]["provenance"]["query_warnings"]
+    assert stat["reports"][0]["status"] == "partial"
+    assert "form_fields_omitted" in stat["reports"][0]["error"]
+
+
+@pytest.mark.parametrize("control_type", ["password", "file"])
+def test_form_with_sensitive_or_upload_control_is_not_submitted(monkeypatch, control_type):
+    listing = ('<main><form action="/lookup"><input name="year">'
+               '<input type="' + control_type + '" name="account"></form></main>')
+    _, stat, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),)))
+    assert not any("/lookup" in url for url in called)
+    assert stat["reports"][0]["status"] == "partial"
+    assert stat["reports"][0]["error"] == "form_auth_or_file_unsupported"
+
+
+def test_named_submit_control_is_reported_as_omitted(monkeypatch):
+    listing = ('<main><form action="/lookup"><input name="year">'
+               '<button name="operation" value="search">Search</button></form></main>')
+    rows, stat, _ = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/lookup": httpx.Response(200, text="<main><p>robot result</p></main>",
+                                  headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),)))
+    assert rows and "form_submit_control_omitted" in rows[0]["provenance"]["query_warnings"]
+    assert stat["reports"][0]["status"] == "partial"
+
+
+def test_form_query_url_too_long_is_not_submitted(monkeypatch):
+    names = ["field%d" % i for i in range(5)]
+    listing = '<main><form action="/lookup">' + ''.join(
+        '<input name="%s">' % name for name in names) + '</form></main>'
+    fields = tuple((name, "x" * 500) for name in names)
+    _, stat, called = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/lookup": httpx.Response(200, text="<main>robot result</main>",
+                                  headers={"content-type": "text/html"})}, form_fields=fields))
+    assert not any("/lookup" in url for url in called)
+    assert stat["reports"][0]["status"] == "partial"
+    assert stat["reports"][0]["error"] == "form_query_url_too_long"
+
+
+def test_form_redirect_with_long_result_url_is_not_saved(monkeypatch):
+    listing = '<main><form action="/lookup"><input name="year"></form></main>'
+    rows, stat, _ = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/lookup": httpx.Response(302, headers={"location": "/result?query=" + "x" * 2100}),
+        "/result": httpx.Response(200, text="<main>robot result</main>",
+                                  headers={"content-type": "text/html"})},
+        form_fields=(("year", "2026"),)))
+    assert not rows
+    assert any(report["status"] == "partial" and report["error"] == "form_result_url_too_long"
+               for report in stat["reports"])
+
+
+def test_topic_service_passes_explicit_form_conditions_to_crawler():
+    from periscope.topics.models import TopicRequest
+    from periscope.topics.service import TopicService
+    observed = {}
+    def crawl(topic, seeds, **kwargs):
+        observed.update(topic=topic, seeds=seeds, **kwargs)
+        return [], {"elapsed": 0.1, "reports": []}
+    service = TopicService(crawl_lookup=crawl)
+    service.search(TopicRequest(topic="robot", no_local=True, no_api=True, speed="off",
+                                crawl_seeds=("https://lab.example/list",),
+                                crawl_fields=(("year", "2026"),)))
+    assert observed["form_fields"] == (("year", "2026"),)
+    assert observed["seeds"] == ("https://lab.example/list",)
+
+
+def test_short_form_result_is_visible_in_terminal_and_json():
+    from periscope.topics.render import json_payload, render
+    row = {"title": "Admissions", "url": "https://lab.example/lookup?year=2026",
+           "source": "web_crawl", "kind": "media", "body": "", "text": "robot score 365"}
+    display = render("robot", [row], {})
+    payload = json_payload("robot", [row], {"elapsed": 0, "breakdown": "", "notes": []}, 1)
+    assert "robot score 365" in display
+    assert payload["results"][0]["body_chars"] == len("robot score 365")
+    assert payload["results"][0]["snippet"] == "robot score 365"
+
+
+def test_topic_service_rejects_form_conditions_without_explicit_seed():
+    from periscope.topics.models import TopicRequest
+    from periscope.topics.service import TopicService
+    with pytest.raises(ValueError, match="form query requires one seed"):
+        TopicService().search(TopicRequest(topic="robot", no_local=True, no_api=True, speed="off",
+                                           crawl_fields=(("year", "2026"),)))
 
 
 def test_listing_discovers_article_and_pdf_with_parent_evidence(monkeypatch):
@@ -107,6 +575,61 @@ def test_listing_discovers_article_and_pdf_with_parent_evidence(monkeypatch):
     assert all(row["provenance"]["identity"] == "url" for row in rows)
     assert not any("other.example" in url for url in called)
     assert stat["rows"] == len(rows)
+
+
+def test_listing_discovers_xlsx_with_source_and_row_locations(monkeypatch, scratch_path):
+    listing = '<main><a href="/admissions.xlsx">robot admission spreadsheet</a></main>'
+    rows, stat, _ = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, text=listing, headers={"content-type": "text/html"}),
+        "/admissions.xlsx": httpx.Response(200, content=xlsx_bytes(),
+                                           headers={"content-type": "application/octet-stream"})}))
+    sheet = next(row for row in rows if row["url"].endswith("admissions.xlsx"))
+    assert sheet["provenance"]["parent_url"] == "https://lab.example/list"
+    assert sheet["document"]["format"] == "xlsx"
+    assert any(item["row"] == 2 for item in sheet["document"]["sheet_rows"])
+    assert any(report["status"] == "ok" and report["format"] == "xlsx"
+               for report in stat["reports"])
+    from periscope.operations.ingest import build
+    from periscope.topics import runs
+    from src.corpus.store import Corpus
+    path = scratch_path / "xlsx.db"
+    items, skipped = build(runs.ingestable_rows({"rows": [runs._row_for_disk(sheet, "crawl")]}), [])
+    assert not skipped
+    corpus = Corpus(path)
+    corpus.add_items(items)
+    corpus.close()
+    corpus = Corpus(path)
+    try:
+        assert corpus.search("robot computing")
+        saved = corpus._conn.execute("SELECT metadata_json FROM items WHERE url=?", (sheet["url"],)).fetchone()
+        metadata = json.loads(saved["metadata_json"])
+        assert any(row["sheet"] == "2026 admissions" and row["row"] == 2
+                   for row in metadata["document"]["sheet_rows"])
+    finally:
+        corpus.close()
+
+
+def test_truncated_xlsx_is_reported_as_partial(monkeypatch):
+    from openpyxl import Workbook
+    from periscope.topics.models import TopicRequest
+    from periscope.topics.service import TopicService
+    workbook = Workbook()
+    workbook.active.append(["robot " + "x" * 32000, "y" * 32000])
+    out = BytesIO()
+    workbook.save(out)
+    workbook.close()
+    rows, stat, _ = asyncio.run(crawl_fixture(monkeypatch, {
+        "/list": httpx.Response(200, content=out.getvalue(), headers={
+            "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"})}))
+    assert rows and rows[0]["document"]["text_truncated"]
+    assert stat["reports"][0]["status"] == "partial"
+    service = TopicService(crawl_lookup=lambda *a, **kw: (rows, stat))
+    result = service.search(TopicRequest(topic="robot", no_local=True, no_api=True, speed="off",
+                                         crawl_seeds=("https://lab.example/list",)))
+    assert result.source_reports[0]["status"] == "partial"
+    from periscope.topics.render import render
+    display = render("robot", rows, {})
+    assert "Excel" in display and "已截断" in display
 
 
 def test_robots_denial_is_visible_and_never_fetched(monkeypatch):

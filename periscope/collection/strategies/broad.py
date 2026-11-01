@@ -12,6 +12,7 @@ import httpx
 
 from ..transport import client as http
 from ..registry import SourceEntry, SourcePlan
+from periscope.search.relevance import matches_query
 
 
 class _PacedClient:
@@ -34,12 +35,15 @@ class _PacedClient:
     async def post(self, *args, **kwargs):
         return await self._request("post", *args, **kwargs)
 
+    def build_request(self, *args, **kwargs):
+        return self.client.build_request(*args, **kwargs)
+
+    async def send(self, *args, **kwargs):
+        return await self._request("send", *args, **kwargs)
+
 
 def _relevant(row: dict, topic: str) -> bool:
-    normalize = lambda value: re.sub(r"\s+", "", value).casefold()
-    haystack = normalize((row.get("title") or "") + " " + (row.get("text") or ""))
-    terms = [normalize(term) for term in topic.split() if term]
-    return bool(terms) and all(term in haystack for term in terms)
+    return matches_query((row.get("title") or "") + " " + (row.get("text") or ""), topic)
 
 
 def _prepare(entry: SourceEntry, topic: str, pages: int):
@@ -52,7 +56,10 @@ def _prepare(entry: SourceEntry, topic: str, pages: int):
     if any(token in url for token in ("{after}", "{before}", "{after_iso}", "{before_iso}")):
         changes.update(window_days=source.window_days or 30, windows=1)
     if entry.mode == "search":
-        changes.update(queries=(topic,), query_param="query")
+        from periscope.search.query import ENGLISH_SOURCES, translate_to_en
+        en_query = translate_to_en(topic)
+        q = en_query if (en_query and source.key in ENGLISH_SOURCES) else topic
+        changes.update(queries=(q,), query_param="query")
     else:
         changes.update(queries=())
     if source.key == "hn_comments":
@@ -63,6 +70,14 @@ def _prepare(entry: SourceEntry, topic: str, pages: int):
 def _linked_row(entry: SourceEntry, row: dict, observed: str) -> dict | None:
     row = dict(row)
     url = str(row.get("url") or "").strip()
+    if entry.key in {"hn_ai", "hn_ai_monthly", "hn_cn"}:
+        story_id = str((row.get("ids") or {}).get("objectID") or "").strip()
+        if story_id.isdigit():
+            row["discussion_url"] = "https://news.ycombinator.com/item?id=" + story_id
+            if url and url != row["discussion_url"]:
+                row["body_source_url"] = url
+            elif not url:
+                url = row["discussion_url"]
     if entry.key == "hf_model_search":
         url = "https://huggingface.co/" + quote(url, safe="/") if url else ""
     elif entry.key == "hf_dataset_search":
@@ -143,7 +158,13 @@ async def collect_async(topic: str, plan: SourcePlan, *, pages: int = 1,
         tasks = [asyncio.create_task(one(client, entry)) for entry in plan.selected]
         if tasks:
             if budget:
-                _, pending = await asyncio.wait(tasks, timeout=budget)
+                try:
+                    _, pending = await asyncio.wait(tasks, timeout=budget)
+                except asyncio.CancelledError:
+                    for task in tasks:
+                        task.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                    raise
                 for task in pending:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)

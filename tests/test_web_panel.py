@@ -223,7 +223,7 @@ def test_every_api_route_is_reachable_from_the_panel_or_declared_api_only(client
     JS): it can be fooled by a coincidental string, but it did catch the
     missing import call, which is the failure this guards.
     """
-    html = PANEL_HTML.read_text(encoding="utf-8")
+    html = PANEL_HTML.read_text(encoding="utf-8") + (PANEL_HTML.parent / "assets" / "investigation.js").read_text(encoding="utf-8")
     routes = sorted(
         {
             route.path

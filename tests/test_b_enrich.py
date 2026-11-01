@@ -38,11 +38,14 @@ class _Resp:
 class _Client:
     """Minimal stand-in for httpx.AsyncClient: routes by URL fragment."""
 
-    def __init__(self, view, player, subtitle=None, reply=None):
+    def __init__(self, view, player, subtitle=None, reply=None,
+                 reply_pages=None, subreply=None):
         self.view = view
         self.player = player
         self.subtitle = subtitle
         self.reply = reply
+        self.reply_pages = reply_pages or {}
+        self.subreply = subreply or {}
         self.calls = []
 
     async def get(self, url, params=None, headers=None, follow_redirects=True):
@@ -51,7 +54,13 @@ class _Client:
             return _Resp(self.view)
         if "player" in url:
             return _Resp(self.player)
+        if "v2/reply/reply" in url:
+            root = (params or {}).get("root")
+            return _Resp(self.subreply.get(root, {"code": 0, "data": {"replies": []}}))
         if "v2/reply" in url or "/reply" in url:
+            page = (params or {}).get("pn", 1)
+            if page in self.reply_pages:
+                return _Resp(self.reply_pages[page])
             return _Resp(self.reply or {"code": 0, "data": {"replies": []}})
         return _Resp(self.subtitle or {"body": []})
 
@@ -166,6 +175,122 @@ def test_captured_comments_keep_their_full_text_and_already_returned_replies(mon
     assert result.comments[0]["text"] == text
     assert result.comments[0]["replies"][0]["text"] == "nestedcapturedreply"
     assert result.comments[0]["replies"][0]["parent_id"] == 1
+
+
+def test_comments_follow_top_level_pages_and_report_coverage(monkeypatch):
+    first = {"code": 0, "data": {"page": {"count": 2}, "replies": [
+        {"rpid": 1, "content": {"message": "first"}, "member": {"uname": "A"}}]}}
+    second = {"code": 0, "data": {"page": {"count": 2}, "replies": [
+        {"rpid": 2, "content": {"message": "second"}, "member": {"uname": "B"}}]}}
+    client = _Client(_view(), {"code": 0, "data": {}}, reply_pages={1: first, 2: second})
+
+    got = _run(monkeypatch, client, with_comments=True, comment_limit=2)
+
+    assert [comment["text"] for comment in got.comments] == ["first", "second"]
+    coverage = got.as_patch()["discussion_coverage"]
+    assert coverage["fetched_comments"] == 2
+    assert coverage["reported_comments"] == 2
+    assert coverage["status"] == "complete"
+    assert [call[1]["pn"] for call in client.calls if "v2/reply" in call[0]] == [1, 2]
+
+
+def test_empty_later_page_does_not_erase_a_larger_reported_count(monkeypatch):
+    first = {"code": 0, "data": {"page": {"count": 5}, "replies": [
+        {"rpid": 1, "content": {"message": "one"}, "member": {"uname": "A"}},
+        {"rpid": 2, "content": {"message": "two"}, "member": {"uname": "B"}}]}}
+    second = {"code": 0, "data": {"page": {"count": 0}, "replies": []}}
+    client = _Client(_view(), {"code": 0, "data": {}}, reply_pages={1: first, 2: second})
+
+    got = _run(monkeypatch, client, with_comments=True, comment_limit=10)
+
+    coverage = got.as_patch()["discussion_coverage"]
+    assert coverage["reported_comments"] == 5
+    assert coverage["status"] == "partial"
+    assert "comment_page_empty" in coverage["truncated_by"]
+
+
+def test_reaching_node_limit_without_reported_count_is_marked_partial(monkeypatch):
+    comments = [{"rpid": i, "content": {"message": "comment %d" % i},
+                 "member": {"uname": "A"}} for i in range(1, 4)]
+    page = {"code": 0, "data": {"replies": comments}}
+    client = _Client(_view(), {"code": 0, "data": {}}, reply_pages={1: page})
+
+    got = _run(monkeypatch, client, with_comments=True, comment_limit=3)
+
+    coverage = got.as_patch()["discussion_coverage"]
+    assert coverage["fetched_comments"] == 3
+    assert coverage["status"] == "partial"
+    assert "comment_limit" in coverage["truncated_by"]
+
+
+def test_full_last_page_without_total_count_reports_page_cap(monkeypatch):
+    pages = {}
+    for page_number in (1, 2, 3):
+        start = (page_number - 1) * 20 + 1
+        rows = [{"rpid": i, "content": {"message": "comment %d" % i},
+                 "member": {"uname": "A"}} for i in range(start, start + 20)]
+        pages[page_number] = {"code": 0, "data": {"replies": rows}}
+    client = _Client(_view(), {"code": 0, "data": {}}, reply_pages=pages)
+
+    got = _run(monkeypatch, client, with_comments=True, comment_limit=100)
+
+    coverage = got.as_patch()["discussion_coverage"]
+    assert coverage["fetched_roots"] == 60
+    assert coverage["status"] == "partial"
+    assert "comment_page_limit" in coverage["truncated_by"]
+
+
+def test_comments_fetch_missing_subreplies_and_preserve_parent_ids(monkeypatch):
+    root = {"rpid": 11, "rcount": 3, "content": {"message": "root"},
+            "member": {"uname": "A"}, "replies": [
+                {"rpid": 12, "parent": 11, "content": {"message": "inline"},
+                 "member": {"uname": "B"}}]}
+    first = {"code": 0, "data": {"page": {"count": 1}, "replies": [root]}}
+    children = {"code": 0, "data": {"page": {"count": 3}, "replies": [
+        {"rpid": 12, "parent": 11, "content": {"message": "inline"},
+         "member": {"uname": "B"}},
+        {"rpid": 13, "parent": 11, "content": {"message": "deep one"},
+         "member": {"uname": "C"}},
+        {"rpid": 14, "parent": 11, "content": {"message": "deep two"},
+         "member": {"uname": "D"}}]}}
+    client = _Client(_view(), {"code": 0, "data": {}}, reply_pages={1: first},
+                     subreply={11: children})
+
+    got = _run(monkeypatch, client, with_comments=True, comment_limit=4)
+
+    assert [reply["text"] for reply in got.comments[0]["replies"]] == [
+        "inline", "deep one", "deep two"]
+    assert all(reply["parent_id"] == 11 for reply in got.comments[0]["replies"])
+    assert got.as_patch()["discussion_coverage"]["fetched_comments"] == 4
+    assert any("v2/reply/reply" in call[0] for call in client.calls)
+
+
+def test_comment_fetch_error_is_not_silently_reported_as_empty(monkeypatch):
+    class ReplyDown(_Client):
+        async def get(self, url, params=None, **kw):
+            if "v2/reply" in url:
+                raise httpx.ConnectError("offline")
+            return await super().get(url, params=params, **kw)
+
+    got = _run(monkeypatch, ReplyDown(_view(), {"code": 0, "data": {}}),
+                with_comments=True)
+
+    coverage = got.as_patch()["discussion_coverage"]
+    assert coverage["status"] == "partial"
+    assert coverage["errors"] == ["comments:ConnectError"]
+
+
+def test_enrich_many_with_zero_budget_skips_network_and_reports_partial(monkeypatch):
+    client = _Client(_view(), {"code": 0, "data": {}})
+    monkeypatch.setattr(be.httpx, "AsyncClient", lambda *a, **k: client)
+
+    got = asyncio.run(be.enrich_many(["BV1xxxxxxxxx"], with_comments=True,
+                                     budget_seconds=0))
+
+    assert client.calls == []
+    coverage = got["BV1xxxxxxxxx"].as_patch()["discussion_coverage"]
+    assert coverage["status"] == "partial"
+    assert "time_budget" in coverage["truncated_by"]
 
 
 def test_patch_contains_only_what_was_measured(monkeypatch):

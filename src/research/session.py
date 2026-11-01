@@ -326,7 +326,10 @@ CREATE INDEX IF NOT EXISTS idx_ractions_sub ON research_actions(subquestion_id);
     def turns(self, session_id: str, limit: int = 200) -> List[Turn]:
         rows = self._conn.execute(
             "SELECT * FROM research_turns WHERE session_id=? "
-            "ORDER BY created_at, id LIMIT ?",
+            # Timestamps can tie at SQLite/Python clock precision; UUID turn IDs
+            # are not chronological, so SQLite insertion order is the reliable
+            # conversation sequence.
+            "ORDER BY rowid LIMIT ?",
             (session_id, limit),
         ).fetchall()
         return [

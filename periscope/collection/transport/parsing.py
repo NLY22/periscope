@@ -314,12 +314,19 @@ def extract_rows(source: Source, body: str, ctype: str,
         # find no host.
         if url and not url.startswith("http") and source.key.startswith("weibo"):
             url = "https://weibo.com/detail/%s" % url
+        if source.key == "zhihu_search":
+            answer = re.fullmatch(r"https://(?:api\.zhihu\.com|www\.zhihu\.com/api/v4)/answers/(\d+)/?(?:\?[^#]*)?", url)
+            if answer:
+                url = "https://www.zhihu.com/answer/" + answer.group(1)
         # sov2ex 返回的是 V2EX 的主题号（纯数字），不是 URL。
         # 不拼成链接的话 `publisher_of` 拿不到 host，整行 publisher 为 None，
         # 独立信源计数就漏掉它；而且正文抓取无法进行。
         if (url and not url.startswith("http")
                 and source.key == "v2ex_search" and url.isdigit()):
             url = "https://www.v2ex.com/t/%s" % url
+        if (url and not url.startswith("http")
+                and source.key in {"juejin_search", "juejin_column"} and url.isdigit()):
+            url = "https://juejin.cn/post/%s" % url
         rows.append({
             "title": title,
             "url": url,

@@ -55,8 +55,13 @@ def collect(topic: str, scripts: dict, modules: dict, *, started: float,
                                           capture_output=True, timeout=timeout,
                                           cwd=str(paths.ROOT), env=paths.subprocess_env())
                     if proc.returncode:
-                        report.update(status="failed", error="profile_busy" if proc.returncode == PROFILE_BUSY_EXIT
-                                      else "exit_%d" % proc.returncode)
+                        if proc.returncode == PROFILE_BUSY_EXIT:
+                            error = "profile_busy"
+                        elif key == "kuaishou" and proc.returncode == 4:
+                            error = "captcha_required"
+                        else:
+                            error = "exit_%d" % proc.returncode
+                        report.update(status="failed", error=error)
                 except subprocess.TimeoutExpired as exc:
                     report.update(status="over_budget", error="browser_deadline")
                     if getattr(exc, "cleanup_failed", False):

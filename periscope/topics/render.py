@@ -58,7 +58,7 @@ def render(topic: str, rows: list[dict], info: dict) -> str:
         ind = r.get("_independent") or 1
         src = " · ".join((r.get("_publishers") or [r.get("author") or "?"])[:3])
         L.append("    来源: %-40s 日期: %s" % (src[:40], r.get("date") or "?"))
-        body = r.get("body") or ""
+        body = r.get("body") or r.get("text") or ""
         flag = "[多家独立报道]" if ind > 1 else ""
         L.append("    正文: %-5d 字  %s" % (len(body), flag))
         document = r.get("document") or {}
@@ -67,6 +67,14 @@ def render(topic: str, rows: list[dict], info: dict) -> str:
                 document.get("pages_read", 0), document.get("pages_total", 0),
                 "，文本已截断" if document.get("text_truncated") else "",
                 "，部分页面需要 OCR" if document.get("needs_ocr") else ""))
+        elif document.get("format") == "xlsx":
+            L.append("    文档: Excel，已读取 %d 行%s" % (
+                len(document.get("sheet_rows") or []),
+                "，内容已截断" if document.get("text_truncated") else ""))
+        elif document.get("format") == "docx":
+            L.append("    文档: Word，已读取 %d 个段落或表格行%s" % (
+                len(document.get("document_blocks") or []),
+                "，内容未完全提取" if document.get("text_truncated") else ""))
         # Enrichment, when present. Counters are shown with the platform's own
         # meaning, and a transcript is labelled as such - it is the视频's speech,
         # not the article body, and conflating them is how a summary starts
@@ -85,8 +93,20 @@ def render(topic: str, rows: list[dict], info: dict) -> str:
         if comments:
             L.append("    评论: %d 条，首条 %s"
                      % (len(comments), (comments[0].get("text") or "")[:60]))
+        discussion = r.get("discussion_coverage") or {}
+        if discussion:
+            L.append("    讨论覆盖: %s，已取 %s/%s 条，深度 %s/%s%s"
+                     % (discussion.get("status", "unknown"),
+                        discussion.get("attempted_ids", 0),
+                        discussion.get("reported_descendants", "未知"),
+                        discussion.get("max_depth_seen", 0),
+                        discussion.get("max_depth", "未知"),
+                        "，截断: " + ", ".join(discussion["truncated_by"])
+                        if discussion.get("truncated_by") else ""))
         if r.get("url"):
             L.append("    链接: %s" % (r["url"] or "")[:88])
+        if r.get("discussion_url") and r["discussion_url"] != r.get("url"):
+            L.append("    HN讨论: %s" % r["discussion_url"])
         if r.get("body_source_url") and r["body_source_url"] != r.get("url"):
             L.append("    正文出处: %s" % r["body_source_url"])
         if body:
@@ -110,12 +130,15 @@ def json_payload(topic: str, rows: list[dict], info: dict, limit: int) -> dict:
             {"title": r.get("title"), "url": r.get("url"),
              "source": r.get("source"), "kind": r.get("kind"),
              "metrics": r.get("metrics", {}), "ids": r.get("ids", {}),
+             "discussion_url": r.get("discussion_url", ""),
              "document": r.get("document", {}),
              "publishers": r.get("_publishers"), "independent": r.get("_independent"),
              "date": r.get("date"), "score": round(r.get("_score") or 0, 3),
-             "body_chars": len(r.get("body") or ""),
+             "body_chars": len(r.get("body") or r.get("text") or ""),
              "body_source_url": r.get("body_source_url") or r.get("url"),
              "sources": r.get("sources", []), "provenance": r.get("provenance", {}),
+             "comments": r.get("comments", []),
+             "discussion_coverage": r.get("discussion_coverage", {}),
              "snippet": (r.get("body") or r.get("text") or "")[:400]}
             for r in rows[:limit]
         ],

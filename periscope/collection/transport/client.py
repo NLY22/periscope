@@ -23,6 +23,7 @@ from .parsing import (
 )
 from ..sources import CATALOG
 from periscope.runtime import paths
+from periscope.search.relevance import matches_query
 
 
 ROOT = paths.ROOT
@@ -191,7 +192,7 @@ def _keep_mentioning(rows: List[Dict[str, Any]], query: str,
     kept = []
     for row in rows:
         title = re.sub(r"\s+", "", row.get("title") or "").lower()
-        if want in title:
+        if matches_query(title, query):
             kept.append(row)
     dropped = len(rows) - len(kept)
     if dropped:
@@ -247,12 +248,17 @@ async def collect(client: httpx.AsyncClient, source: Source,
                             # Some search endpoints reject GET outright (掘金
                             # returns 200 with no results for GET, which reads
                             # like an empty corpus rather than a wrong method).
-                            r = await client.post(
-                                url, timeout=30, headers=headers, cookies=cookies,
+                            request = client.build_request(
+                                "POST", url, timeout=30, headers=headers, cookies=cookies,
                                 json=json.loads(source.post_body))
                         else:
-                            r = await client.get(
-                                url, timeout=30, headers=headers, cookies=cookies)
+                            request = client.build_request(
+                                "GET", url, timeout=30, headers=headers, cookies=cookies)
+                        # HTTPX deprecated per-request cookies on get()/post().
+                        # Building the request explicitly keeps this source's cookies
+                        # attached only to its request instead of putting them on the
+                        # shared client used by concurrent collectors.
+                        r = await client.send(request)
                     except Exception as exc:
                         stats.error = "%s: %s" % (type(exc).__name__, str(exc)[:50])
                         break
@@ -310,7 +316,8 @@ async def collect(client: httpx.AsyncClient, source: Source,
                     row["kind"] = source.kind
                 fresh = 0
                 for row in got:
-                    key = row["url"] or row["title"]
+                    hn_id = (row.get("ids") or {}).get("objectID") if source.key in {"hn_ai", "hn_ai_monthly", "hn_cn"} else None
+                    key = "hn:" + str(hn_id) if hn_id else row["url"] or row["title"]
                     if not key or key in seen:
                         continue
                     seen.add(key)

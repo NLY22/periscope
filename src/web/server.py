@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -11,6 +12,7 @@ from ..logging_config import configure_logging
 from ..main import console
 from ..orchestrator import Orchestrator
 from ..storage.manager import StorageManager
+from periscope.runtime.backend_lock import BackendLock
 
 
 def build_orchestrator(data_dir: str, config: str | None = None) -> Orchestrator:
@@ -23,7 +25,7 @@ def build_orchestrator(data_dir: str, config: str | None = None) -> Orchestrator
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Periscope web panel")
-    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8790)
     add_data_dir_arguments(parser)
     add_log_level_argument(parser, default="INFO")
@@ -37,12 +39,14 @@ def main() -> None:
     from .app import create_app
 
     console.print(f"[cyan]Periscope panel[/cyan] → http://{args.host}:{args.port}")
-    uvicorn.run(
-        create_app(orchestrator),
-        host=args.host,
-        port=args.port,
-        log_level=args.log_level.lower(),
-    )
+    corpus_path = (Path(orchestrator.storage.data_dir) / orchestrator.config.corpus.path).resolve()
+    with BackendLock(corpus_path.with_name(corpus_path.name + ".backend.lock")):
+        uvicorn.run(
+            create_app(orchestrator),
+            host=args.host,
+            port=args.port,
+            log_level=args.log_level.lower(),
+        )
 
 
 if __name__ == "__main__":

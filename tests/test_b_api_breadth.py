@@ -206,6 +206,10 @@ def test_api_lookup_uses_the_depth_it_is_given(monkeypatch):
         calls["wide"] = (t, count, depth)
         return dsapi.SearchResponse(results=[])
 
+    monkeypatch.setattr(
+        "periscope.search.public_web.search_public_web",
+        lambda *args, **kwargs: dsapi.SearchResponse(results=[]),
+    )
     monkeypatch.setattr(dsapi, "search_topic", fake_single)
     monkeypatch.setattr(dsapi, "search_topic_wide", fake_wide)
 

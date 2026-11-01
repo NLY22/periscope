@@ -109,7 +109,7 @@ class EmbeddingIndex:
 
     def search(self, query_vector: List[float], limit: int = 30) -> List[Tuple[str, float]]:
         rows = self._conn.execute(
-            "SELECT item_id, vector FROM embeddings WHERE model=?", (self.model,)
+            "SELECT e.item_id, e.vector FROM embeddings e JOIN items i ON i.id=e.item_id WHERE e.model=? AND i.claimable<>''", (self.model,)
         ).fetchall()
         scored = [(r["item_id"], cosine(query_vector, decode(r["vector"]))) for r in rows]
         scored = [s for s in scored if s[1] > 0.0]

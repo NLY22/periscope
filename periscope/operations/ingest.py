@@ -13,6 +13,7 @@ import sys
 
 from periscope.collection.families import KIND_TO_SOURCE, SOURCE_KEY_TO_SOURCE, PLATFORM_TO_SOURCE
 from periscope.runtime import paths
+from periscope.search.identity import community_source_key
 from src._cli import force_utf8_output
 from src.corpus.store import Corpus
 from src.models import ContentItem, Section, SourceType
@@ -193,7 +194,8 @@ def _when(raw: str) -> datetime:
             except Exception:
                 continue
         try:
-            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
         except Exception:
             pass
         # RFC 822 with a named zone. Google News writes
@@ -292,8 +294,43 @@ def _stable_id(namespace: str, identity: str) -> str:
     return "%s:%s" % (namespace, digest)
 
 
+def _v2ex_discussion_version(row):
+    comments = [{key: comment.get(key) for key in ("id", "text", "user", "parent_id", "created_at")}
+                for comment in row.get("comments") or [] if isinstance(comment, dict)]
+    content = {"title": row.get("title") or "", "text": row.get("text") or "",
+               "author": row.get("author") or "", "comments": comments,
+               "content_level": (row.get("topic_detail") or {}).get("content_level") or "full"}
+    return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _generic_evidence_version(row):
+    """Keep search, detail, and changed discussions independently searchable."""
+    content = {key: row.get(key) for key in
+               ("title", "text", "body", "author", "date", "evidence", "comments", "answers", "replies")}
+    return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _hn_discussion_version(row):
+    coverage = {key: value for key, value in (row.get("discussion_coverage") or {}).items() if key != "collected_at"}
+    content = {"title": row.get("title") or "", "text": row.get("text") or "",
+               "author": row.get("author") or "", "comments": row.get("comments") or [],
+               "date": row.get("date") or "", "coverage": coverage,
+               "external_url": (row.get("topic_detail") or {}).get("external_url") or "",
+               "content_level": (row.get("topic_detail") or {}).get("content_level") or "full"}
+    return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 def _http_row_identity(row):
-    version = (row.get("document") or {}).get("sha256", "") if row.get("source") == "web_crawl" else ""
+    version = ""
+    if row.get("source") == "web_crawl":
+        document = row.get("document") if isinstance(row.get("document"), dict) else {}
+        body = max((row.get("body") or "", row.get("text") or ""), key=len).strip()
+        _, body = _split_title((row.get("title") or "").strip(), body)
+        version = document.get("sha256") or hashlib.sha256(body.encode("utf-8")).hexdigest()
+    elif row.get("source") == "v2ex_search" and (row.get("topic_detail") or {}).get("topic_id"):
+        version = _v2ex_discussion_version(row)
+    elif row.get("source") == "hn_ai" and (row.get("topic_detail") or {}).get("story_id"):
+        version = _hn_discussion_version(row)
     return row.get("source"), row.get("url") or row.get("title"), version
 
 
@@ -329,12 +366,24 @@ def build(http_rows, ugc_rows):
         body = max((row.get("body") or "", row.get("text") or ""), key=len).strip()
         title, body = _split_title(title, body)
         provenance = row.get("provenance") or {}
+        if src_key in {"web_crawl", "public_web", "dsapi"} and community_source_key(url):
+            provenance = {**provenance, "content_role": "community"}
+        if src_key == "web_crawl" and provenance.get("content_role") == "community":
+            source = SOURCE_KEY_TO_SOURCE.get(community_source_key(url), source)
         tier = "community" if provenance.get("content_role") == "community" else "primary"
         metadata = captured_metadata(row)
         metadata.update(source_key=src_key, source_kind=kind)
         identity = url or title
-        if src_key == "web_crawl" and isinstance(row.get("document"), dict) and row["document"].get("sha256"):
-            identity += "\x00" + row["document"]["sha256"]
+        if src_key == "web_crawl":
+            document = row.get("document") if isinstance(row.get("document"), dict) else {}
+            version = document.get("sha256") or hashlib.sha256(body.encode("utf-8")).hexdigest()
+            identity += "\x00" + version
+        elif src_key == "v2ex_search" and (row.get("topic_detail") or {}).get("topic_id"):
+            identity += "\x00" + _v2ex_discussion_version(row)
+        elif src_key == "hn_ai" and (row.get("topic_detail") or {}).get("story_id"):
+            identity += "\x00" + _hn_discussion_version(row)
+        elif row.get("evidence"):
+            identity += "\x00" + _generic_evidence_version(row)
         items.append(ContentItem(
             id=_stable_id(row.get("source", "src"), identity),
             source_type=source,

@@ -45,11 +45,12 @@ flowchart LR
 
 **代码落点。** `src/models.py`（`Section` / `ContentItem` / `SOURCE_SPECS` 派生出 `SOURCE_REGISTRY`）· `src/sources/registry.py`（`SCRAPER_BINDINGS`：key → 工厂）· `src/corpus/store.py`（schema v4、`claimable`、`claim_fts`、簇）· `src/corpus/trust.py` · `src/corpus/ingest.py` · `src/analysis/claims.py` · `src/research/session.py` · `src/research/moves.py` · `src/research/drafts.py` · `src/sources/reachability.py`。
 
-**这张图背后的表：14 张普通表 + 2 张 FTS5 虚表**（除 `llm_cache.db` 外都在同一个 `corpus.db` 里，所以三个入口共享状态）：
+**这张图背后的表：15 张普通表 + 2 张 FTS5 虚表**（除 `llm_cache.db` 外都在同一个 `corpus.db` 里，所以三个入口共享状态）：
 
 | 表 | 类型 | 谁建 / 谁写 | 作用 |
 |---|---|---|---|
 | `items` | 普通 | `Corpus.add_items` | 条目本体 + `claimable` + `locator` / `time_basis` / `sections_json` / `publisher` / `trust` / `trust_features_json` |
+| `corpus_migrations` | 普通 | `Corpus` | 记录已完成的数据迁移，避免重复处理 |
 | `runs` | 普通 | `begin_run` / `finish_run` | 每轮采集的新增与总量，崩溃续跑靠它 |
 | `claims` | 普通 | `ClaimStore`（`ClaimAnalyzer` 调） | 原子声明 + `verdict` + `verdict_source`（这条判定来自模型还是可信度门） + `independent_sources` + `trust` + `ungraded_reason` |
 | `claim_evidence` | 普通 | `link_evidence` | 声明↔条目的关联，带 `cluster_id` 与 `source_type` |

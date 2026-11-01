@@ -8,6 +8,10 @@ data/summaries/
 # committed data/eval/results.json is the one docs/evaluation.md is pinned to
 data/*.db
 data/*.db-*
+# Local investigation snapshots, recovery journals and backend locks.
+data/backups/
+data/evidence-journal/
+data/*.db.backend.lock
 data/eval/results.*.json
 .env
 # API keys written to disk so they survive a shell restart (src/ai/client.py

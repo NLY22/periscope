@@ -26,8 +26,11 @@ def _running(pid: int) -> bool:
     try:
         os.kill(pid, 0)
         stat = Path("/proc") / str(pid) / "stat"
-        return not stat.exists() or stat.read_text().split()[2] != "Z"
-    except ProcessLookupError:
+        try:
+            return not stat.exists() or stat.read_text().split()[2] != "Z"
+        except (ProcessLookupError, FileNotFoundError):
+            return False
+    except (ProcessLookupError, FileNotFoundError):
         return False
 
 

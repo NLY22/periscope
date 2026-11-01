@@ -124,7 +124,8 @@ def test_missing_artifact_raises(scratch_path: Path) -> None:
         store.read_json(run_id, "does-not-exist.json")
 
 
-def test_list_runs_returns_desc_order(scratch_path: Path) -> None:
+def test_list_runs_returns_desc_order(scratch_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(RunStore, "_utc_now", staticmethod(lambda: "2026-10-25T00:00:00+00:00"))
     store = RunStore(scratch_path)
     run1 = store.create_run("run-1")
     store.update_meta(run1, {"seq": 1})
