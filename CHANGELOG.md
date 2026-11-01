@@ -120,7 +120,7 @@ uv run python scripts/eval_multiturn.py                 # 调用数比值 / 轮�
 
 ---
 
-## 尚未合入（分支 `docs/merged-via-github-sync`，PR `!16`）
+## 已合入 main（分支 `docs/merged-via-github-sync`，PR `!16`）
 
 把上面两节标题从「尚未合入」改成「已合入 main」，并把这次暴露的两条代价写进去：**合并点落在哪一侧，那侧才有 PR 讨论**（两边各合一次会产生两条互不相干的历史）；**堆叠分支被合下去时，父分支的 PR 会一起作废**。这两条不是文风问题——它们让两个 PR 在同一分钟里变成"内容已在 main、标题还写着待合并"。
 

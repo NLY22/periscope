@@ -1,16 +1,8 @@
-> **当前阶段目标：** 优先扩展平台文字与深层讨论、交互查询数据和用户授权内容；以实际新增有效资料对照通用 Web Search API。目标范围及逐轮框架决策见[信息源目标记录](docs/source-system.md#当前阶段目标与框架讨论2026-10-19)。本阶段暂不推进多模态或报告生成能力建设。
+> **阶段状态（已合入 `main`）：** 平台文字与深层讨论深采、共享本地调查后端、带固定证据版本引用的交互式调查、Web 深度调查工作区、MCP 36 工具协议集成、免 Key 自主公网统一检索（DuckDuckGo 首选 / DeepSeek 备选）及 DOCX/XLSX/PDF 结构化附件解析已全部合并入主线。
 
-> **当前代码结构（2026-10-19）：** 话题检索的正式实现已整理到 `periscope/`，
-> 可用 `uv run periscope-topic --topic "人形机器人"` 运行；原有 `python topic.py`
-> 和 `core/`、`collectors/` 导入继续兼容。`src/` 保留证据内核及既有日报、研究、
-> Web/MCP 能力。结构与运行方式见 [代码组织说明](docs/code-organization.md)，
-> 数据与历史演进见 [框架记录](docs/foundation.md)。
+> **代码结构与入口导航：** 话题深度检索核心位于 `periscope/`，支持通过 `uv run periscope-topic --topic "人形机器人"` 运行；原有 `python topic.py` 与 `core/`、`collectors/` 保持完全兼容；`src/` 承载证据内核、智能日报、多轮共创研究及 Web/MCP 服务。详见 [代码组织说明](docs/code-organization.md) 与 [架构图](docs/architecture.md)。
 
-> **目录导航：** [文档入口](docs/README.md) · [代码与数据布局](docs/code-organization.md) · [采集链路与边界](docs/collection-pipeline.md) · [12 平台深采验收](docs/platform-deep-collection-matrix.md) · [功能审计](docs/project-audit-2026-10-22.md)。网络采集、调度、爬虫分别归入 `periscope/collection/transport/`、`strategies/`、`crawling/`；历史产物统一放入 `.periscope-scratch/collect/` 与 `.periscope-scratch/reports/`。
-
-> **信息源重构：** 统一登记 184 个来源配置，默认查询计划接入 25 个搜索入口和 84 个相关订阅源；支持按来源筛选、追加机构订阅、逐源状态及本轮 API 链接差集。登记数不代表在线可用数，详见[信息源体系与边界](docs/source-system.md)。
-
-> **自主爬取：** 使用 `--crawl` 跟进本轮资料，或通过 `--crawl-seeds` 从站点入口发现详情与 PDF 附件，提取正文、保存出处和不同内容版本；支持关闭搜索 API 独立运行。见[爬虫使用与边界](docs/native-crawler.md)。
+> **文档快速索引：** [文档入口](docs/README.md) · [代码与数据布局](docs/code-organization.md) · [采集链路与边界](docs/collection-pipeline.md) · [12 平台深采验收](docs/platform-deep-collection-matrix.md) · [功能审计](docs/project-audit-2026-10-22.md) · [爬虫使用与边界](docs/native-crawler.md) · [信息源体系与边界](docs/source-system.md) · [取证检索与证据分层](docs/retrieval.md) · [评测体系](docs/evaluation.md) · [配置指南](docs/configuration.md) · [重构记录](docs/REFACTOR_2026-10-18.md) · [框架记录](docs/foundation.md)
 
 <div align="center">
 <h1>🌅 Periscope</h1>
@@ -37,7 +29,7 @@
 ![MiniMax](https://img.shields.io/badge/MiniMax-FF6F00?style=flat-square&logo=minimax&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-FFFFFF?style=flat-square&logo=Ollama&logoColor=black)
 
-📡 围绕研究问题，联合网页搜索、原生平台、学术资料、机构订阅与历史语料，保留资料出处，沉淀为可检索、可核查的证据库。项目同时提供中英双语日报与研究会话功能。
+📡 围绕研究与调查问题，联合自主免 Key 公网检索、12+ 平台原生直采、结构化文档解析、学术资料与历史语料，保留精确版本出处，沉淀为可检索、可核查的证据库。项目同时提供 Web 深度调查工作区、中英双语智能日报与 MCP 智能体集成。
 
 [📋 配置指南](docs/configuration.md) · [🧩 Profile 定制](docs/profiles.md) · [🏗️ 架构图](docs/architecture.md) · [🔎 取证检索机制](docs/retrieval.md) · [📊 评测](docs/evaluation.md) · [🔧 重构记录](docs/REFACTOR_2026-10-18.md)
 
@@ -49,12 +41,12 @@
 
 - [它是什么](#它是什么)
 - [现在真的能做什么](#现在真的能做什么)
-- [运行一次会发生什么](#运行一次会发生什么)
-- [三层能力](#三层能力)
+- [核心系统能力矩阵](#核心系统能力矩阵)
+- [四大工作模式](#四大工作模式)
 - [三条支撑机制](#三条支撑机制)
-- [三个入口](#三个入口)
+- [入口工具链与 Console Scripts](#入口工具链与-console-scripts)
 - [支持的 AI 提供商](#支持的-ai-提供商)
-- [支持的数据源](#支持的数据源)
+- [支持的数据源与深采矩阵](#支持的数据源与深采矩阵)
 - [投递渠道](#投递渠道)
 - [快速开始](#快速开始)
 - [配置](#配置)
@@ -68,36 +60,31 @@
 
 ## 它是什么
 
-好的内容散落在订阅源、论坛与时间线里，而你的注意力是有限的。**Periscope 会替你收集、筛选、去重**，再把真正值得一读的内容连同背景与社区讨论一起送到你面前。
+海量内容散落在公网网页、技术论坛、社交平台和各类文档附件中，而信息的真实度参差不齐，AI 摘要往往脱离原文、缺乏论据支撑。**Periscope 会替你采集、提取、清洗、去重与相互印证**，把真正有据可查的内容连同背景脉络、社区讨论与溯源链接完整呈现。
 
-你的品味决定了你读什么，也决定了你希望从中得到什么。一篇新闻报道需要回答「为什么重要」，一篇工程深度长文需要回答「我能用上什么」。Periscope 的 **Profile（画像）** 为每一类内容定义各自的评分标准与输出形式，让简报读起来像是为你手工挑选的。
+Periscope 解决两个核心问题：
+1. **「怎样从全网广阔渠道获取深层真实信息」**：不仅支持 14 类标准订阅与免 Key 自主公网检索，更打通了 12+ 垂直社交平台深层讨论（GitHub Issue/PR 回复树、V2EX 嵌套帖、知乎/微博展开评论、B站 CC 字幕等），并支持跟进 DOCX、XLSX、PDF 附件与公开 GET 查询表单。
+2. **「这个说法站不站得住、出处究竟在哪」**：一切采集内容均沉淀进 **证据语料库**（`corpus.db`，跨会话累积持久化）。通过**类型化证据分层**（作者亲写层 vs 社区发声层严格隔离）、**独立发布者信源计数**、**原子声明关联核查**及**固定证据版本引用**，为每一次多轮交互调查生成带锚点证明的严谨简答。
 
-在此之上它回答第二个问题：**「这个说法站不站得住」**。它把采集到的一切沉淀进 **证据语料库**（`corpus.db`，跨运行、跨入口累积，不会次日即忘），把高分条目蒸馏成 **原子声明** 并逐条核查（独立信源计数 + 引用反解核验），再把这条证据链交给 **多轮共创研究**（长会话里逐轮取证、改范围、深化、定稿）。三者由 **Web 面板** 与 **MCP** 两个额外入口暴露，与 CLI 共享同一份数据库。
-
-**本项目的立场一句话**：把来源放宽到论坛与流媒体，信息质量必然下降；全部工作在于让"降下去的质量"被分层、检索、计数与引用核验**重新补回来**，并用消融表说明补回了多少。
+**本项目的立场一句话**：把来源放宽到论坛、社交媒体与非结构化网页，信息质量必然充满噪声；全部工作在于让"降下去的质量"被分层、检索、计数、版本化日志与引用核验**重新补回来**。
 
 ## 现在真的能做什么
 
-这一节先说清边界，避免后面的内容被读成超出实际的承诺。
+这一节先说清边界，避免将功能设想读成超出代码实现的承诺。
 
 ### ✅ 已交付，有测试钉住
 
-| 能力 | 落在哪 |
-|---|---|
-| 14 类源并发采集（每个源独立成败），含 Bilibili CC 字幕层 | `src/scrapers/`、`src/sources/registry.py` |
-| Profile 驱动的评分、理由、摘要、标签；主题去重与分类配额 | `src/ai/analyzer.py`、`src/orchestrator.py` |
-| 中英双语日报，邮件 / Webhook（飞书·钉钉·Slack·Discord）/ 微信投递 | `src/ai/summarizer.py`、`src/services/` |
-| 交互式配置向导 | `src/setup/wizard.py` |
-| 证据语料库：SQLite + FTS5 + 手写 SimHash 聚簇，跨运行累积 | `src/corpus/store.py`、`src/corpus/simhash.py` |
-| 用户导出入库通路（取不到的源不靠抓取） | `src/corpus/ingest.py`、`scripts/import_corpus.py` |
-| 证据分层：scraper **声明**的类型化 `Section`，独立信源计数只认作者亲写层 | `src/models.py` 的 `Section`、`src/corpus/sections.py` |
-| 条目可信度与独立性：可拆解的 trust 分数、noisy-OR 聚合、两道门 | `src/corpus/trust.py` |
-| 多轮共创：逐轮动词 + 带 revision/locked/stale 的草稿工件 + 主动索取输入 | `src/research/moves.py`、`src/research/drafts.py` |
-| 取证检索：查询扩展 + 向量路 + RRF 融合 | `src/corpus/retrieval.py` |
-| 长会话研究：子问题树、崩溃续跑、缺证时自适应加宽 | `src/research/` |
-| 报告骨架（背景调查 / 市场调研 / 方法探索）+ 引用反解核验 | `src/research/templates.py`、`src/corpus/citations.py` |
-| Web 面板、MCP 服务（36 个工具） | `src/web/`、`src/mcp/` |
-| 检索消融评测（Recall / Precision / nDCG / MRR） | `src/corpus/metrics.py`、`scripts/eval_retrieval.py` |
+| 核心领域 | 具体能力 | 代码落点 |
+|---|---|---|
+| **免 Key 公网检索** | DuckDuckGo 首选检索、自然语言长句清洗（Query cleaning）、跨语言技术术语桥（中英对齐）、DeepSeek 自动备选兜底、前排结果正文自适应快速水化（Fulltext hydration） | `periscope/search/` |
+| **12+ 平台深层讨论直采** | HN（话题/嵌套回复树）、GitHub（正文至多 30,000 字+评论并行）、V2EX、Stack Overflow、B 站（CC 字幕层）、知乎（子评论页）、微博（独立回复分页与乱序树重建）、小红书（持久浏览器会话）、抖音、CSDN、掘金、快手（验证码感知终止） | `periscope/collection/catalog/`、`src/scrapers/` |
+| **自主爬虫与附件抽取** | `--crawl` 与 `--crawl-seeds` 跟进页面与 Sitemap；结构化抽取 DOCX（段落/表格顺序）、XLSX（工作表/行号/坐标）、PDF 附件并标注 complete/partial 覆盖度；支持公开 GET 表单参数化查询 | `periscope/collection/crawling/` |
+| **交互式深度调查工作区** | Web 面板与 MCP 共用本地调查服务：多轮追问、停止、流式进度、历史轮次回放、带固定证据版本锚点引用的简答生成，支持跨轮次复用前序高可信证据 | `periscope/investigation/`、`src/web/` |
+| **证据分层与条目可信度** | 严格类型化区分 `primary`（作者亲写，可承载声明）与 `community`（社区讨论，仅作线索）；可拆解的 trust 特征与打分（源先验、实体核验、新鲜度、来源方式） | `src/models.py`、`src/corpus/sections.py`、`src/corpus/trust.py` |
+| **证据语料库与重放账本** | SQLite + FTS5 + SimHash 聚簇；公开网页与调查资料按批落日志、建立对象/版本与观察记录，崩溃重启后支持重放恢复 | `src/corpus/store.py`、`periscope/collection/journal/` |
+| **原子声明核查** | 高分条目蒸馏为原子声明，关联证据库、计算独立信源计数（Noisy-OR 聚合）、矛盾判定（`contested`） | `src/analysis/claims.py`、`src/corpus/citations.py` |
+| **智能画像日报** | 4 种内置 Profile、分类配额、双语生成；支持邮件、Webhook（飞书/钉钉/Slack/Discord）与微信投递 | `src/ai/`、`src/orchestrator.py`、`src/services/` |
+| **三端工具链集成** | 包含 7 个 Console Scripts 命令行工具；FastAPI 三栏式 Web 面板；标准 stdio MCP 服务（注册 36 个工具） | `periscope/cli/`、`src/web/`、`src/mcp/` |
 
 ### ⚠️ 能力已实现，效果未主张
 
@@ -106,206 +93,141 @@
 判定一条声明是 supported / contested / unsupported，需要一个经过校准的阈值。这一步需要 **50–100 条人工标注** 才能报出 macro-F1、并按独立信源数分桶算一致率（工具已就位：`scripts/eval_claims.py --export/--score`），而**目前标注数据为零**。
 
 因此在拿到标注之前：
-
 - 阈值是**手工先验**，不是校准结果；
 - 分诊门 `triage_min_trust` **默认为 0，即关闭**；
-- 下面所有关于 trust 与阈值的描述，都**不得被读成已验证的准确率提升**。
-
-这一点在 [CHANGELOG.md](CHANGELOG.md) 里逐条注明，因为它是最容易被引用到 README 或幻灯片里而丢掉前提的一块。
+- 下面所有关于 trust 与阈值的描述，都**不得被读成已验证的准确率提升**。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ### ❌ 明确不做
 
-这些边界由 `tests/test_spec_exclusions.py` 以代码方式钉住，不是口头约定：
+这些边界由 `tests/test_spec_exclusions.py` 等测试以代码方式严格钉住：
 
-- **不做验证码打码，不做请求签名逆向**。`blocked_captcha` 是**判定**（识别出这个源被墙），不是绕过。
+- **不做验证码打码，不做请求签名逆向**。遇到验证码直接标记为 `blocked_captcha` 并停下，绝不尝试绕过。
 - **不做账号池**（多账号轮询换稳定性）。
-- **不自动突破访问限制**。用户已有授权会话可见的文字内容纳入当前扩源目标，现有实现只有部分 Cookie 与浏览器会话基础，尚无统一授权采集通路。取不到的源仍走[用户导出通路](#取不到的源靠导出)降级。
-- **不加 SSE / WebSocket / 流式传输**。请求-响应加轮询足够。
-- **语义检索永不默认开启**：需要 `retrieval.semantic` 与 `retrieval.embedding_model` **两个条件同时成立**，后者默认为空串。
-- **图文（OCR / VLM）通路尚未实现**：图片目前只把 URL 存进 metadata，不参与检索；唯一的媒体→文本通路是 B 站 CC 字幕。语料库已能**接收**声明了 `provenance` 为 `ocr` / `vlm` 的文本（见[导出入库](#取不到的源靠导出)），但**自动从图片提取文字**的部分还没有。
+- **不自动突破未授权访问限制**。用户未授权的内容不强行抓取；取不到的源仍走[用户导出通路](#取不到的源靠导出)降级。
+- **不加 SSE / WebSocket / 流式传输**。轮询与标准请求-响应足够保证实时与恢复。
+- **语义向量检索永不默认开启**：需要 `retrieval.semantic` 与 `retrieval.embedding_model` 两个条件同时配置成立。
+- **图文（OCR / VLM）自动提取尚未接入**：图片仅保留 URL 元数据，未打通自动图像 OCR 提取为正文的检索流。
 
-## 运行一次会发生什么
+## 核心系统能力矩阵
 
-`uv run periscope --hours 24` 的阶段顺序如下，每个阶段都标了代码落点：
+```
+                             ┌──────────────────────────────────────────────┐
+                             │               用户入口层 (Tri-Modal)          │
+                             │  Web 深度调查面板 │ CLI 工具链 │ MCP 36 原生工具 │
+                             └──────────────────────┬───────────────────────┘
+                                                    │
+                                ┌───────────────────┴───────────────────┐
+                                ▼                                       ▼
+                    【实时深度调查流水线】                   【智能日报与全网聚合】
+                    periscope-topic / web                 periscope --hours 24
+                                │                                       │
+     ┌──────────────────────────┴──────────────────────────┐            │
+     ▼                                                     ▼            ▼
+┌─────────────────────────┐                             ┌─────────────────────────┐
+│     多源混合检索与直采    │                             │       Profile 画像编排   │
+│ ├─ 免Key公网搜索(DuckDuckGo)│                            │ ├─ tech-news / blog     │
+│ ├─ 12+平台深层讨论回复树 │                             │ ├─ ai-creator / finance │
+│ ├─ 自主爬虫 & 表单跟进   │                             │ └─ 理由评分 / 主题去重  │
+│ └─ DOCX / XLSX / PDF 解析│                             └──────────────┬──────────┘
+└────────────┬────────────┘                                            │
+             │                                                         │
+             ▼                                                         ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           核心可信证据语料库 (corpus.db)                          │
+│  ├─ 证据分层: Primary (作者亲写层) vs Community (社区发言层)                    │
+│  ├─ 信源可信度模型: Trust Prior + 独立信源 Noisy-OR 计数                        │
+│  ├─ 版本化日志与重放: Evidence Journal & Versioned Ledger                       │
+│  └─ SQLite + FTS5 全文索引 + SimHash 近似聚簇                                   │
+└────────────────────────────────────────┬────────────────────────────────────────┘
+                                         │
+                                         ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           核查与带版本引用输出层                                │
+│  ├─ 原子声明提取 & 矛盾判定 (Supported / Contested / Unsupported)               │
+│  ├─ 固定证据版本锚点反解 (Fixed Version Citations)                              │
+│  └─ 邮件 / 飞书 / 钉钉 / Slack / Discord / 微信 多渠道投递                      │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
 
-1. **采集**（`Orchestrator.fetch_all_sources`）— 按注册表遍历 14 类源并发抓取，每个源独立成败；结果写入证据语料库并重算近似重复聚簇。
-2. **跨源去重**（`merge_cross_source_duplicates`）— 规范化 URL（剥离 `utm_*`、`gclid` 等跟踪参数），合并指向同一内容的多源条目，保留内容最丰富的一条。
-3. **分析**（`analyze_items`）— 分类路由到 Profile，由 AI 完成评分、理由、摘要与标签。
-4. **选择与过滤**（`select_digest_items`）— Profile 阈值过滤 → AI 主题去重 → 均衡配额（`digest` 配置）。
-5. **富化**（`enrich_items`）— 第二遍 AI，按 Profile 定义的 block 生成多语言产物，可调用联网检索与历史检索工具。
-6. **声明核查**（`analyze_claims`）— 将高分条目蒸馏为原子声明，关联语料证据并评级（尽力而为）。注意它跑在评分**之后**（抽取才能对准最有价值的条目），但吃的是全部已分析条目而非最终入选条目。
-7. **摘要与投递** — 程序化渲染多语言 Markdown 日报，保存到 `data/summaries/`，并按配置发布或投递。
+## 四大工作模式
 
-每个阶段都可被单独调用——这正是 MCP 能分阶段驱动流水线的原因。结构与图元（通路、会话状态机、一轮时序）见 [docs/architecture.md](docs/architecture.md)，那三张图与代码是双向对齐的，画进去的名字由测试核对。
+### 1. 深度话题调查模式（Interactive Topic Investigation）
+围绕指定的研究议题，并发利用免 Key 公网搜索与平台深采，沉淀版本化证据，生成带固定版本引用的事实回答：
+```bash
+uv run periscope-topic --topic "固态电池量产进度" --speed normal
+```
+* 自动清洗长句查询，中英术语双向拓展；
+* 支持 `--crawl` 自动跟进页面及附件；
+* 结果保存为版本化观察记录，支持跨轮次复用高可信证据。
 
-## 三层能力
+### 2. 每日智能简报模式（Daily Digest & Ingestion）
+周期性拉取订阅源并评分沉淀：
+```bash
+uv run periscope --hours 24
+```
+* **阶段时序**：并发采集 → 跨源 URL 规范化去重 → Profile 评分 → 阈值与主题过滤 → AI 富化多语言产物 → 声明蒸馏与核查 → 渲染多语言 Markdown 日报并投递。
 
-这一节按 `src/` 的实际目录组织，每一项都给出"想读代码从哪开始"。
+### 3. Web 交互式调查与证据面板（Web Workspace）
+提供直观的三栏式操作界面：
+```bash
+uv run periscope-web --data-dir data
+```
+* **证据库**：全文检索与条目审查；
+* **深度调查专区**：发起新调查、设定公开站点范围、实时进度展示、追问与停止、固定版本证据引用回查；
+* **核查台**：按 verdict 分组查看声明与证据支持链。
 
-### 1. 日报：采集 → 评分 → 投递
-
-完整流水线见上一节。核心是 **Profile**：一套可复用的编辑规则——什么内容该收录、什么值得保留、该写成什么样。
-
-| 你关注的内容 | Profile | 你将得到 |
-|---|---|---|
-| 科技新闻 | `tech-news` | 事件与背景，必要时附影响分析与社区讨论 |
-| 工程深度长文 | `tech-blog` | 背景、解决方案与可落地的要点 |
-| AI 创作者素材 | `ai-creator` | 摘要，必要时附热点切入角度与内容思路 |
-| 财经资讯 | `finance-news` | 公司动态与市场脉络 |
-
-你可以为某个信息源指定 Profile，也可以让 AI 自动选择（`"profile": "auto"`）。想要不一样的风格？通常无需改 Python，直接改编现有 Profile 即可。[定制你的 Profile →](docs/profiles.md)
-
-> 单 Profile 的用户偏好（评分阈值、主题去重开关）写在 `processing.profile_settings`，**不写在 Profile 文件里**。
-
-**代码入口**：`src/orchestrator.py`（流水线）· `src/processing/profiles.py`（Profile 加载）· `src/ai/analyzer.py`（评分）
-
-### 2. 证据语料库：`corpus.db`
-
-所有曾经采集过的条目都会带 SimHash 指纹与近似重复聚簇被持久化存储，可用 SQLite FTS5（trigram 分词，对 CJK 友好、无需分词库）检索。**知识跨运行累积，而不是在生成摘要后就蒸发。**
-
-库内是 **12 张普通表 + 2 张 FTS5 虚表**（完整的表清单与作用见 [docs/architecture.md](docs/architecture.md)）：
-
-- **`items`** — 条目本体，含 `claimable`（作者亲写层）、`sections_json`、`publisher`、`trust` 与 `trust_features_json`、`fingerprint`、`cluster_id`。
-- **`items_fts`** — 对 `title` / `content` / `author` 的全文索引。面板检索走这条（要召回率）。
-- **`claim_fts`** — **只索引 `claimable`**。声明关联与评级走这条，因此评论永远不会被当作证据。
-- **`runs`** — 每轮运行的新增与总量，崩溃续跑靠它。
-
-**关键性质**：聚簇是**尽力而为的分组**，不是硬去重——**什么都不删**。独立信源计数需要重复条目留在库里（先按簇折叠、再数不同发布者），删掉就没法数了。
-
-**代码入口**：`src/corpus/store.py`（schema 与门面）· `src/corpus/simhash.py`（指纹）· `src/corpus/retrieval.py`（取证检索）
-
-### 3. 声明核查：从条目到 verdict
-
-高分条目被蒸馏为**原子化、可核查的声明**，每条声明与语料证据关联并评级（supported / contested / unsupported + 置信度）。
-
-三个设计决定值得单独说明：
-
-- **独立性计数**：先按簇折叠重复内容，**再数不同的 `(source_type, publisher)`**；解析不出发布者的条目不投票。
-- **noisy-OR 聚合**：`T = 1 − Π(1 − trust_i · d_i)`。不用求和是因为求和没有上界，够多的低质源能把任何结论刷成 supported。
-- **`contested` 不是标签而是证据**：`claim_contradictions` 表记下是哪两条声明、靠哪些条目互相冲突，且矛盾会作为**判定输入**（已评级的声明遇到矛盾立刻转 `contested`）。
-
-**报告不藏"没走到评级"的声明**：`⏳ 未评级（低于分诊门）` / `🔍 证据不足` / `🏷️ 无可核验发布者` / `❌ 可信度不足（T=…）`。这四行比 verdict 本身更重要——它们把"没评级"和"评了但不确定"分开。
-
-> ⚠️ 评级**准确率**未主张，看[界定说明](#-能力已实现效果未主张)。
-
-**代码入口**：`src/analysis/claims.py` · `src/corpus/trust.py` · `src/corpus/citations.py`
-
-### 4. 多轮共创研究：逐轮动词
-
-研究循环的顶层动词是 **`AskUser | Rescope | Deepen | Finalize`**（`src/research/moves.py`）。提出一个问题，会得到一棵分解后的子问题树，逐题对照语料取证，并输出带引用的 Markdown 报告；追问会在同一会话上跨天、跨重启迭代（状态保存在 SQLite 中）。
-
-**报告是带 revision 的草稿工件，不是每轮重刷的投影**：
-
-- 你**改过或锁定**的章节在后续重算中**只被标记为陈旧（`stale`），不会被覆盖**；
-- 被删分支的章节也带 `stale` 留下——删分支是范围决定，静默删掉你写的字是版本化工件绝不能做的事；
-- 章节身份用**标题**，所以锁在你改过的那一节上，即使它下面的引用编号变了也依然有效。
-
-**缺输入时会主动提问**并把会话停在 `awaiting_user`（一等状态，不是异常路径）。没有可用 LLM 时，回退策略只产出 `deepen` / `finalize`——**联系不到模型的会话仍会终止，而不是连环追问**。
-
-**一轮 `step` 只重算被点名的分支**，并返回这一轮改了什么（`revision` / `changed_sections` / `new_evidence` / `verdict_changes` / `pending_request`）。局部重算 2 次调用 vs 全树 5 次（4 分支），这是多轮的**成本**含义。
-
-**代码入口**：`src/research/session.py`（循环与状态机）· `src/research/moves.py`（动词）· `src/research/drafts.py`（版本化工件）· `src/research/planner.py`（唯一的 LLM 接缝）
+### 4. 智能体 MCP 协议服务（Agent Integration）
+通过标准 stdio 协议提供 36 个原生工具，供外部智能体驱动：
+```bash
+uv run periscope-mcp
+```
 
 ## 三条支撑机制
 
-上面四项能力决定了"能做什么"；下面三项决定了它们在噪声里**是否真的站得住**。
+### 1. 证据分层：类型化字段，绝不靠字符串约定
+抓取器将文本显式**声明**为类型化 `Section`：
+- **`primary`**：作者亲写层，唯一可承载事实声明与证据引用的层级；
+- **`community`**：评论、楼层回复、人群讨论，仅作为线索保留，绝不计入独立证据。
+分层通过 `Section.tier` 强约束，`src/scrapers/` 中严禁出现标记字面量。
 
-### 1. 证据分层：类型化字段，不靠字符串约定
-
-抓取器把评论、楼层回复、视频字幕**声明**为 `ContentItem.sections`：
-
-- **`primary`**（作者亲写，可承载声明）
-- **`community`**（人群发言，只能当线索）
-
-每段带 `author` / `provenance` / `locator`（可引用到具体一层）。声明只从前者蒸馏、证据只与前者关联、报告引用的也是前者。
-
-**这不是约定，是类型**：分层曾由扫描五个中文字符串标记来恢复，那会让任何用别的分隔符的抓取器把人群文本静默提升为作者亲写。现在分层随文本一起传递（`Section.tier`），而 `src/scrapers/` 里**已不允许出现任何分层标记字面量**——由 `tests/test_tier_guard.py` 钉住。
-
-`provenance` 有六个值：`author` / `transcript` / `ocr` / `vlm` / `legacy_marker` / `manual_export`。其中一条**类型级不变式**值得单独提：
-
-> `provenance="vlm"`（对画面的描述）会**被强制为 `asserted=False`**，因此永远进不了声明抽取。图上烧进去的字（`ocr`）相反：保留断言资格，只按 `confidence` 打折。这个不对称才是设计内容——一句对画面的猜测，离变成对世界的断言只差一次忘写参数。
-
-### 2. 条目可信度与独立性
-
-每条入库内容算一个**可拆解**的信任分：
-
-```
-σ(源先验, 作者等级, 交叉支持, 可核验实体, 新鲜度, 来源方式 − 模板度)
-```
-
-**特征与分数一起落库**（`items.trust` + `items.trust_features_json`），所以"为什么这条被当成证据"随时答得出来，而不是一个黑箱数字。
-
-`provenance` 作为其中一个特征被折价：`author` 1.0 / `transcript` 0.95 / `vlm` 0.6 / `legacy_marker` 0.8 / `manual_export` 0.85 / `ocr` 用该段自己的 `confidence`。
+### 2. 条目可信度与独立性计算
+每条入库内容计算可拆解的透明信任分：
+$$\text{Trust} = \sigma(\text{源先验}, \text{作者等级}, \text{交叉支持}, \text{可核验实体}, \text{新鲜度}, \text{来源方式} - \text{模板度})$$
+重复条目先按 SimHash 簇折叠，再数不同的 `(source_type, publisher)`；使用 Noisy-OR 聚合避免无限刷分。
 
 ### 3. 自适应取证加宽
-
-一个子问题**不是只有一次查询**。找不到证据时按固定阶梯逐级换打法：
-
-```
-baseline → widen_terms → switch_source_family → rewrite_query → collect_keywords
-```
-
-顺序原则是**免费动作在前、付费动作在后**（约束是限流的免费层，不是算力）。每次尝试都写进 `research_actions`，未回答的子问题会在报告里列出「取证尝试：动作(+新增条数)」——把"语料里确实没有"和"这次的问法没查到"区分开。
+当子问题未检索到充足证据时，按免费到付费的固定阶梯加宽：
+$$\text{baseline} \rightarrow \text{widen\_terms} \rightarrow \text{switch\_source\_family} \rightarrow \text{rewrite\_query} \rightarrow \text{collect\_keywords}$$
 
 ### 取不到的源，靠导出
-
-对于尚未适配、授权会话失效或遇到验证码的来源，保留用户导出降级通路（见[明确不做](#-明确不做)）：**你的账号本来就能看见的内容，导出成 JSON 交给我入库**。用户已有授权会话的直接采集属于当前扩源方向，不代表所有平台已经接通。分层靠负载自己声明，`provenance` 默认为 `manual_export`（折扣 0.85）。
-
+对于未适配或触发反爬保护的源，提供用户导出降级通路：
 ```bash
-# 先预览（只校验，不建库、不写入）
+# 校验格式
 uv run python scripts/import_corpus.py --file data/export.example.json --data-dir data --dry-run
 # 确认后入库
 uv run python scripts/import_corpus.py --file data/export.example.json --data-dir data
 ```
 
-同一份负载还能走 MCP 的 `ps_corpus_import` 与面板的 `POST /api/import`。样例形状见 `data/export.example.json`（**仓库里的文件本身由测试解析**，样例与实现脱节会立刻变红）。校验逻辑只有一处：`src/corpus/ingest.py`。
+## 入口工具链与 Console Scripts
 
-## 三个入口
+项目统一在 `pyproject.toml` 中注册了 7 个命令行命令，全部开箱即用：
 
-CLI、Web 面板与 MCP **共享同一份 `corpus.db`**，因此会话与证据跨入口、跨重启都可见。
-
-### CLI
-
-```bash
-uv run periscope --hours 24            # 采集 → 评分 → 日报 → 语料库 + 声明
-uv run periscope-wizard                # 交互式配置向导
-uv run periscope-web --data-dir data   # Web 面板（默认 http://localhost:8790）
-uv run periscope-mcp                   # MCP 服务（stdio）
-uv run periscope-webhook --dry-run     # 预览 Webhook 请求
-uv run periscope-wechat status         # 微信投递登录状态
-```
-
-| 选项 | 默认值 | 说明 |
-|------|--------|------|
-| `--hours N` | 取 `collection.time_window_hours` | 抓取最近 N 小时的内容 |
-| `-d`, `--data-dir PATH` | `data` | 数据目录路径 |
-| `-c`, `--config PATH` | `<data-dir>/config.json` | 配置文件路径 |
-| `-l`, `--log-level LEVEL` | `WARNING` | DEBUG / INFO / WARNING / ERROR / CRITICAL |
-
-`--data-dir` 改变**状态目录**（摘要、订阅者、语料库、LLM 缓存与默认配置位置）；`--config` 只改变配置文件。路径组合与初始化方式见[配置路径](docs/configuration.md#configuration-paths)。
-
-### Web 面板
-
-```bash
-uv run periscope-web --data-dir data        # 默认 http://localhost:8790
-```
-
-三栏式界面：**证据库**（全文检索）、**研究报告**（长会话研究）、**核查台**（按 verdict 展示声明与证据）。研究报告栏按轮次组织：推一轮按钮、每节的「已锁定」与「新版已变 · 未覆盖」标记、待回答请求卡片。顶部可一键触发采集，另有「导入你导出的内容」一节（贴 JSON 或选文件 → 只校验 → 入库，逐条报告第几条为什么不收）。API 文档位于 `/api/docs`。
-
-### MCP
-
-```bash
-uv run periscope-mcp
-```
-
-以 stdio 方式运行，提供 **36 个工具**与 7 个 `periscope://` 资源，覆盖配置校验、分阶段流水线、公开网页采集、运行产物、证据检索、声明核查、研究会话与 Webhook 通知。详见 [MCP 工具说明](src/mcp/README.md) 与[客户端配置](src/mcp/integration.md)。
+| 命令 | 核心作用 | 关键参数示例 |
+|---|---|---|
+| `periscope` | 主流水线运行（采集、分析、简报、投递） | `uv run periscope --hours 24` |
+| `periscope-topic` | 话题检索与深采调查 CLI | `uv run periscope-topic --topic "人形机器人" --speed normal` |
+| `periscope-web` | 启动本地 Web 面板（三栏界面与深度调查工作区） | `uv run periscope-web --data-dir data` |
+| `periscope-mcp` | 启动标准 stdio MCP 协议服务（注册 36 个工具） | `uv run periscope-mcp` |
+| `periscope-wizard` | 交互式生成配置向导 | `uv run periscope-wizard` |
+| `periscope-webhook` | 预览或重放 Webhook 投递消息 | `uv run periscope-webhook --dry-run` |
+| `periscope-wechat` | 微信机器人登录状态与投递测试 | `uv run periscope-wechat status` |
 
 ## 支持的 AI 提供商
 
-默认使用免费的 **Agnes** 层，其余提供商可任选其一，或通过 `provider_chain` 组合成降级链。
+默认使用免费的 **Agnes** 层，可配置备用链 `provider_chain` 实现故障自动切换：
 
 | 提供商 | 默认模型 | API Key 环境变量 |
-|--------|----------|------------------|
+|---|---|---|
 | `agnes`（默认，免费层） | `agnes-2.5-flash` | `AGNES_API_KEY` |
 | `anthropic` | `claude-3-5-sonnet-20241022` | `ANTHROPIC_API_KEY` |
 | `openai` | `gpt-4` | `OPENAI_API_KEY` |
@@ -317,302 +239,206 @@ uv run periscope-mcp
 | `deepseek` | `deepseek-chat` | `DEEPSEEK_API_KEY` |
 | `ollama`（本地部署） | `llama3.1` | 无需 Key |
 
-设置 `ai.provider_chain`（逗号分隔的提供商列表）即可启用链式回退：遇到 429/限流、401/403/额度不足、502/503 或空响应时，自动切换到下一个提供商。
+所有 LLM 请求均经过本地持久化缓存（`data/llm_cache.db`），崩溃重试与重复提示词均为零调用。
 
-**所有 LLM 调用都经过持久化响应缓存与限流**（`data/llm_cache.db`）。这对免费层是承重结构而非优化：崩溃恢复运行与后续追问会重复问几乎相同的提示，每一次都应该是零调用。
+## 支持的数据源与深采矩阵
 
-## 支持的数据源
+### 1. 深度采集平台与专项适配（12+）
+- **Hacker News**：关键词话题发现、热门帖子、嵌套回复树及父子关系重建；
+- **GitHub**：Issue / PR 详情（至多 30,000 字）与评论树并行采集；
+- **V2EX**：节点主题、热门帖、嵌套回复树与版本覆盖状态记录；
+- **Stack Overflow**：技术问答正文与高票答案深采；
+- **Bilibili**：热门视频信息与评论，支持提取 CC 字幕文本；
+- **知乎**：公开问答回答及有限子评论页展开采集；
+- **微博**：博文与独立回复分页采集，支持乱序回复树合并；
+- **小红书**：基于持久化浏览器会话展开笔记正文与子评论页；
+- **抖音**：滚动加载根评论与回复分页控件触发；
+- **CSDN / 掘金**：技术文章与评论提取；
+- **快手**：检索探测与验证码状态识别感知。
 
-| 数据源 | 抓取内容 | 评论 / 附加能力 |
-|--------|----------|-----------------|
-| **Hacker News** | 按分数排序的热门帖子 | 是（前 N 条评论） |
-| **RSS / Atom** | 任意 RSS 或 Atom 源 | 可选全文抽取 |
-| **Reddit** | 子版块 + 用户帖子 | 是（前 N 条评论） |
-| **Telegram** | 公开频道消息 | — |
-| **Twitter / X** | 用户时间线 + 关键词搜索（Apify）；另支持 Playwright + Cookie 的免 token 模式 | 是（前 N 条回复） |
-| **GitHub** | 用户事件与仓库 Release | — |
-| **OpenBB** | 按自选股/提供商抓取公司财经新闻（可选 SEC filings） | — |
-| **OSS Insight** | 开源趋势仓库 | — |
-| **GDELT** | 匹配搜索词的全球新闻 | — |
-| **Google News** | 经 RSS 的新闻搜索 | — |
-| **Bilibili** | 热门视频（标题、统计、热门评论） | 是；有 CC 字幕时提取转录 |
-| **V2EX** | 节点主题 + 热门主题 | 是（含回复） |
-| **Discourse** | 任意 Discourse 论坛的最新主题 | 是（含楼层讨论） |
-| **YouTube** | 经官方公开 atom feed 抓取频道更新 | 标题 + 描述文本 |
+### 2. 标准资讯与订阅数据源
+- **RSS / Atom**：全网任意标准 RSS/Atom 源，带全文正文抽取；
+- **Reddit**：子版块热门与评论；
+- **Twitter / X**：Apify 抓取或 Playwright + Cookie 免 token 模式（详见 [Twitter Cookies 配置](docs/twitter-cookies.md)）；
+- **OpenBB / GDELT / Google News / Telegram / YouTube**：财经、新闻与官方流。
 
-每个源在 `SOURCE_SPECS`（`src/models.py`）里带一段纯元数据：**类型**（official / forum / ugc_social / aggregator）、**源先验**（进入可信度计算）、**默认时间基准**、**限流**。抓取器与源的绑定在 `src/sources/registry.py`，加一个源目前只需两处同步。
-
-**礼貌抓取**：per-host 令牌桶 + 抖动 + 429 重试一次；`Retry-After` 同时支持秒数与 HTTP-date。
+礼貌抓取规范：Per-host 令牌桶限流 + 抖动 + 429 自动指数退避重试。
 
 ## 投递渠道
 
-| 渠道 | 作用 |
-|------|------|
-| **邮件订阅** | 向订阅者发送每日简报，并通过 SMTP/IMAP 处理订阅/退订请求 |
-| **Webhook 通知** | 把成功或失败结果推送到飞书/Lark、钉钉、Slack、Discord 或任意自定义 Webhook 端点 |
-| **微信通知** | 通过 iLink Bot 在扫码登录并收到你的消息后发送简报；受微信回复条数限制 |
+- **邮件订阅**：SMTP 发送多语言 Markdown 简报，IMAP 监听订阅退订；
+- **Webhook 通知**：支持推送到飞书、钉钉、Slack、Discord 或自定义 Webhook；
+- **微信通知**：iLink Bot 扫码登录会话发送。
 
 ## 快速开始
 
 ### 1. 安装
 
-**方式 A：本地安装**
-
 ```bash
 git clone https://atomgit.com/NLY22/periscope.git
 cd periscope
 
-# 使用 uv 安装（推荐）
+# 推荐使用 uv 安装（要求 Python 3.11+）
 uv sync
 
-# 需要测试/开发依赖时
+# 需要开发与完整测试依赖时
 uv sync --extra dev
 
-# 或使用 pip
-pip install -e .
-```
-
-Periscope 需要 **Python 3.11 及以上**（见 `pyproject.toml` 的 `requires-python`）。安装 pytest 等开发依赖请用 `uv sync --extra dev`（`dev` 是可选 extra）。
-
-可选 extra：`openbb`（财经新闻源）、`twitter`（Playwright 浏览器与系统依赖）。
-
-```bash
+# 可选额外支持：openbb（财经源）、twitter（Playwright）
 uv sync --extra openbb
 uv sync --extra twitter
 ```
 
-如果 `openbb` 在你的机器上拉取到没有 wheel 的包，可只用二进制方式手动安装 SDK：
-
-```bash
-uv pip install --only-binary=:all: openbb openbb-benzinga
-```
-
-**方式 B：Docker**
-
-```bash
-git clone https://atomgit.com/NLY22/periscope.git
-cd periscope
-
-# 可选：首次运行前用逗号分隔的 extras 构建
-docker compose build --build-arg EXTRAS=openbb periscope-collect
-
-docker compose run --rm periscope-collect --hours 24   # 采集器，运行一次
-docker compose up -d periscope-web                     # Web 面板，端口 8790
-```
-
-基于 `trafilatura` 的正文抽取已包含在基础安装中。`twitter` extra 还需要 Playwright 浏览器与系统依赖，当前 Dockerfile 并未安装。
-
 ### 2. 配置
 
-**方式 A：交互式向导（推荐）**
-
+推荐通过交互式向导快速初始化：
 ```bash
 uv run periscope-wizard
 ```
+或复制配置样例：
+```bash
+cp .env.example .env
+cp data/config.example.json data/config.json
+```
 
-向导会询问你的兴趣（例如「LLM 推理」「嵌入式」「Web 安全」），并自动生成 `data/config.json`。CLI 选项见[交互式向导](docs/configuration.md#interactive-wizard)。
-
-**方式 B：手动配置**
+### 3. Docker 部署
 
 ```bash
-cp .env.example .env                           # 填入你的 API Key
-cp data/config.example.json data/config.json   # 定制你的信息源
+# 构建镜像
+docker compose build --build-arg EXTRAS=openbb periscope-collect
+
+# 运行一次采集器
+docker compose run --rm periscope-collect --hours 24
+
+# 后台启动 Web 面板（访问 http://localhost:8790）
+docker compose up -d periscope-web
 ```
 
-最小手动配置示例：
-
-```jsonc
-{
-  "ai": {
-    "provider": "openai",
-    "model": "gpt-4",
-    "api_key_env": "OPENAI_API_KEY"
-  },
-  "sources": {
-    "rss": [
-      {
-        "name": "Simon Willison",
-        "url": "https://simonwillison.net/atom/everything/",
-        "profile": "tech-news"
-      }
-    ]
-  },
-  "processing": {
-    "profiles_dir": "profiles",
-    "default_profile": "tech-news",
-    "profile_settings": {
-      "tech-news": { "threshold": 7.0, "topic_dedup": true }
-    }
-  }
-}
-```
-
-`api_key_env` 必须是**环境变量的名字**，而不是 API Key 本身。把真正的密钥放进 `.env`：
-
-```bash
-OPENAI_API_KEY=sk-your-key
-```
-
-`data/config.json` 中任意字符串值都可以用 `${VAR_NAME}` 引用环境变量，适用于 `ai.base_url`、私有 RSS 源地址、Webhook 端点或自定义请求头模板等。
-
-### 3. 运行
-
-```bash
-uv run periscope --hours 24        # 本地
-docker compose run --rm periscope-collect --hours 24   # Docker
-```
-
-生成的报告保存在 `data/summaries/`（若设置了 `--data-dir` 则为 `<data-dir>/summaries/`）。
-
-### 4. 自动化（可选）
-
-Periscope 适合用系统定时器调度，例如 `cron` 或 `systemd timer`；Docker Compose 也可直接配合定时任务使用（`docker compose run --rm periscope-collect --hours 24` 配 cron 即可）。
-
-仓库里另有 `.github/workflows/tests.yml`。**本平台不执行任何 GitHub 语法的 workflow**（已实测：PR 的 `check_tasks_num` 为 0），那条文件只对在 GitHub 上跑的人有意义；在这个平台上要定时运行，就用任何能执行 shell 的调度器，按上面的命令排程即可。
+关于定时任务：项目适配 `cron` 或 `systemd timer`。仓库中的 `.github/workflows/tests.yml` 使用 GitHub 语法，在部分国内平台（如 AtomGit）上不执行，仅供在支持 GitHub Actions 的平台上跑 CI。
 
 ## 配置
 
-完整参考见[配置指南](docs/configuration.md)，密钥见 [`.env.example`](.env.example)，可复制模板见 `data/config.example.json`。
-
-主要配置块及其作用：
+完整参数说明请参阅 [配置指南](docs/configuration.md)。核心配置块概览：
 
 | 配置块 | 作用 |
-|--------|------|
-| `ai` | 提供商、模型、`api_key_env`、`base_url`、`provider_chain`、温度、并发与限流 |
-| `sources` | 各数据源及其分类、Profile 指定 |
+|---|---|
+| `ai` | 提供商、模型、环境变量名、链式回退 `provider_chain`、并发与限流 |
+| `sources` | 数据源列表、分类与关联 Profile |
 | `collection` | 默认时间窗口 `time_window_hours` |
-| `digest` | 简报总长度与分类配额（`max_items`、`category_groups`） |
-| `processing` | `profiles_dir`、`default_profile`、单 Profile 偏好 `profile_settings` |
-| `display` | 图标风格 `icon_style`（`emoji` / `nerd` / `ascii`） |
-| `extractors` | 正文抽取器配置 |
-| `email` / `webhook` / `wechat` | 三个投递渠道 |
-| `corpus` | 证据语料库：开关、路径、聚簇参数 |
-| `analysis` | 声明核查：抽取条数、证据数、评级预算与**两道门的阈值** |
-| `research` | 长会话研究：证据预算、加宽轮数、报告骨架 |
-| `retrieval` | 取证检索：查询扩展、语义腿、按需采集 |
-
-> 后四个块（`corpus` / `analysis` / `research` / `retrieval`）是本项目在日报之上的证据层配置，**每个键及其默认值都在[配置指南](docs/configuration.md)里逐项列出**，并由测试核对默认值不得滞后于模型定义。这里不复制那张表，避免两处漂移。
-
-**严格度是分裂的，而且是有意的**：`Section` / `ContentItem` 是 `extra="forbid"`（写错字段名立刻报错，因为分层字段写错代价太大），而四个证据配置块**故意不是** `forbid`（收紧会让带杂键的现有配置直接加载失败）。这个分裂由测试钉住。
+| `digest` | 简报容量 `max_items` 与分类配额 |
+| `processing` | Profile 路径 `profiles_dir`、默认画像 `default_profile`（默认为 `tech-news`）与单画像偏好设置 |
+| `display` | 图标风格 `icon_style`（可选 `emoji` / `nerd` / `ascii`） |
+| `extractors` | 正文抽取器配置（基于 trafilatura） |
+| `email` / `webhook` / `wechat` | 三大通知投递通道 |
+| `corpus` | 语料库存储路径（默认 `data` 目录）、FTS5 与聚簇参数 |
+| `analysis` | 原子声明提取、证据数量与核查分诊门阈值 |
+| `research` | 长会话多轮研究预算与骨架模板 |
+| `retrieval` | 检索扩展策略、语义向量腿与自适应加宽参数 |
 
 ## 项目结构
 
 ```
 periscope/
-├── src/
-│   ├── main.py               # CLI 主入口
-│   ├── _cli.py               # 各入口共享的参数（--data-dir / --config / --log-level）
-│   ├── orchestrator.py       # 流水线编排与阶段复用
-│   ├── models.py             # 数据模型、Section、SOURCE_SPECS
-│   ├── scrapers/             # 14 类数据源抓取器 + 限流 + 鉴权
-│   ├── sources/              # 源注册表（key → 抓取器）与可达性探针
-│   ├── ai/                   # 多 provider 客户端、分析/富化/摘要/本地化/缓存
-│   ├── processing/           # Profile 加载、历史检索、内容处理
-│   ├── corpus/               # 证据语料库（SQLite + FTS5 + SimHash + 分层 + trust）
-│   ├── analysis/             # 声明级核查
-│   ├── research/             # 长会话研究（动词 / 会话 / 草稿 / 骨架）
-│   ├── web/                  # Web 面板（FastAPI + 单文件三栏 UI）
-│   ├── mcp/                  # MCP 服务与运行产物存储
-│   ├── services/             # 邮件 / Webhook / 微信投递
-│   ├── setup/                # 交互式配置向导
-│   ├── extractors/           # 正文抽取（trafilatura）
-│   └── storage/              # 配置与摘要存储
-├── profiles/                 # 内置 Profile（tech-news / tech-blog / ai-creator / finance-news）
-├── docs/                     # 文档、架构图与站点资源
-├── tests/                    # 测试（含文档护栏）
-├── data/                     # 配置示例、导出样例与运行数据
-├── scripts/                  # 辅助脚本（导入、评测、可达性探针）
+├── periscope/                # 现代核心业务架构
+│   ├── cli/topic.py          # periscope-topic 命令适配
+│   ├── collection/           # 采集架构：catalog/、crawling/、journal/、transport/
+│   ├── investigation/        # 深度调查与版本化证据重放引擎
+│   ├── runtime/              # 跨平台环境与路径管理
+│   ├── search/               # 公网免Key检索、清洗、跨语言桥与正文补全
+│   └── topics/               # 话题检索多层编排 (layers/service)
+├── src/                      # 既有功能与证据内核
+│   ├── main.py               # periscope 主入口
+│   ├── _cli.py               # 共享 CLI 参数 (--data-dir, --config, --log-level)
+│   ├── orchestrator.py       # 日报流水线编排
+│   ├── models.py             # Section, ContentItem 与 SOURCE_SPECS
+│   ├── scrapers/             # 传统数据源抓取器
+│   ├── sources/              # 数据源注册表与探针
+│   ├── ai/                   # AI 客户端抽象、缓存与总结
+│   ├── corpus/               # 证据语料库、SimHash、Trust 模型与取证检索
+│   ├── analysis/             # 声明蒸馏与核查
+│   ├── research/             # 多轮共创长会话 (moves / drafts)
+│   ├── web/                  # Web 面板 (FastAPI + 三栏式工作区)
+│   └── mcp/                  # MCP 服务 (36 个原生工具)
+├── profiles/                 # 内置 Profile (tech-news / tech-blog / ai-creator / finance-news)
+├── docs/                     # 20 篇详细工程文档与设计规范
+├── tests/                    # 完整测试套件与文档自动化护栏
+├── data/                     # 数据目录 (SQLite 数据库、配置与缓存)
+├── scripts/                  # 导入、评测与探针辅助工具
 ├── Dockerfile
 ├── docker-compose.yml
 └── pyproject.toml
 ```
 
-每个 Profile 目录是固定的四文件布局：`profile.json` / `match.md` / `analysis.md` / `enrichment.md`。`profiles/` 会被打包进 wheel 的 `src/_builtin_profiles`，因此 `.venv` 里出现的副本是安装产物。
-
 ## 开发与测试
 
 ```bash
-uv sync --extra dev                        # 安装开发依赖
-uv run pytest                              # 运行全部测试
-uv run pytest tests/test_corpus.py         # 运行单个测试文件
-uv run python scripts/eval_retrieval.py    # 检索消融表（docs/evaluation.md）
-uv run python scripts/eval_retrieval.py --tiering marker   # 复现分层前的 A 档
-uv run python scripts/eval_multiturn.py    # 多轮调用数比值 / 轮次 / 灌水曲线（不联网）
+# 安装完整依赖
+uv sync --extra dev
+
+# 运行全量单元测试与护栏测试
+uv run pytest
+
+# 运行可达性探针（以小红书和贴吧为例）
+uv run python scripts/spike_sources.py --source xiaohongshu --url <公开笔记页 URL> --online
+uv run python scripts/spike_sources.py --source tieba --kw <吧名或关键词> --online
+
+# 运行检索消融评测
+uv run python scripts/eval_retrieval.py
 ```
 
-**关于 CI：这个平台上没有自动执行。** `.github/workflows/tests.yml` 是 GitHub 语法的配置，AtomGit 不执行它（每个 PR 的 `check_tasks_num` 都是 0，已实测确认）。所以：
-
-- 那条文件保留着，迁到 GitHub 或支持该语法的平台就生效；内容仍是可信的验收脚本（Linux + Windows 各跑一遍全量，再跑一次检索 harness，只看能否复现，不在 CI 里断言指标数值）。
-- 但在当前平台，**验证是提交者的责任**：本地跑 `uv run pytest` 与相关 harness，把实测数字写进 PR 正文。本项目不接受「有 CI 兜底」作为质量证据。
-
-### 文档护栏
-
-`tests/test_docs_match_code.py` 把文档里的可核对声明变成断言，因为此前 README、MCP 指南与配置指南曾**同时**出现三处不实（工具数、工具清单、四个证据块一个都没记）。它现在检查：
-
-- 每个证据配置键都在配置指南里、默认值与模型逐格一致；
-- MCP 指南不漏列、也不虚构工具；README 引用的工具数与服务端注册数相等；
-- 六个 CLI 命令都被 README 提到；每张顶层文档都从 README 链得到；
-- 文档里反引号包起来的每个符号都真实存在于仓库；
-- 文档里的 `--flag` 都被对应的 argparse 接受；
-- `docs/architecture.md` 的状态名 / 动词名 / 表名与代码双向一致。
-
-改动配置、MCP 工具或研究会话语汇时，跑一遍它。**CONTRIBUTING 第 9 条**列出了必须同步改架构图的清单。
+### 自动化文档护栏
+项目内置 `tests/test_docs_match_code.py`，确保文档中的承诺与代码现实严格对齐：
+- 严格验证 README 中标注的 MCP 工具数量与服务器注册完全一致（36 个工具）；
+- 校验所有命令行脚本、文档链接与 CLI 参数的有效性；
+- 检查配置指南默认值与 Pydantic 模型逐格一致。
 
 ## 安全与可靠性
 
-- **SSRF 防护** — 抓取与正文抽取前校验 URL 的 scheme、主机与端口，解析后要求所有地址为公网，并逐跳校验重定向。
-- **路径逃逸防护** — 摘要与运行产物写入前校验目标路径位于允许目录内。
-- **凭据脱敏** — MCP 返回的有效配置会递归脱敏 `token`、`secret`、`password` 等字段，Webhook 日志同样脱敏。
-- **诚实的降级而非崩溃** — 没有 LLM key 也能运行：语料照常增长、证据照常确定性关联、报告会如实标注「尚未回答」而不是编造内容。单源抓取失败、LLM 缓存读写失败、声明评级失败都不会中断整条流水线。
-
-**采集边界**：当前目标包含用户已有授权会话可见的文字内容；不做验证码打码、请求签名逆向与账号池，取不到的源仍走用户导出通路。技术边界见 [SECURITY.md](SECURITY.md)，既有代码约束由 `tests/test_spec_exclusions.py` 检查；授权内容的统一采集仍属于待建设能力。
+- **严防 SSRF**：抓取与正文抽取前强制校验 URL scheme、端口与公网 IP，禁止访问内网保留地址；
+- **防路径逃逸**：写入数据与产物前严格校验限定于指定目录内；
+- **敏感凭据脱敏**：MCP 输出与 Webhook 日志自动对 token/secret/password 字段脱敏；
+- **优雅降级而非崩溃**：单源失败不阻断流水线；模型断网时不编造结论，明确报告证据状态。
 
 ## 文档
 
 | 指南 | 说明 |
-|------|------|
-| [配置](docs/configuration.md) | AI 提供商、信息源、Profile、过滤、邮件、Webhook、微信与 MCP 配置 |
-| [处理画像](docs/profiles.md) | Profile 路由、提示词、运行期过滤偏好、富化 block 与工具 |
-| [评分](docs/scoring.md) | Periscope 如何评估与排序新闻条目 |
-| [抓取器](docs/scrapers.md) | 各数据源抓取器细节与扩展说明 |
-| [正文抽取](docs/extractors.md) | RSS 源的全文抽取 |
-| [架构图](docs/architecture.md) | 三张结构性图：广源→可用证据的通路、研究会话状态机（`awaiting_user` 是一等状态）、一轮交互的时序；每张图带代码落点，图元由护栏测试与代码对齐 |
-| [取证检索与证据分层](docs/retrieval.md) | 噪声从哪来、类型化分层怎么声明、可信度与独立性怎么重算、找不到时怎么加宽、多轮草稿怎么保住了用户的字、怎么复现 |
-| [检索与取证评测](docs/evaluation.md) | 消融表、标注口径、多轮成本与灌水曲线、已知不足 |
-| [自助测试手册](docs/selftest.md) | 五条命令自己把效果重测一遍：每步该看到什么、哪些"怪现象"是正常的、真模型腿取不到时怎么降级 |
-| [Twitter / X Cookie 配置](docs/twitter-cookies.md) | 免费方案：Playwright + 自己账号的 cookie 抓推文（Apify 订阅的替代路径） |
-| [MCP 工具](src/mcp/README.md) | MCP 兼容客户端可用的工具参考 |
-| [地基调研](docs/foundation-survey-2026-10-19.md) | 可 fork 的上位项目逐项实测：许可证、stars、活跃度，以及"广度缺口在接入而不在源数量"的结论 |
-| [变更记录](CHANGELOG.md) | 已合入 `main` 的各期改动（P0 / P1 / P2 + 文档护栏）各自做了什么、修了什么、有多少实测数字；也写明尚未发布任何版本 |
-| [设计 spec 与三期实现计划](docs/superpowers/specs/2026-09-29-broad-source-credibility-and-multiturn-research-design.md) | 为什么这么改（spec v4，§15 是交付记录）、`docs/superpowers/plans/` 下逐 Task 的计划 |
+|---|---|
+| [文档入口](docs/README.md) | 整体文档架构与阅读引导 |
+| [配置指南](docs/configuration.md) | AI 模型、多数据源、投递渠道与全部证据层参数参考 |
+| [代码组织说明](docs/code-organization.md) | `periscope/` 与 `src/` 代码模块分层规划 |
+| [架构图](docs/architecture.md) | 广源取证通路、多轮调查状态机与调用时序图 |
+| [取证检索与证据分层](docs/retrieval.md) | 类型化分层机制、Trust 独立性计算与自适应加宽 |
+| [采集链路与边界](docs/collection-pipeline.md) | 抓取、清洗、去重与附件提取机制 |
+| [12 平台深采验收](docs/platform-deep-collection-matrix.md) | 12 个重点平台的讨论与回复树抓取能力矩阵 |
+| [爬虫使用与边界](docs/native-crawler.md) | 自主爬虫、Sitemap、GET 表单与 DOCX/XLSX/PDF 附件抽取规范 |
+| [信息源体系与边界](docs/source-system.md) | 统一注册的来源配置、分类与在线可用性 |
+| [功能审计](docs/project-audit-2026-10-22.md) | 既有功能实现与质量盘点 |
+| [处理画像](docs/profiles.md) | Profile 定制、路由规则与富化 block |
+| [评分机制](docs/scoring.md) | 条目重要性与质量评估模型 |
+| [抓取器实现](docs/scrapers.md) | 传统抓取器编写与维护指南 |
+| [正文抽取](docs/extractors.md) | 基于 trafilatura 的非结构化网页正文提取 |
+| [检索与取证评测](docs/evaluation.md) | 评测基准、消融实验与指标口径 |
+| [自助测试手册](docs/selftest.md) | 本地端到端手工验证与故障排查脚本 |
+| [Twitter Cookies 配置](docs/twitter-cookies.md) | 免 Token 抓取推文的会话配置 |
+| [地基调研](docs/foundation-survey-2026-10-19.md) | 业内方案与上位项目横向技术对比 |
+| [框架记录](docs/foundation.md) | 数据模型、演进历史与关键决策日志 |
+| [重构记录](docs/REFACTOR_2026-10-18.md) | 历史架构重构全过程备忘 |
 
 ## 项目状态
 
-**尚未发布任何版本**：`pyproject.toml` 仍是 `0.1.0`，`git tag` 为空。
+**尚未正式发布 1.0 版本**：`pyproject.toml` 当前为 `0.1.0`。
 
-日报闭环（多源采集、Profile 驱动的分析与富化、去重、评论摘要、双语生成、三个投递渠道、Docker 部署、MCP 集成与配置向导）与证据层（语料库、声明核查、多轮研究，及支撑它们的证据分层、条目可信度、自适应加宽）**均已合入 `main`**，Web 面板是独立入口。各期的实测数字见 [CHANGELOG.md](CHANGELOG.md)。
+目前已合入 `main` 的能力包括：免 Key 公网检索、12 平台深层讨论抓取、DOCX/XLSX/PDF 附件解析、证据版本日志、Web 深度调查工作区、原子声明核查、多轮研究草稿保护、双语简报生成、三渠道投递与 MCP 36 工具协议集成。
 
-后续计划：
-
-- **声明 verdict 的人工标注 50–100 条** → 报 macro-F1 与按独立信源数分桶的一致率，再用 `roc_thresholds()` 校准两道门的阈值。这是本项目唯一"能力已实现、效果未主张"的一块：工具已就位（`scripts/eval_claims.py --export/--score`），缺的是标注本身。
-- **图文 → 文本通路（OCR / VLM）**：目前图片只把 URL 存进 metadata，不参与检索。语料库与信任模型已为 `provenance="ocr"` / `"vlm"` 预留位置（含 VLM 强制不可断言的类型不变式），但**自动提取**的部分尚未实现。按设计，OCR 错误率对 verdict 的影响必须先实测，在此之前不得声称"图文源已可用"。
-- **源可达性探针**：判别逻辑已做成可复跑的工具（`src/sources/reachability.py` + `scripts/spike_sources.py`，判定分为 `pass / list_only / blocked_captcha / signed_required / blocked_auth / error`，离线用 `httpx.MockTransport` 测，**不加 `--online` 不发任何请求**）。小红书与贴吧的探针**不需要账号**就能跑，结论落到 `data/eval/reachability_results.json`：
-
-  ```bash
-  uv run python scripts/spike_sources.py --source xiaohongshu --url <公开笔记页 URL> --online
-  uv run python scripts/spike_sources.py --source tieba --kw <吧名或关键词> --online
-  ```
-
-  （`--online` 是唯一会让它真的发请求的开关；去掉它就是打印判定计划。）探针不通过时的降级路径**已经实现**（用户导出 → 入库），所以"取不到的源"不再是死路，只是不自动。
-- **支持更多数据源类型**，例如 Discord。
-- **平台侧未决**：GitHub 语法的 workflow 在本平台不被执行（护栏与测试要人工过一遍）、仓库 issue 开关只能在网页打开。
-- **在 AtomGit 上发布 Release**；发布到 PyPI，支持 `pip install`。
+后续工作重点：
+1. **声明 verdict 的 50–100 条人工校准标注**：通过 `scripts/eval_claims.py` 测定准确率并校准两道门阈值；
+2. **自动化图文（OCR / VLM）文本通路**：在保证断言严肃性的前提下实测打通图像正文抽取；
+3. **扩展更多信源与发布包制作**：支持 PyPI 发布与更多现代知识平台接入。
 
 ## 贡献
 
-欢迎贡献：issue 与 PR 请开在 <https://atomgit.com/NLY22/periscope>。规范见 [CONTRIBUTING.md](CONTRIBUTING.md)，行为准则见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)，安全问题见 [SECURITY.md](SECURITY.md)。
-
-动手前建议先读 [docs/retrieval.md](docs/retrieval.md) 与 [docs/evaluation.md](docs/evaluation.md) —— 新增能力要能进消融表，否则只是加功能。信息源与 Profile 的改动直接开 PR 或 issue。
+欢迎参与共建！Issue 与 PR 请提交至 <https://atomgit.com/NLY22/periscope>。
+请遵守 [CONTRIBUTING.md](CONTRIBUTING.md)、[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) 与 [SECURITY.md](SECURITY.md)。在新增功能时，请确保本地通过 `uv run pytest`，并同步更新相关的文档与测试护栏。
 
 ## 许可证
 
