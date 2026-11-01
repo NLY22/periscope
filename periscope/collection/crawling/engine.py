@@ -13,7 +13,8 @@ from urllib.robotparser import RobotFileParser
 
 import httpx
 
-from periscope.search.identity import canonical_url
+from periscope.search.identity import canonical_url, community_source_key
+from periscope.search.relevance import matches_query
 from src.url_security import UnsafeURLError, validate_http_url, validate_public_http_url
 from .documents import extract_document_async
 
@@ -33,6 +34,7 @@ class CrawlOptions:
     delay: float = 0.5
     max_bytes: int = 5 * 1024 * 1024
     form_fields: tuple[tuple[str, str], ...] = ()
+    include_seed: bool = False
 
     def __post_init__(self):
         if self.max_pages < 1 or self.depth < 0 or self.max_bytes < 1:
@@ -69,9 +71,7 @@ class DeliveryError(RuntimeError):
 
 
 def _matches(text: str, topic: str) -> bool:
-    normalize = lambda value: "".join(value.casefold().split())
-    haystack = normalize(text)
-    return all(normalize(term) in haystack for term in topic.split())
+    return matches_query(text, topic)
 
 
 def select_seeds(rows: list[dict], limit: int = 6) -> tuple[str, ...]:
@@ -216,11 +216,12 @@ async def crawl_async(topic: str, options: CrawlOptions, *, client=None, on_row=
                     continue
                 doc = await extract_document_async(content, content_type, final)
                 report.update(format=doc.format, chars=len(doc.text))
-                if doc.text and _matches(doc.title + "\n" + doc.text, topic):
+                if doc.text and (_matches(doc.title + "\n" + doc.text, topic) or (options.include_seed and report["depth"] == 0)):
                     metadata = {**doc.metadata(), "sha256": hashlib.sha256(content).hexdigest()}
                     provenance = {"source_key": "web_crawl", "method": "crawl", "identity": "url",
                                   "observed_at": observed, "url": final, "parent_url": report["parent_url"],
-                                  "seed_url": report["seed_url"], "depth": report["depth"], "content_role": "source_text"}
+                                  "seed_url": report["seed_url"], "depth": report["depth"],
+                                  "content_role": "community" if community_source_key(final) else "source_text"}
                     if report.get("query_fields"):
                         provenance["query_fields"] = report["query_fields"]
                     if report.get("query_warnings"):

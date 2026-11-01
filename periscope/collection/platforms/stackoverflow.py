@@ -187,12 +187,19 @@ async def fetch_discussion(
         requests = {
             "question": asyncio.create_task(_request(
                 active_client, "/questions/%s" % question_id, params, deadline)),
-            "answers": asyncio.create_task(_request(
-                active_client, "/questions/%s/answers" % question_id,
-                {**params, "sort": "votes", "order": "desc", "pagesize": PAGE_SIZE, "page": 1}, deadline)),
         }
+        if max_answers:
+            requests["answers"] = asyncio.create_task(_request(
+                active_client, "/questions/%s/answers" % question_id,
+                {**params, "sort": "votes", "order": "desc", "pagesize": PAGE_SIZE, "page": 1}, deadline))
         wait = None if deadline is None else max(0.0, deadline - time.monotonic())
-        done, pending = await asyncio.wait(requests.values(), timeout=wait)
+        try:
+            done, pending = await asyncio.wait(requests.values(), timeout=wait)
+        except asyncio.CancelledError:
+            for task in requests.values():
+                task.cancel()
+            await asyncio.gather(*requests.values(), return_exceptions=True)
+            raise
         for task in pending:
             task.cancel()
         if pending:

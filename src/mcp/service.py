@@ -856,11 +856,14 @@ class PipelineService:
         return await self.investigation_backend("GET", "/api/investigations/" + quote(investigation_id, safe=""))
 
     async def investigation_submit(self, *, investigation_id: str, message: str, request_key: str,
-                                   seeds: list[str] | None, budget: float, max_pages: int, depth: int) -> dict[str, Any]:
+                                   seeds: list[str] | None, budget: float, max_pages: int | None, depth: int) -> dict[str, Any]:
+        payload = {"message": message, "request_key": request_key,
+                   "budget": budget, "max_pages": max_pages, "depth": depth}
+        if seeds is not None:
+            payload["seeds"] = seeds
         return await self.investigation_backend(
             "POST", "/api/investigations/" + quote(investigation_id, safe="") + "/rounds",
-            payload={"message": message, "request_key": request_key, "seeds": seeds or [],
-                     "budget": budget, "max_pages": max_pages, "depth": depth})
+            payload=payload)
 
     async def investigation_status(self, *, round_id: str, after: int) -> dict[str, Any]:
         return await self.investigation_backend("GET", "/api/investigation-rounds/" + quote(round_id, safe=""),

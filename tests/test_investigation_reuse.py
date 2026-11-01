@@ -125,7 +125,7 @@ def test_automatic_v2ex_scope_excludes_other_platform_history(scratch_path):
         runner = InvestigationRunner(corpus, collect)
         inv = runner.store.create("robot")
         await runner.wait(runner.submit(inv, "first", "one"))
-        new = runner.submit(inv, "robot", "two", options={"seeds": []})
+        new = runner.submit(inv, "robot", "two", options={"seeds": [], "max_pages": 12})
         await runner.wait(new)
         assert runner.store.references(new) == []
         corpus.close()

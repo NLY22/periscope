@@ -24,8 +24,10 @@ class InvestigationStore:
         reuse_exists = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_reuse'").fetchone()
         refresh_exists = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_refresh_events'").fetchone()
         initial_exists = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_initial_events'").fetchone()
+        progress_exists = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_progress_events'").fetchone()
+        plans_exist = self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='investigation_query_plans'").fetchone()
         columns = {row[1] for row in self.conn.execute("PRAGMA table_info(investigation_rounds)")}
-        if not existing or not events_exist or not answers_exist or not batches_exist or not results_exist or not reuse_exists or not refresh_exists or not initial_exists or not {"error", "options_json"} <= columns:
+        if not existing or not events_exist or not answers_exist or not batches_exist or not results_exist or not reuse_exists or not refresh_exists or not initial_exists or not progress_exists or not plans_exist or not {"error", "options_json"} <= columns:
             backup_corpus(corpus)
         self.conn.executescript('''
             CREATE TABLE IF NOT EXISTS investigations (
@@ -71,6 +73,14 @@ class InvestigationStore:
             CREATE TABLE IF NOT EXISTS investigation_initial_events (
                 seq INTEGER PRIMARY KEY REFERENCES investigation_events(seq), batch_id TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS investigation_progress_events (
+                seq INTEGER PRIMARY KEY REFERENCES investigation_events(seq),
+                source TEXT NOT NULL, status TEXT NOT NULL, reason TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS investigation_query_plans (
+                round_id TEXT PRIMARY KEY REFERENCES investigation_rounds(id),
+                query TEXT NOT NULL, variants_json TEXT NOT NULL
+            );
         ''')
         current_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(investigation_rounds)")}
         if "error" not in current_columns:
@@ -114,6 +124,10 @@ class InvestigationStore:
                 if existing["message"] != message.strip() or existing["options_json"] != options_json:
                     raise ValueError("request key already used for a different message")
                 return existing["id"]
+            active = self.conn.execute("SELECT id FROM investigation_rounds WHERE investigation_id=? AND status='running'",
+                                       (investigation_id,)).fetchall()
+            for row in active:
+                self._close_running_sources(row[0], "cancelled", "new_instruction")
             self.conn.execute("UPDATE investigation_rounds SET status='cancelled' WHERE investigation_id=? AND status='running'",
                               (investigation_id,))
             identifier = "round_" + uuid4().hex
@@ -129,16 +143,61 @@ class InvestigationStore:
         result["options"] = json.loads(result.pop("options_json"))
         return result
 
+    def previous_options(self, investigation_id: str, request_key: str) -> dict:
+        """Keep inherited scope stable when an identical request is retried."""
+        row = self.conn.execute("SELECT options_json FROM investigation_rounds WHERE investigation_id=? AND request_key=?",
+                                (investigation_id, request_key)).fetchone()
+        if row is None:
+            row = self.conn.execute("SELECT options_json FROM investigation_rounds WHERE investigation_id=? ORDER BY rowid DESC LIMIT 1",
+                                    (investigation_id,)).fetchone()
+        return json.loads(row[0]) if row else {}
+
+    def add_source_progress(self, round_id: str, source: str, status: str, reason: str = "") -> None:
+        if status not in {"running", "completed", "empty", "partial", "failed", "skipped", "cancelled", "interrupted"}:
+            raise ValueError("invalid source progress status")
+        with self.conn:
+            running = self.conn.execute("SELECT 1 FROM investigation_rounds WHERE id=? AND status='running'", (round_id,)).fetchone()
+            if not running:
+                return
+            event = self.conn.execute("INSERT INTO investigation_events (round_id, object_id, version_id, created_at) VALUES (?, '', '', ?)",
+                                      (round_id, _now()))
+            self.conn.execute("INSERT INTO investigation_progress_events VALUES (?, ?, ?, ?)",
+                              (event.lastrowid, str(source)[:100], status, str(reason)[:200]))
+
+    def _close_running_sources(self, round_id: str, status: str, reason: str) -> None:
+        rows = self.conn.execute('''SELECT source FROM (
+            SELECT p.source, p.status, ROW_NUMBER() OVER (PARTITION BY p.source ORDER BY p.seq DESC) AS position
+            FROM investigation_progress_events p JOIN investigation_events e ON e.seq=p.seq
+            WHERE e.round_id=?) WHERE position=1 AND status='running' ''', (round_id,)).fetchall()
+        for row in rows:
+            event = self.conn.execute("INSERT INTO investigation_events (round_id, object_id, version_id, created_at) VALUES (?, '', '', ?)",
+                                      (round_id, _now()))
+            self.conn.execute("INSERT INTO investigation_progress_events VALUES (?, ?, ?, ?)",
+                              (event.lastrowid, row[0], status, reason[:200]))
+
+    def close_running_sources(self, round_id: str, status: str, reason: str = "") -> None:
+        if status not in {"partial", "failed", "cancelled", "interrupted"}:
+            raise ValueError("invalid final source status")
+        with self.conn:
+            if self.conn.execute("SELECT 1 FROM investigation_rounds WHERE id=? AND status='running'", (round_id,)).fetchone():
+                self._close_running_sources(round_id, status, reason)
+
     def finish_round(self, round_id: str, status: str, error: str = "") -> bool:
         if status not in {"completed", "partial", "failed", "cancelled"}:
             raise ValueError("invalid final status")
         with self.conn:
             cursor = self.conn.execute("UPDATE investigation_rounds SET status=?, error=? WHERE id=? AND status='running'",
                                        (status, error, round_id))
+            if cursor.rowcount:
+                final = status if status in {"partial", "failed", "cancelled"} else "partial"
+                self._close_running_sources(round_id, final, error)
         return bool(cursor.rowcount)
 
     def interrupt_abandoned_rounds(self) -> int:
         with self.conn:
+            active = self.conn.execute("SELECT id FROM investigation_rounds WHERE status='running'").fetchall()
+            for row in active:
+                self._close_running_sources(row[0], "interrupted", "backend_restart")
             cursor = self.conn.execute("UPDATE investigation_rounds SET status='interrupted', error='backend_restart' WHERE status='running'")
         return cursor.rowcount
 
@@ -242,6 +301,17 @@ class InvestigationStore:
         row = self.conn.execute("SELECT result_json FROM investigation_answers WHERE round_id=?", (round_id,)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def save_query_plan(self, round_id: str, query: str, variants: tuple[str, ...]) -> None:
+        with self.conn:
+            self.conn.execute('''INSERT OR REPLACE INTO investigation_query_plans (round_id, query, variants_json)
+                SELECT ?, ?, ? WHERE EXISTS
+                (SELECT 1 FROM investigation_rounds WHERE id=? AND status='running')''',
+                (round_id, query, json.dumps(list(variants), ensure_ascii=False), round_id))
+
+    def query_plan(self, round_id: str) -> dict | None:
+        row = self.conn.execute("SELECT query, variants_json FROM investigation_query_plans WHERE round_id=?", (round_id,)).fetchone()
+        return {"query": row[0], "variants": json.loads(row[1])} if row else None
+
     def context(self, round_id: str) -> dict:
         row = self.conn.execute('''SELECT i.question, r.investigation_id FROM investigation_rounds r
             JOIN investigations i ON i.id=r.investigation_id WHERE r.id=?''', (round_id,)).fetchone()
@@ -258,6 +328,11 @@ class InvestigationStore:
                                  (round_id, max(0, after), max(1, min(limit, 500)))).fetchall()
         events = []
         for row in rows:
+            progress = self.conn.execute("SELECT source, status, reason FROM investigation_progress_events WHERE seq=?", (row["seq"],)).fetchone()
+            if progress:
+                events.append({"seq": row["seq"], "type": "source_progress", "created_at": row["created_at"],
+                               "source": progress[0], "status": progress[1], "reason": progress[2]})
+                continue
             reference = {"object_id": row["object_id"], "version_id": row["version_id"]}
             reused = self.conn.execute('''SELECT u.origin_round_id, u.observed_at, r.investigation_id FROM investigation_reuse u
                 JOIN investigation_rounds r ON r.id=u.origin_round_id
@@ -276,5 +351,5 @@ class InvestigationStore:
                             {"kind": "reused", "investigation_id": reused[2], "round_id": reused[0], "observed_at": reused[1]}
                             if reused else self.origin(round_id, reference))
             events.append({"seq": row["seq"], "type": "evidence_refreshed" if refresh else "evidence", "created_at": row["created_at"],
-                           "references": [reference], "origin": event_origin})
+                           "references": [reference], "origin": event_origin, "coverage": self.coverage(round_id, reference)})
         return events

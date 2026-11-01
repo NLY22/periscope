@@ -14,7 +14,8 @@
 | 查看 12 个目标平台的正文、评论、回复与保存回查验收 | [首批平台深采能力矩阵](platform-deep-collection-matrix.md) |
 | 查看实际采集、保存、再检索链路与浏览器资源控制 | [采集链路与边界（2026-10-24）](collection-pipeline.md) |
 | 查看最新代码状态、已复现问题与推进建议 | [项目分析与扩源主链审计（2026-10-22）](project-audit-2026-10-22.md) |
-| 审阅下一阶段的多轮调查与扩源框架 | [本地多轮调查与信息源框架设计](superpowers/specs/2026-10-19-local-investigation-source-framework-design.md)（设计草案，尚未实施） |
+| 确认交互迭代研究的目标框架与实现顺序 | [交互迭代研究框架确认稿（2026-10-28）](superpowers/specs/2026-10-28-interactive-research-framework-design.md)（待确认，区分现有能力与目标能力） |
+| 回看早期多轮调查与扩源设计 | [本地多轮调查与信息源框架设计](superpowers/specs/2026-10-19-local-investigation-source-framework-design.md)（历史设计，部分基础已落地；实施状态见 2026-10-28 确认稿） |
 | 新增来源或排查采集结果 | [信息源体系](source-system.md)、[采集器](scrapers.md)、[正文提取](extractors.md) |
 | 检索、可信度与证据处理 | [检索机制](retrieval.md)、[评分](scoring.md) |
 | 运行验证和评测 | [自检](selftest.md)、[评测](evaluation.md) |

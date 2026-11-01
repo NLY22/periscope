@@ -23,6 +23,7 @@ from .parsing import (
 )
 from ..sources import CATALOG
 from periscope.runtime import paths
+from periscope.search.relevance import matches_query
 
 
 ROOT = paths.ROOT
@@ -191,7 +192,7 @@ def _keep_mentioning(rows: List[Dict[str, Any]], query: str,
     kept = []
     for row in rows:
         title = re.sub(r"\s+", "", row.get("title") or "").lower()
-        if want in title:
+        if matches_query(title, query):
             kept.append(row)
     dropped = len(rows) - len(kept)
     if dropped:

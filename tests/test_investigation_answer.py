@@ -108,6 +108,116 @@ def test_answer_prioritizes_full_content_and_current_round_coverage(scratch_path
     asyncio.run(scenario())
 
 
+def test_answer_selects_relevant_passage_after_first_3000_chars(scratch_path):
+    from periscope.investigations.runner import InvestigationRunner
+    from periscope.investigations.answer import EvidenceAnswerer
+
+    async def scenario():
+        corpus = Corpus(scratch_path / "long-evidence.db")
+
+        async def collect(message):
+            yield [{"source": "web_crawl", "url": "https://example.org/important", "title": "Policy",
+                    "text": ("irrelevant filler " * 250) + "The admission deadline is 30 November."}]
+            yield [{"source": "web_crawl", "url": f"https://example.org/other/{i}", "title": "Other",
+                    "text": "unrelated administrative text"} for i in range(25)]
+
+        class Client:
+            async def complete(self, **kwargs):
+                items = json.loads(kwargs["user"])["evidence"]
+                relevant = next(item for item in items if "admission deadline is 30 November" in item["source"]["text"])
+                assert len(relevant["source"]["text"]) <= 3000
+                assert relevant["source"]["text_excerpt_start"] > 0
+                return json.dumps({"answer": f"Deadline [ {relevant['number']} ]".replace("[ ", "[").replace(" ]", "]")})
+
+        runner = InvestigationRunner(corpus, collect, answerer=EvidenceAnswerer(Client()))
+        rid = runner.submit(runner.store.create("admissions"), "admission deadline", "one")
+        await runner.wait(rid)
+        answer = runner.store.answer(rid)
+        assert answer["status"] == "completed"
+        ref = answer["citations"][0]["reference"]
+        from periscope.evidence.versions import EvidenceVersions
+        assert EvidenceVersions(corpus).get_version(**ref)["text"].endswith("The admission deadline is 30 November.")
+        corpus.close()
+    asyncio.run(scenario())
+
+
+def test_answer_keeps_independent_sources_when_one_site_dominates(scratch_path):
+    from periscope.investigations.runner import InvestigationRunner
+    from periscope.investigations.answer import EvidenceAnswerer
+
+    async def scenario():
+        corpus = Corpus(scratch_path / "diverse-evidence.db")
+
+        async def collect(message):
+            yield [{"source": "web_crawl", "url": "https://official.example/admissions", "text": "admission policy"}]
+            yield [{"source": "web_crawl", "url": f"https://community.example/post/{i}",
+                    "text": "admission discussion"} for i in range(25)]
+
+        class Client:
+            async def complete(self, **kwargs):
+                items = json.loads(kwargs["user"])["evidence"]
+                assert any(item["source"]["url"] == "https://official.example/admissions" for item in items)
+                return '{"answer":"Result [1]"}'
+
+        runner = InvestigationRunner(corpus, collect, answerer=EvidenceAnswerer(Client()))
+        rid = runner.submit(runner.store.create("admission"), "admission", "one")
+        await runner.wait(rid)
+        assert runner.store.answer(rid)["status"] == "completed"
+        corpus.close()
+    asyncio.run(scenario())
+
+
+def test_answer_model_receives_community_authorship_role(scratch_path):
+    from periscope.investigations.runner import InvestigationRunner
+    from periscope.investigations.answer import EvidenceAnswerer
+
+    async def scenario():
+        corpus = Corpus(scratch_path / "community-role.db")
+
+        async def collect(message):
+            yield [{"source": "github_issues", "kind": "community", "title": "Issue", "text": "a personal view",
+                    "url": "https://github.com/example/repo/issues/1", "author": "reader",
+                    "evidence": {"source": "github", "type": "issue", "native_id": "example/repo#1"},
+                    "provenance": {"content_role": "community"}}]
+
+        class Client:
+            async def complete(self, **kwargs):
+                source = json.loads(kwargs["user"])["evidence"][0]["source"]
+                assert source["content_role"] == "community" and source["author"] == "reader"
+                return '{"answer":"A view [1]"}'
+
+        runner = InvestigationRunner(corpus, collect, answerer=EvidenceAnswerer(Client()))
+        rid = runner.submit(runner.store.create("topic"), "topic", "one")
+        await runner.wait(rid)
+        assert runner.store.answer(rid)["status"] == "completed"
+        corpus.close()
+    asyncio.run(scenario())
+
+
+def test_empty_locator_is_not_treated_as_answer_evidence(scratch_path):
+    from periscope.investigations.runner import InvestigationRunner
+    from periscope.investigations.answer import EvidenceAnswerer
+
+    class Client:
+        async def complete(self, **kwargs):
+            raise AssertionError("an empty link must not be treated as evidence")
+
+    async def scenario():
+        corpus = Corpus(scratch_path / "locator-answer.db")
+
+        async def collect(query):
+            yield [{"source": "github_issues", "kind": "community", "title": "https://github.com/a/b/issues/1",
+                    "url": "https://github.com/a/b/issues/1", "text": "",
+                    "evidence": {"source": "github", "type": "issue", "native_id": "a/b#1", "content_level": "locator"}}]
+
+        runner = InvestigationRunner(corpus, collect, answerer=EvidenceAnswerer(Client()))
+        rid = runner.submit(runner.store.create("topic"), "topic", "one")
+        await runner.wait(rid)
+        assert runner.store.answer(rid)["reason"] == "no_evidence"
+        corpus.close()
+    asyncio.run(scenario())
+
+
 def test_answer_uses_latest_version_for_same_object(scratch_path):
     from periscope.investigations.runner import InvestigationRunner
     from periscope.investigations.answer import EvidenceAnswerer

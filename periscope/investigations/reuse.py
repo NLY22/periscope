@@ -6,6 +6,7 @@ import re
 from urllib.parse import urlsplit
 
 _GENERIC = {"还有呢", "还有吗", "继续", "再看看", "详细说说", "what", "about", "more", "the", "and", "this", "that"}
+_AUTO_SOURCES = ("v2ex", "hackernews", "github", "stackoverflow", "csdn", "juejin", "zhihu", "weibo", "bilibili", "xhs", "douyin", "kuaishou", "arxiv", "openalex", "crossref", "web_crawl")
 
 
 def _terms(text: str) -> set[str]:
@@ -38,7 +39,9 @@ def find_history(store, round_id: str, message: str, *, limit: int = 8) -> list[
     default_sources = "seeds" in options and not seeds
     scope, params = "", [round_id]
     if default_sources:
-        scope += " AND obj.source IN ('v2ex', 'hackernews')"
+        sources = _AUTO_SOURCES if options.get("max_pages") is None else ("v2ex", "hackernews")
+        scope += " AND obj.source IN (" + ",".join("?" for _ in sources) + ")"
+        params.extend(sources)
     if hosts:
         patterns = [f"{scheme}://{prefix}{host}{suffix}" for host in hosts for scheme in ("http", "https")
                     for prefix in ("", "www.") for suffix in ("/%", ":%")]
@@ -47,12 +50,14 @@ def find_history(store, round_id: str, message: str, *, limit: int = 8) -> list[
     selected_terms = sorted(terms, key=lambda term: (-len(term), term))[:40]
     term_filter = " OR ".join("lower(snapshot_json) LIKE ?" for _ in selected_terms)
     params.extend("%" + term + "%" for term in selected_terms)
-    rows = store.conn.execute('''WITH ranked AS (SELECT e.object_id, e.version_id, r.id AS origin_round_id,
+    rows = store.conn.execute('''WITH ranked AS (SELECT e.object_id, COALESCE(redirect.canonical_id, e.object_id) AS canonical_id,
+        e.version_id, r.id AS origin_round_id,
         o.observed_at, o.provenance_json, v.snapshot_json, obj.source, obj.locator,
-        ROW_NUMBER() OVER (PARTITION BY e.object_id, COALESCE(json_extract(v.snapshot_json, '$.content_level'), 'full')
+        ROW_NUMBER() OVER (PARTITION BY COALESCE(redirect.canonical_id, e.object_id), COALESCE(json_extract(v.snapshot_json, '$.content_level'), 'full')
                            ORDER BY o.observed_at DESC, r.rowid DESC) AS position
         FROM investigation_rounds r JOIN investigation_round_evidence e ON e.round_id=r.id
         JOIN evidence_objects obj ON obj.id=e.object_id JOIN evidence_versions v ON v.id=e.version_id
+        LEFT JOIN evidence_object_redirects redirect ON redirect.object_id=e.object_id
         JOIN investigation_batches b ON b.round_id=r.id
         JOIN evidence_observations o ON o.batch_id=b.batch_id AND o.object_id=e.object_id AND o.version_id=e.version_id
         WHERE r.rowid < (SELECT rowid FROM investigation_rounds WHERE id=?) AND r.status != 'running' ''' + scope + ''')
@@ -62,12 +67,12 @@ def find_history(store, round_id: str, message: str, *, limit: int = 8) -> list[
     for row in rows:
         obj = row["object_id"]
         host = (urlsplit(row["locator"]).hostname or "").lower().removeprefix("www.")
-        if default_sources and row["source"] not in {"v2ex", "hackernews"}:
+        if default_sources and row["source"] not in sources:
             continue
         if hosts and host not in hosts:
             continue
         snapshot = json.loads(row["snapshot_json"])
-        identity = (obj, snapshot.get("content_level") or "full")
+        identity = (row["canonical_id"], snapshot.get("content_level") or "full")
         if identity in seen:
             continue
         seen.add(identity)

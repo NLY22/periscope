@@ -27,6 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 import asyncio
+import re
 import time
 
 import httpx
@@ -385,6 +386,55 @@ async def _comments(cli: httpx.AsyncClient, aid: int, limit: int,
     coverage["truncated_by"] = list(dict.fromkeys(coverage["truncated_by"]))
     coverage["status"] = "partial" if coverage["truncated_by"] or coverage["errors"] else "complete"
     return out, coverage
+
+
+async def fetch_video_discussion(bvid: str, *, max_comments: int = MAX_COMMENTS,
+                                 budget_seconds: float = 20.0, client: httpx.AsyncClient | None = None):
+    """Read the video description and bounded discussion without subtitles."""
+    bvid = str(bvid).strip()
+    coverage = {"status": "partial", "errors": [], "truncated_by": [], "max_comments": max(0, int(max_comments))}
+    if not re.fullmatch(r"(?:BV[0-9A-Za-z]{10}|av[0-9]+)", bvid):
+        coverage.update(status="failed", errors=["invalid_video_id"])
+        return {}, [], coverage
+    view_params = {"aid": int(bvid[2:])} if bvid.startswith("av") else {"bvid": bvid}
+    deadline = time.monotonic() + max(0.0, budget_seconds)
+
+    async def collect(active):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            coverage["truncated_by"].append("time_budget")
+            return {}, [], coverage
+        try:
+            async with asyncio.timeout(remaining):
+                payload = await _json(active, API_VIEW, view_params)
+        except asyncio.TimeoutError:
+            coverage["truncated_by"].append("time_budget")
+            return {}, [], coverage
+        except httpx.HTTPStatusError as exc:
+            coverage["errors"].append("video:http_%d" % exc.response.status_code)
+            return {}, [], coverage
+        except Exception as exc:
+            coverage["errors"].append("video:" + type(exc).__name__)
+            return {}, [], coverage
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict):
+            coverage["errors"].append("video:invalid_payload")
+            return {}, [], coverage
+        owner = data.get("owner") if isinstance(data.get("owner"), dict) else {}
+        detail = {"title": str(data.get("title") or ""), "text": str(data.get("desc") or ""),
+                  "author": str(owner.get("name") or ""), "aid": data.get("aid"), "bvid": data.get("bvid")}
+        aid = _num(data.get("aid"))
+        if aid is None:
+            coverage["errors"].append("video:missing_aid")
+            return detail, [], coverage
+        comments, discussion = await _comments(active, aid, coverage["max_comments"], deadline=deadline)
+        discussion = {**discussion, "max_comments": coverage["max_comments"]}
+        return detail, comments, discussion
+
+    if client is not None:
+        return await collect(client)
+    async with httpx.AsyncClient(timeout=max(0.1, min(15, budget_seconds))) as active:
+        return await collect(active)
 
 
 async def enrich(

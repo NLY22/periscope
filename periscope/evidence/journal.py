@@ -33,10 +33,31 @@ def replay_batch(corpus, path: Path) -> dict:
             raise ValueError("invalid evidence batch")
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("invalid evidence batch") from exc
-    items, skipped = build(ingestable_rows(payload), [])
+    items, accepted_rows, skipped = [], [], Counter()
+    for row in payload["rows"]:
+        if not row.get("source") and row.get("_layer") not in {"local", "api"}:
+            skipped["missing_source"] += 1
+    for row in ingestable_rows(payload):
+        if row.get("source") == "web_crawl" and not row.get("kind"):
+            row["kind"] = "media"
+        try:
+            converted, issues = build([row], [])
+        except Exception:
+            skipped["invalid_row"] += 1
+            continue
+        skipped.update(issues)
+        if converted:
+            items.extend(converted)
+            accepted_rows.append(row)
     count = corpus.add_items(items)
     from .versions import EvidenceVersions
-    versions = EvidenceVersions(corpus).record_batch(payload)
+    version_store = EvidenceVersions(corpus)
+    versions = []
+    for row in accepted_rows:
+        try:
+            versions.extend(version_store.record_batch({**payload, "rows": [row]}))
+        except (TypeError, ValueError, AttributeError, OverflowError):
+            skipped["invalid_version_row"] += 1
     if payload.get("round_id"):
         from periscope.investigations.store import InvestigationStore
         store = InvestigationStore(corpus)
@@ -95,7 +116,7 @@ def replay_directory(corpus, directory: Path, *, owner_only: bool = False) -> di
     for _, _, path in sorted(batches):
         try:
             outcome = replay_batch(corpus, path)
-        except (ValueError, OSError, UnicodeError) as exc:
+        except Exception as exc:  # isolate a malformed batch from the remaining recovery
             result["failed"].append({"batch": path.name, "error": type(exc).__name__})
             continue
         result["new"] += outcome["new"]

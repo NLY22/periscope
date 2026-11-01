@@ -29,6 +29,8 @@ from pydantic import BaseModel, Field
 from periscope.collection.crawling.engine import CrawlOptions
 from periscope.investigations.crawl import stream_crawl, stream_auto_search
 from periscope.investigations.runner import InvestigationRunner
+from periscope.investigations.planning import QueryPlanner, _is_followup
+from periscope.investigations.pending import stream_pending_candidates
 from periscope.investigations.answer import EvidenceAnswerer
 from periscope.evidence.versions import EvidenceVersions
 
@@ -73,7 +75,7 @@ class InvestigationRoundRequest(BaseModel):
     request_key: str
     seeds: list[str] = Field(default_factory=list)
     budget: float = 120
-    max_pages: int = 12
+    max_pages: int | None = None
     depth: int = 2
 
 
@@ -94,7 +96,8 @@ class PanelState:
                 raise HTTPException(status_code=503, detail="corpus is disabled in config")
             get_client = getattr(self.orchestrator, "_get_optional_ai_client", None)
             client = get_client() if get_client else None
-            self.investigation_runner = InvestigationRunner(corpus, answerer=EvidenceAnswerer(client) if client else None)
+            self.investigation_runner = InvestigationRunner(corpus, answerer=EvidenceAnswerer(client) if client else None,
+                                                             planner=QueryPlanner(client))
         return self.investigation_runner
 
     def probe_ai(self) -> bool:
@@ -293,17 +296,23 @@ def create_app(orchestrator: Any) -> FastAPI:
     @app.post("/api/investigations/{investigation_id}/rounds")
     async def submit_investigation_round(investigation_id: str, req: InvestigationRoundRequest) -> dict[str, Any]:
         try:
-            if len(req.seeds) > 6 or not 1 <= req.max_pages <= 50 or not 0 <= req.depth <= 5 or not 30 <= req.budget <= 180:
-                raise ValueError("invalid seeds or collection limits")
-            options = (CrawlOptions(tuple(req.seeds), max_pages=req.max_pages, depth=req.depth, budget=req.budget)
-                       if req.seeds else None)
-            collector = (lambda message: stream_crawl(message, options)) if options else (
-                lambda message: stream_auto_search(message, budget=req.budget, max_pages=req.max_pages, depth=req.depth))
             runner = state.investigations()
+            seeds = req.seeds
+            if "seeds" not in req.model_fields_set and _is_followup(req.message):
+                seeds = runner.store.previous_options(investigation_id, req.request_key).get("seeds") or []
+            if len(seeds) > 6 or (req.max_pages is not None and not 1 <= req.max_pages <= 50) or not 0 <= req.depth <= 5 or not 30 <= req.budget <= 180:
+                raise ValueError("invalid seeds or collection limits")
+            options = (CrawlOptions(tuple(seeds), max_pages=req.max_pages if req.max_pages is not None else 12, depth=req.depth, budget=req.budget, include_seed=True)
+                       if seeds else None)
+            collector = (lambda message: stream_crawl(message, options)) if options else (
+                lambda message: stream_auto_search(message, budget=req.budget, max_pages=req.max_pages, depth=req.depth, emit_progress=True))
+            plan_collector = (None if options or req.max_pages is not None else
+                              lambda query, variants: stream_auto_search(query, budget=req.budget, depth=req.depth, variants=variants, emit_progress=True))
             round_id = runner.submit(investigation_id, req.message, req.request_key,
                                      collector=collector, budget=req.budget,
-                                     options={"seeds": req.seeds, "budget": req.budget,
-                                              "max_pages": req.max_pages, "depth": req.depth})
+                                     options={"seeds": seeds, "budget": req.budget,
+                                              "max_pages": req.max_pages, "depth": req.depth}, plan_collector=plan_collector,
+                                     resume_collector=stream_pending_candidates)
             return {"round_id": round_id}
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -314,7 +323,7 @@ def create_app(orchestrator: Any) -> FastAPI:
         record = store.get_round(round_id)
         if record is None:
             raise HTTPException(status_code=404, detail="round not found")
-        return {"round": record, "events": store.events(round_id, after=after), "answer": store.answer(round_id),
+        return {"round": record, "events": store.events(round_id, after=after), "answer": store.answer(round_id), "plan": store.query_plan(round_id),
                 "collection": store.collection_result(round_id)}
 
     @app.post("/api/investigation-rounds/{round_id}/stop")

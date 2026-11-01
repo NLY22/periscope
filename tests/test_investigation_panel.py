@@ -53,7 +53,11 @@ def test_browser_can_start_followup_view_evidence_and_stop(scratch_path, monkeyp
             current["reads"] += 1
             done = (rid == "r1" and current["reads"] > 1) or rid == "r3"
             data = {"round": {"id": rid, "message": "robot" if rid == "r1" else "followup", "status": "cancelled" if current["stop"] else "completed" if done else "running", "created_at": "2026-01-01T00:00:00Z"},
-                    "events": [] if "after=1" in request.url or rid == "r2" else [{"seq": 1, "type": "evidence", "origin": {"kind": "collected", "observed_at": "2026-01-01T00:00:00Z"}, "references": [{"object_id": "obj", "version_id": "ver"}]}],
+                    "events": [] if "after=0" not in request.url or rid == "r2" else [
+                        {"seq": 1, "type": "source_progress", "source": "github_issues", "status": "running", "reason": ""},
+                        {"seq": 2, "type": "evidence", "origin": {"kind": "collected", "observed_at": "2026-01-01T00:00:00Z"}, "coverage": {"status": "partial", "fetched_comments": 1}, "references": [{"object_id": "obj", "version_id": "ver"}]},
+                        {"seq": 3, "type": "source_progress", "source": "github_issues", "status": "failed", "reason": "github_issues:search_http_429"},
+                        {"seq": 4, "type": "source_progress", "source": "github_issues#q1", "status": "completed", "reason": ""}],
                     "answer": {"status": "completed", "text": "发现 [1]", "citations": [{"number": 1, "reference": {"object_id": "obj", "version_id": "ver"}}]} if done and rid == "r1" else None}
         elif path == "evidence/obj":
             current["evidence_reads"] += 1
@@ -82,12 +86,19 @@ def test_browser_can_start_followup_view_evidence_and_stop(scratch_path, monkeyp
             assert page.locator("#investigationView").is_visible()
             page.locator("#invMessage").fill("robot")
             page.locator("#invSend").click()
+            page.locator('.inv-source-status summary').filter(has_text='GitHub 暂不可用').wait_for()
+            page.locator('.inv-source-status summary').click()
+            page.get_by_text('GitHub · 暂不可用 · 请求受限', exact=True).wait_for()
             page.locator(".inv-source summary").click()
             page.get_by_role("button", name="重新读取").click()
             page.get_by_text("证据标题", exact=True).wait_for()
+            page.get_by_text("讨论部分覆盖 · 已采 1 条", exact=True).wait_for()
             page.get_by_role("button", name="查看引用 1").wait_for(timeout=8000)
             page.get_by_role("button", name="查看引用 1").click()
             assert page.locator(".inv-source[open] .inv-source-text").inner_text() == "正文 <script>unsafe</script>"
+            page.get_by_role("button", name="深入追查").click()
+            assert page.locator("#invSeeds").input_value() == "https://example.org/"
+            assert "深入" in page.locator("#invMessage").input_value()
             if os.environ.get("PERISCOPE_UI_SCREENSHOT"):
                 page.screenshot(path=os.environ["PERISCOPE_UI_SCREENSHOT"], full_page=True)
             page.locator("#invMessage").fill("followup")
@@ -110,7 +121,11 @@ def test_browser_can_start_followup_view_evidence_and_stop(scratch_path, monkeyp
                 ? window.historyFails ? Promise.resolve(new Response('{}',{status:503})) : new Promise(resolve => { window.releaseHistory = () => resolve(new Response(JSON.stringify({investigation:{question:'robot'},rounds:[]}),{headers:{'Content-Type':'application/json'}})); })
                 : original(url, init);
             }""")
+            if page.locator(".inv-options").get_attribute("open") is None:
+                page.locator(".inv-options summary").click()
+            page.locator("#invSeeds").fill("https://github.com/example/repo/issues/12")
             page.locator("#invHistory").select_option("")
+            assert page.locator("#invSeeds").input_value() == ""
             page.locator("#invHistory").select_option("inv_test")
             page.wait_for_function("typeof window.releaseHistory === 'function'")
             assert page.locator("#invSend").is_disabled()

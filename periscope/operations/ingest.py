@@ -13,6 +13,7 @@ import sys
 
 from periscope.collection.families import KIND_TO_SOURCE, SOURCE_KEY_TO_SOURCE, PLATFORM_TO_SOURCE
 from periscope.runtime import paths
+from periscope.search.identity import community_source_key
 from src._cli import force_utf8_output
 from src.corpus.store import Corpus
 from src.models import ContentItem, Section, SourceType
@@ -302,6 +303,13 @@ def _v2ex_discussion_version(row):
     return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
+def _generic_evidence_version(row):
+    """Keep search, detail, and changed discussions independently searchable."""
+    content = {key: row.get(key) for key in
+               ("title", "text", "body", "author", "date", "evidence", "comments", "answers", "replies")}
+    return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 def _hn_discussion_version(row):
     coverage = {key: value for key, value in (row.get("discussion_coverage") or {}).items() if key != "collected_at"}
     content = {"title": row.get("title") or "", "text": row.get("text") or "",
@@ -358,6 +366,10 @@ def build(http_rows, ugc_rows):
         body = max((row.get("body") or "", row.get("text") or ""), key=len).strip()
         title, body = _split_title(title, body)
         provenance = row.get("provenance") or {}
+        if src_key in {"web_crawl", "public_web", "dsapi"} and community_source_key(url):
+            provenance = {**provenance, "content_role": "community"}
+        if src_key == "web_crawl" and provenance.get("content_role") == "community":
+            source = SOURCE_KEY_TO_SOURCE.get(community_source_key(url), source)
         tier = "community" if provenance.get("content_role") == "community" else "primary"
         metadata = captured_metadata(row)
         metadata.update(source_key=src_key, source_kind=kind)
@@ -370,6 +382,8 @@ def build(http_rows, ugc_rows):
             identity += "\x00" + _v2ex_discussion_version(row)
         elif src_key == "hn_ai" and (row.get("topic_detail") or {}).get("story_id"):
             identity += "\x00" + _hn_discussion_version(row)
+        elif row.get("evidence"):
+            identity += "\x00" + _generic_evidence_version(row)
         items.append(ContentItem(
             id=_stable_id(row.get("source", "src"), identity),
             source_type=source,

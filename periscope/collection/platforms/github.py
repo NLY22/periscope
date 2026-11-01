@@ -250,7 +250,13 @@ async def fetch_discussion(
             for kind, endpoint in endpoints
         }
         wait = None if deadline is None else max(0.0, deadline - time.monotonic())
-        done, pending = await asyncio.wait(tasks, timeout=wait)
+        try:
+            done, pending = await asyncio.wait(tasks, timeout=wait)
+        except asyncio.CancelledError:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
         deadline_reached = deadline is not None and time.monotonic() >= deadline
         for task in pending:
             task.cancel()

@@ -3,6 +3,28 @@
   const el = id => document.getElementById(id);
   const state = {id:null, title:'', rounds:[], selected:null, generation:0, timer:null, sending:false, loading:false, polling:false};
   const statuses = {running:'正在采集与整理', completed:'本轮已完成', partial:'本轮部分完成', failed:'本轮未完成', cancelled:'已停止', interrupted:'服务重启，本轮已中断'};
+  const sourceNames = {v2ex:'V2EX',hn:'Hacker News',github_issues:'GitHub',stackexchange_search:'Stack Overflow',csdn_search:'CSDN',juejin_search:'掘金',zhihu_search:'知乎',weibo_search:'微博',bili_search:'B站',xhs_browser:'小红书',douyin_browser:'抖音',kuaishou_browser:'快手',arxiv_ai:'arXiv',openalex:'OpenAlex',crossref_works:'Crossref',public_web:'公开网页',search_api:'搜索服务'};
+  const sourceStatuses = {running:'查询中',completed:'本次已完成',empty:'暂无结果',partial:'部分完成',failed:'暂不可用',skipped:'未配置',cancelled:'已停止',interrupted:'已中断'};
+  function sourceReason(reason){
+    const text=String(reason||'');
+    if(/login_required|http_401/.test(text))return '需要登录';
+    if(/captcha_required/.test(text))return '需要平台验证';
+    if(/profile_busy/.test(text))return '会话使用中';
+    if(/http_429|rate_limit/.test(text))return '请求受限';
+    if(/http_403|http_412/.test(text))return '访问受限';
+    if(/time_budget|timeout|deadline/.test(text))return '本次超时';
+    if(/unsupported_target/.test(text))return '部分线索待查看';
+    if(/candidate_limit|depth_limit|comment_limit|page_limit/.test(text))return '部分资料待追查';
+    return '';
+  }
+  function coverageText(coverage){
+    if(!coverage || !coverage.status)return '';
+    if(coverage.status==='not_attempted')return '讨论尚未采集';
+    if(coverage.status==='unsupported')return '暂不支持深入采集';
+    const count=Number(coverage.fetched_comments ?? coverage.fetched_replies);
+    const detail=Number.isFinite(count)&&count>=0?` · 已采 ${count} 条`:'';
+    return coverage.status==='complete'?`讨论已采集${detail}`:`讨论部分覆盖${detail}`;
+  }
   const errorText = {no_evidence:'本轮没有可供整理的资料。', no_model:'本轮未生成简答，可检查模型配置并查看原始资料。', TimeoutError:'整理超时，原始资料仍可查看。', ValueError:'回答未能通过引用检查，原始资料仍可查看。'};
   const makeKey = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const referenceKey = ref => `${ref.object_id}:${ref.version_id}`;
@@ -32,11 +54,15 @@
       el('invRounds').innerHTML='<div class="inv-empty"><span class="inv-empty-mark">◌</span><h3>让每一次发现，都能继续深入。</h3><p>输入问题，或指定公开网址作为调查入口。</p></div>';
       return;
     }
+    const expandedSources=new Set([...el('invRounds').querySelectorAll('.inv-source-status[open]')].map(item=>item.closest('.inv-round').dataset.round));
     el('invRounds').innerHTML=state.rounds.map(round=>{
-      const answer=round.answer || (round.status==='running'?null:{status:'unavailable',reason:round.events.length?'no_model':'no_evidence'});
+      const answer=round.answer || (round.status==='running'?null:{status:'unavailable',reason:round.evidence.size?'no_model':'no_evidence'});
       const status=statuses[round.status]||'状态未知';
       const reason=round.status==='partial'?'部分来源或内容未覆盖，请结合原文查看。':round.status==='failed'?'采集未完成，已保存的资料仍可查看。':'';
-      return `<article class="inv-round" data-round="${esc(round.id)}"><div class="inv-round-head"><h3>${esc(round.message)}</h3><span>${esc(status)}</span></div><div class="inv-answer">${renderAnswer(answer)}</div><div class="inv-round-foot"><span class="${round.status==='running'?'inv-progress':''}">${esc(reason || `${round.evidence.size} 条资料 · ${shortDate(round.created_at)}`)}</span></div></article>`;
+      const sources=[...(round.sources||new Map()).values()];
+      const active=sources.find(item=>item.status==='running')||sources.find(item=>item.status==='partial')||sources[0];
+      const sourceInfo=sources.length?`<details class="inv-source-status" ${expandedSources.has(round.id)?'open':''}><summary>来源进度 · ${esc(sourceNames[active.source]||active.source)} ${esc(sourceStatuses[active.status]||'未知')}</summary><div>${sources.map(item=>`<span>${esc(sourceNames[item.source]||item.source)} · ${esc(sourceStatuses[item.status]||'未知')}${sourceReason(item.reason)?` · ${esc(sourceReason(item.reason))}`:''}</span>`).join('')}</div></details>`:'';
+      return `<article class="inv-round" data-round="${esc(round.id)}"><div class="inv-round-head"><h3>${esc(round.message)}</h3><span>${esc(status)}</span></div><div class="inv-answer">${renderAnswer(answer)}</div><div class="inv-round-foot"><span class="${round.status==='running'?'inv-progress':''}">${esc(reason || `${round.evidence.size} 条资料 · ${shortDate(round.created_at)}`)}</span>${sourceInfo}</div></article>`;
     }).join('');
     el('invRounds').querySelectorAll('.inv-round').forEach(card=>{
       card.addEventListener('click',event=>{
@@ -61,12 +87,21 @@
       const snapshot=entry.snapshot || {}, origin=entry.origin||{}, title=snapshot.title||((snapshot.type==='reply')?'讨论回复':'原始资料');
       const source=origin.kind==='reused'?'历史资料':origin.kind==='collected'?'本轮采集':'资料';
       const url=safeLink(snapshot.url||''), text=snapshot.text||snapshot.title|| (entry.error?'资料暂时无法读取。':'正在读取原文…');
-      const level=snapshot.content_level==='search_result'?' · 搜索摘要':'';
-      return `<details class="inv-source" data-ref="${esc(key)}" ${open.has(key)?'open':''}><summary><span class="inv-source-title">${esc(title)}</span><span class="inv-source-meta">${esc(source)}${esc(level)} · ${esc(shortDate(origin.observed_at))}</span></summary><div class="inv-source-body"><div class="inv-source-text">${esc(text)}</div>${entry.error?'<button class="btn inv-retry" type="button">重新读取</button>':''}${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">查看原始出处 ↗</a>`:''}</div></details>`;
+      const level=snapshot.content_level==='search_result'?' · 搜索摘要':snapshot.content_level==='locator'?' · 入口链接':'';
+      const coverage=snapshot.type==='reply'?'':coverageText(entry.coverage);
+      return `<details class="inv-source" data-ref="${esc(key)}" ${open.has(key)?'open':''}><summary><span class="inv-source-title">${esc(title)}</span><span class="inv-source-meta">${esc(source)}${esc(level)} · ${esc(shortDate(origin.observed_at))}</span></summary><div class="inv-source-body">${coverage?`<span class="inv-source-meta">${esc(coverage)}</span>`:''}<div class="inv-source-text">${esc(text)}</div>${entry.error?'<button class="btn inv-retry" type="button">重新读取</button>':''}${url?`<div class="inv-source-actions"><button class="inv-follow" type="button">深入追查</button><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">查看原始出处 ↗</a></div>`:''}</div></details>`;
     }).join('');
     box.querySelectorAll('.inv-retry').forEach(button=>button.onclick=async()=>{
       const key=button.closest('details').dataset.ref, entry=round.evidence.get(key);
       button.disabled=true;await readEvidence(round,entry.reference,entry.origin,state.generation);renderEvidence();
+    });
+    box.querySelectorAll('.inv-follow').forEach(button=>button.onclick=()=>{
+      const entry=round.evidence.get(button.closest('details').dataset.ref);
+      const url=safeLink(entry?.snapshot?.url||'');if(!url)return;
+      el('invSeeds').value=url;
+      el('invMessage').value='请深入追查这条资料的正文和相关讨论。';
+      document.querySelector('.inv-options').open=true;
+      el('invMessage').focus();
     });
   }
   function render(){
@@ -82,10 +117,10 @@
       el('invHistory').value=state.id||'';
     }catch(error){el('invStatus').textContent='调查记录暂时无法读取，请检查服务。'}
   }
-  async function readEvidence(round,ref,origin,generation){
+  async function readEvidence(round,ref,origin,generation,coverage){
     const key=referenceKey(ref), old=round.evidence.get(key);
-    if(old){old.origin=origin||old.origin;if(old.snapshot)return;if(old.promise)return old.promise}
-    const entry=old||{reference:ref,origin:origin||{},snapshot:null};round.evidence.set(key,entry);
+    if(old){old.origin=origin||old.origin;old.coverage=coverage||old.coverage;if(old.snapshot)return;if(old.promise)return old.promise}
+    const entry=old||{reference:ref,origin:origin||{},coverage:coverage||{},snapshot:null};round.evidence.set(key,entry);
     entry.error=false;
     entry.promise=(async()=>{
       try{
@@ -107,8 +142,14 @@
       const events=data.events||[];
       await Promise.all(events.flatMap(event=>{
         round.cursor=Math.max(round.cursor,event.seq);round.events.push(event);
+        if(event.type==='source_progress'){
+          if(String(event.source||'').includes('#'))return [];
+          if(!round.sources)round.sources=new Map();
+          const source=String(event.source||'').split('#')[0];
+          round.sources.set(source,{source,status:event.status,reason:event.reason||''});return [];
+        }
         if(event.type!=='evidence' && event.type!=='evidence_refreshed')return [];
-        return (event.references||[]).map(ref=>readEvidence(round,ref,event.origin,generation));
+        return (event.references||[]).map(ref=>readEvidence(round,ref,event.origin,generation,event.coverage));
       }));
       more=events.length===100;
     }
@@ -131,7 +172,7 @@
   }
   async function openSession(id){
     stopPolling();const generation=++state.generation;
-    state.id=id;state.title='';state.rounds=[];state.selected=null;state.loading=!!id;render();
+    state.id=id;state.title='';state.rounds=[];state.selected=null;state.loading=!!id;el('invSeeds').value='';render();
     if(!id){el('invHistory').value='';el('invMessage').focus();return}
     el('invStatus').textContent='正在读取调查记录…';
     let loaded=false;
@@ -140,6 +181,7 @@
       if(generation!==state.generation)return;
       state.title=data.investigation.question;
       state.rounds=(data.rounds||[]).map(round=>({...round,cursor:0,events:[],evidence:new Map(),answer:null}));
+      el('invSeeds').value=(state.rounds.at(-1)?.options?.seeds||[]).join('\n');
       loaded=true;
       state.selected=state.rounds.at(-1)?.id||null;
       await Promise.all(state.rounds.map(round=>readRound(round,generation)));

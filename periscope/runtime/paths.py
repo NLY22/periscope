@@ -79,6 +79,7 @@ def subprocess_env() -> dict[str, str]:
         "PERISCOPE_COLLECT_DIR": str(COLLECT_DIR.resolve()),
         "PERISCOPE_REPORT_DIR": str(REPORT_DIR.resolve()),
         "PERISCOPE_COOKIE_DIR": str(COOKIES.resolve()),
+        "PERISCOPE_BROWSER_PROFILE_DIR": str(PROFILES.resolve()),
     }
 
 for _d in (SHARDS, CACHE, COOKIES):
@@ -181,7 +182,7 @@ REPORT_DIR = Path(os.environ.get("PERISCOPE_REPORT_DIR", str(SCRATCH / "reports"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------- 浏览器
-PROFILES = ROOT / ".pwprofiles"
+PROFILES = Path(os.environ.get("PERISCOPE_BROWSER_PROFILE_DIR", str(ROOT / ".pwprofiles"))).expanduser().resolve()
 BROWSERS = ROOT / ".playwright-browsers"
 PW_TMP = ROOT / ".pwtmp"
 
