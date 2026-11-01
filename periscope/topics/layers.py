@@ -65,26 +65,29 @@ def crawl_lookup(topic: str, seeds: tuple[str, ...], *, max_pages=12, depth=2, b
 
 
 def api_lookup(topic: str, count: int, depth: int = 1) -> tuple[list[dict], float, str]:
-    """Query the search API, optionally through several phrasings.
-
-    `depth=1` is a single query and behaves exactly as before.
-    """
-    if depth <= 1:
-        r = dsapi.search_topic(topic, count=count)
-    else:
-        r = dsapi.search_topic_wide(topic, count=count, depth=depth)
-    if not r.ok:
+    """Query web search (primary public web search with optional DeepSeek backup) and hydrate bodies."""
+    r, provider = dsapi.search_unified(topic, count=count, depth=depth, allow_deepseek_backup=True)
+    if not r.ok and not r.results:
         return [], r.elapsed, r.error
     rows = r.rows()
     for x in rows:
         x["_origin"] = "api"
-        # 去掉 ISO 时间的时分秒；API 返回 `2026-01-19T16:00:00+00:00`，
-        # 展示时只需要日期
+        x["search_provider"] = provider
         d = (x.get("date") or "").strip()
         if d:
             m = re.match(r"(\d{4}-\d{2}-\d{2})", d)
             x["date"] = m.group(1) if m else d[:10]
+
+    # 对 Web 检索结果的前几条进行正文自适应快速补全
+    if rows:
+        try:
+            from periscope.search.hydrate import hydrate_rows
+            rows = hydrate_rows(rows, max_items=3, timeout=3.5)
+        except Exception:
+            pass
+
     return rows, r.elapsed, ""
+
 
 
 def _platform_trust(source_key: str, kind: str = "") -> float:

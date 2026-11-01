@@ -88,24 +88,34 @@ class TopicService:
 
     def _gather(self, request: TopicRequest, result: TopicResult, breakdown: list[str]) -> tuple[bool, float]:
         api_succeeded = False
+        from periscope.search.query import enhance_query
+        enhanced = enhance_query(result.topic)
+
         if not request.no_api:
-            if not self.api_available():
-                result.notes.append("没有 DEEPSEEK_API_KEY，跳过 API 层")
-            else:
-                depth = request.api_depth or API_DEPTH.get(request.speed, 1)
-                result.api_rows, elapsed, error = self.api_lookup(result.topic, request.api_count, depth)
-                if error:
-                    result.notes.append("API 失败: %s" % error[:80])
+            depth = request.api_depth or API_DEPTH.get(request.speed, 1)
+            search_query = enhanced.clean_query or result.topic
+            result.api_rows, elapsed, error = self.api_lookup(search_query, request.api_count, depth)
+            if error and not result.api_rows:
+                result.notes.append("公网检索未返回: %s" % error[:80])
+            elif result.api_rows:
+                api_succeeded = True
+                if any(r.get("search_provider") == "deepseek_backup" for r in result.api_rows):
+                    provider_tag = "API备选"
+                    result.notes.append("公网检索无结果，已自动启用 DeepSeek API 备选通路")
+                elif any(r.get("search_provider") == "public_web" for r in result.api_rows):
+                    provider_tag = "公网搜索"
                 else:
-                    api_succeeded = True
-                    breakdown.append("API %d 条/%d 问法/%.1fs" % (len(result.api_rows), max(depth, 1), elapsed))
+                    provider_tag = "API"
+                breakdown.append("%s %d 条/%d 问法/%.1fs" % (provider_tag, len(result.api_rows), max(depth, 1), elapsed))
         if request.speed == "off":
             return api_succeeded, 0.0
         options = {}
         if request.coverage != "focused" or request.sources or request.source_kinds or request.sources_file:
             options = {"coverage": request.coverage, "sources": request.sources,
                        "kinds": request.source_kinds, "sources_file": request.sources_file}
-        result.platform_rows, stat = self.platform_lookup(result.topic, request.speed, request.budget, **options)
+        # 垂直平台使用优化后的核心关键词，避免自然语言长句导致 0 结果
+        platform_query = enhanced.platform_query or result.topic
+        result.platform_rows, stat = self.platform_lookup(platform_query, request.speed, request.budget, **options)
         platform_elapsed = float(stat.get("elapsed") or 0.0)
         result.source_reports = stat.get("source_reports", [])
         breakdown.append("平台 %d 条/%.1fs" % (len(result.platform_rows), stat["elapsed"]))

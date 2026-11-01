@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--cached-only", action="store_true",
                     help="只查本地语料，不联网")
     ap.add_argument("--no-api", action="store_true",
-                    help="不调 DeepSeek Search API")
+                    help="不执行公网 Web 检索（DuckDuckGo 首选 / DeepSeek 备选）")
     ap.add_argument("--no-local", action="store_true", help="不查询历史语料")
     ap.add_argument("--coverage", choices=("broad", "focused"), default="broad",
                     help="直采范围：broad 接入原生搜索和相关订阅源；focused 保留原有平台范围")

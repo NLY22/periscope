@@ -156,6 +156,18 @@ def score_of(row: dict) -> float:
     if row.get("_origin") in ("platform", "local"):
         base += _freshness_bonus(row.get("date") or row.get("published_at") or "")
 
+    # 深度实质正文加成：长篇详实内容优先于单薄短卡片
+    body_len = len(row.get("body") or row.get("content") or "")
+    if body_len >= 1000:
+        base += 0.08
+    elif body_len >= 400:
+        base += 0.04
+
+    # 权威学术与高质量开源域名加成
+    url = (row.get("url") or "").lower()
+    if any(domain in url for domain in ("arxiv.org", "github.com", ".edu", ".gov", "openalex.org", "crossref.org")):
+        base += 0.08
+
     return min(base, 1.0)
 
 
