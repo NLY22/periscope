@@ -82,7 +82,7 @@ def api_lookup(topic: str, count: int, depth: int = 1) -> tuple[list[dict], floa
     if rows:
         try:
             from periscope.search.hydrate import hydrate_rows
-            rows = hydrate_rows(rows, max_items=3, timeout=3.5)
+            rows = hydrate_rows(rows, max_items=3, timeout=2.5)
         except Exception:
             pass
 
@@ -150,8 +150,11 @@ def platform_lookup(topic: str, speed: str = SPEED_NORMAL,
             registry = SourceRegistry.from_file(sources_file) if sources_file else SourceRegistry()
             plan = registry.plan(coverage, sources=sources, kinds=kinds)
             http_budget = min(budget / 2, 30) if budget and speed == SPEED_DEEP else budget
-            got, st = broad.collect_topic(topic, plan, pages=1 if speed == SPEED_FAST else 2 if speed == SPEED_NORMAL else 3,
-                                          timeout=15 if speed == SPEED_FAST else 30, budget=http_budget)
+            fast_mode = (speed == SPEED_FAST)
+            timeout_val = 5.0 if fast_mode else (15.0 if speed == SPEED_NORMAL else 30.0)
+            concurrency_val = 16 if fast_mode else 12
+            got, st = broad.collect_topic(topic, plan, pages=1 if fast_mode else 2 if speed == SPEED_NORMAL else 3,
+                                          timeout=timeout_val, budget=http_budget, concurrency=concurrency_val)
             stat["source_reports"] = st["source_reports"]
         elif speed == SPEED_FAST:
             got, st = fanout.collect_topic(

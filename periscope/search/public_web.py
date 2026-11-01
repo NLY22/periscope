@@ -20,7 +20,7 @@ def _extract_site_name(url: str) -> str:
         return "web"
 
 
-async def _run_worker(query: str, timeout: float = 8.0) -> list[Result]:
+async def _run_worker(query: str, timeout: float = 6.0) -> list[Result]:
     """通过独立子进程运行搜索，超时能被安全强制 kill。"""
     options = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {"start_new_session": True}
     try:
@@ -98,7 +98,7 @@ async def search_public_web_async(
 
     # 优先查主词，若配置了变体并行查询 1 个变体
     target_queries = queries[:2]
-    tasks = [_run_worker(q, timeout=min(8.0, timeout)) for q in target_queries]
+    tasks = [_run_worker(q, timeout=min(6.0, timeout)) for q in target_queries]
 
     try:
         done = await asyncio.gather(*tasks, return_exceptions=True)

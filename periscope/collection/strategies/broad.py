@@ -96,7 +96,7 @@ def _linked_row(entry: SourceEntry, row: dict, observed: str) -> dict | None:
 
 async def collect_async(topic: str, plan: SourcePlan, *, pages: int = 1,
                         budget: float = 30, timeout: float = 15,
-                        concurrency: int = 8) -> tuple[list[dict], dict]:
+                        concurrency: int = 16) -> tuple[list[dict], dict]:
     if not topic.strip():
         raise ValueError("topic must not be empty")
     if budget < 0 or timeout <= 0 or concurrency < 1:
@@ -158,16 +158,36 @@ async def collect_async(topic: str, plan: SourcePlan, *, pages: int = 1,
         tasks = [asyncio.create_task(one(client, entry)) for entry in plan.selected]
         if tasks:
             if budget:
+                t_start = time.monotonic()
+                pending = set(tasks)
                 try:
-                    _, pending = await asyncio.wait(tasks, timeout=budget)
+                    while pending:
+                        remaining_budget = max(0.0, budget - (time.monotonic() - t_start))
+                        if remaining_budget <= 0:
+                            break
+                        wait_slice = min(0.4, remaining_budget)
+                        _, pending = await asyncio.wait(pending, timeout=wait_slice, return_when=asyncio.FIRST_COMPLETED)
+
+                        # 智能动态早停：当耗时已达单源超时上限，且绝大多数源已完成、已获得充裕结果时，不继续死等少数长尾僵尸源
+                        now_elapsed = time.monotonic() - t_start
+                        completed_count = len(plan.selected) - len(pending)
+                        total_rows_so_far = sum(len(b) for b in batches.values())
+                        if (
+                            now_elapsed >= max(4.0, timeout)
+                            and completed_count >= max(5, int(len(plan.selected) * 0.7))
+                            and total_rows_so_far >= 40
+                        ):
+                            break
                 except asyncio.CancelledError:
                     for task in tasks:
                         task.cancel()
                     await asyncio.gather(*tasks, return_exceptions=True)
                     raise
+
                 for task in pending:
                     task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
             else:
                 await asyncio.gather(*tasks)
     rows = [row for entry in plan.selected for row in batches.get(entry.key, [])]
